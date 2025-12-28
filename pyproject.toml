@@ -17,5 +17,5 @@ line-length = 88
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I"]
-ignore = ["E501"]  # Let Black handle line length
+select = ["E", "F", "W"]
+ignore = ["E501"]  # Let Black handle line length, isort handles imports
