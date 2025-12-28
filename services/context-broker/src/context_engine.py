@@ -4,7 +4,6 @@ Core logic for managing user context
 """
 
 import sys
-from datetime import datetime
 from typing import Any, Dict, Optional
 from uuid import UUID
 

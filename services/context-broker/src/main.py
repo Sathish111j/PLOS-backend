@@ -6,10 +6,9 @@ FastAPI service for managing user context (single source of truth)
 import sys
 import time
 from contextlib import asynccontextmanager
-from typing import Optional
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 

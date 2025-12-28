@@ -12,7 +12,7 @@ import structlog
 from bs4 import BeautifulSoup
 from google import genai
 from google.genai import types
-from src.vector_store import VectorStore, chunk_text
+from src.vector_store import VectorStore
 
 logger = structlog.get_logger(__name__)
 

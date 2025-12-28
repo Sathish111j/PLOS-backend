@@ -3,7 +3,6 @@ PLOS Shared Config
 Environment configuration management using Pydantic
 """
 
-import os
 from functools import lru_cache
 from typing import Optional
 

@@ -8,20 +8,18 @@ This service:
 4. Detects missing information (gap detection)
 """
 
-import time
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from gap_detector import GapDetector
 from kafka_handler import KafkaJournalConsumer
 from parser_engine import JournalParserEngine
 
 from shared.models.journal import JournalEntry, ParsedJournalEntry
 from shared.utils.config import get_settings
-from shared.utils.errors import ErrorResponse, PLOSException, SuccessResponse
+from shared.utils.errors import ErrorResponse
 from shared.utils.logger import get_logger
 from shared.utils.logging_config import MetricsLogger, setup_logging
 
@@ -143,7 +141,7 @@ async def health_check():
 
 
 @app.get("/metrics")
-async def metrics():
+async def get_metrics():
     """Prometheus metrics endpoint"""
     # TODO: Implement Prometheus metrics
     return {"total_parsed": 0, "total_errors": 0, "avg_parse_time": 0}

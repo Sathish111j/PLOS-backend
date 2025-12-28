@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Optional
 
 from google import genai
-from google.genai.types import GenerateContentConfig, GoogleSearch
+from google.genai.types import GenerateContentConfig
 from pydantic import BaseModel, Field
 
 from shared.models.journal import ParsedJournalEntry

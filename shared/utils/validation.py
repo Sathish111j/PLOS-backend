@@ -8,9 +8,7 @@ from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
-from pydantic import ValidationError as PydanticValidationError
-from pydantic import validator
+from pydantic import BaseModel, Field, validator
 
 # ============================================================================
 # VALIDATION SCHEMAS

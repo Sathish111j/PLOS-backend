@@ -10,7 +10,6 @@ import json
 from typing import Optional
 
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
-from aiokafka.errors import KafkaError
 from gap_detector import GapDetector
 from parser_engine import JournalParserEngine
 

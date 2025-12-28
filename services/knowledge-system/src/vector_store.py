@@ -4,13 +4,11 @@ Handles vector embeddings storage and semantic search using Qdrant
 """
 
 import hashlib
-import json
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import structlog
 from google import genai
-from google.genai import types
 from qdrant_client import QdrantClient
 from qdrant_client.models import (Distance, FieldCondition, Filter, MatchAny,
                                   MatchValue, PointStruct, VectorParams)
@@ -299,7 +297,6 @@ class VectorStore:
                 query_filter = Filter(must=filter_conditions)
 
             # Perform search using query_points (new API)
-            from qdrant_client.models import SearchRequest
 
             search_results = self.client.query_points(
                 collection_name=self.collection_name,
