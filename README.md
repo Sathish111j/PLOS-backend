@@ -8,28 +8,53 @@ An intelligent, context-aware system for managing your entire life - journals, h
 
 ## 🚀 Quick Start
 
-```bash
-# 1. Clone the repository
+### Windows PowerShell (Recommended)
+
+```powershell
+# 1. Clone and navigate
 git clone <your-repo-url>
 cd LifeOSbackend
 
-# 2. Copy environment template
+# 2. Copy and configure environment
 cp .env.example .env
+# Edit .env and add your GEMINI_API_KEY
 
-# 3. Edit .env and add your GEMINI_API_KEY
+# 3. Start the complete system (infrastructure + services)
+./scripts/start-all.ps1
 
-# 4. Run setup script
-chmod +x scripts/*.sh
-./scripts/setup.sh
-
-# 5. Start all services
-./scripts/dev.sh
-
-# 6. Open browser
-# Frontend: http://localhost:3000
-# API Docs: http://localhost:8000/docs
-# Grafana: http://localhost:3001
+# 4. Access the system
+# API Gateway:    http://localhost:8000
+# Context Broker: http://localhost:8001/health
+# Journal Parser: http://localhost:8002/health
+# Knowledge:      http://localhost:8003/health
+# Kafka UI:       http://localhost:8080
+# Grafana:        http://localhost:3333 (admin/admin)
+# Prometheus:     http://localhost:9090
+# Qdrant:         http://localhost:6333/dashboard
 ```
+
+### Linux/Mac
+
+```bash
+# 1. Clone and navigate
+git clone <your-repo-url>
+cd LifeOSbackend
+
+# 2. Setup environment
+cp .env.example .env
+# Edit .env and add your GEMINI_API_KEY
+
+# 3. Make scripts executable
+chmod +x scripts/*.sh
+
+# 4. Start infrastructure first
+docker-compose up -d postgres redis kafka zookeeper qdrant prometheus grafana
+
+# 5. Wait 30 seconds, then start services
+docker-compose up -d context-broker journal-parser knowledge-system api-gateway
+```
+
+**📚 For detailed startup options, see [scripts/README.md](scripts/README.md)**
 
 ---
 

@@ -1,50 +1,56 @@
 #!/bin/bash
-# PLOS Development Environment
-# Start all services for local development
+# PLOS Development Environment - Linux/Mac
+# For Windows, use PowerShell scripts instead
 
 set -e
 
 echo "=========================================="
-echo "  PLOS - Starting Development Environment"
+echo "  PLOS - Development Startup"
 echo "=========================================="
 echo ""
 
 # Check .env
 if [ ! -f .env ]; then
-    echo "❌ .env file not found. Run ./scripts/setup.sh first."
+    echo "❌ .env file not found. Please create one from .env.example"
     exit 1
 fi
 
-# Start all services
-echo "🚀 Starting all services..."
-echo ""
-
-docker-compose up -d
+# Step 1: Start Infrastructure
+echo "[1/2] Starting Infrastructure..."
+docker-compose up -d postgres redis zookeeper kafka qdrant prometheus grafana kafka-ui
 
 echo ""
-echo "⏳ Waiting for services to be healthy..."
+echo "Waiting 30 seconds for infrastructure to be healthy..."
+sleep 30
+
+# Step 2: Start Services
+echo ""
+echo "[2/2] Starting Application Services..."
+docker-compose up -d context-broker journal-parser knowledge-system api-gateway
+
+echo ""
+echo "Waiting 10 seconds for services to start..."
 sleep 10
 
 echo ""
 echo "=========================================="
-echo "  ✅ All Services Started!"
+echo "  ✅ System Started!"
 echo "=========================================="
 echo ""
-echo "Access Points:"
-echo "  Frontend:          http://localhost:3000"
-echo "  API Gateway:       http://localhost:8000"
-echo "  API Docs:          http://localhost:8000/docs"
-echo "  Context Broker:    http://localhost:8001"
-echo "  Grafana:           http://localhost:3001 (admin/admin)"
-echo "  Prometheus:        http://localhost:9090"
-echo "  Kafka UI:          http://localhost:8080"
-echo "  Jaeger:            http://localhost:16686"
+echo "Infrastructure:"
+echo "  Kafka UI:       http://localhost:8080"
+echo "  Grafana:        http://localhost:3333"
+echo "  Prometheus:     http://localhost:9090"
 echo ""
-echo "Useful commands:"
+echo "APIs:"
+echo "  API Gateway:    http://localhost:8000"
+echo "  Context Broker: http://localhost:8001/health"
+echo "  Journal Parser: http://localhost:8002/health"
+echo "  Knowledge:      http://localhost:8003/health"
+echo ""
+echo "Commands:"
 echo "  docker-compose logs -f              - View all logs"
-echo "  docker-compose logs -f <service>    - View specific service logs"
-echo "  docker-compose ps                   - List running services"
-echo "  docker-compose down                 - Stop all services"
-echo ""
-echo "Happy coding! 🎉"
+echo "  docker-compose logs -f <service>    - View specific service"
+echo "  docker-compose ps                   - List services"
+echo "  docker-compose down                 - Stop all"
 echo ""

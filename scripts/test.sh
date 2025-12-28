@@ -1,6 +1,6 @@
 #!/bin/bash
-# PLOS Test Runner
-# Run all tests (unit, integration, e2e)
+# PLOS Test Runner - Linux/Mac
+# Run tests when implemented
 
 set -e
 
@@ -9,10 +9,12 @@ echo "  PLOS - Test Suite"
 echo "=========================================="
 echo ""
 
-echo "🧪 Running unit tests..."
-# TODO: Implement tests
-echo "⚠️  Tests not yet implemented"
-
+echo "🧪 Running tests..."
 echo ""
-echo "Tests complete!"
+echo "⚠️  Tests not yet implemented"
+echo ""
+echo "To add tests:"
+echo "  1. Create test files in services/*/tests/"
+echo "  2. Install pytest: pip install pytest pytest-asyncio"
+echo "  3. Run: pytest"
 echo ""

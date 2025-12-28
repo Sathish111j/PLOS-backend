@@ -1,53 +1,86 @@
 #!/bin/bash
+# PLOS Backend - Service Verification Script (Linux/Mac)
+# For Windows, use: ./scripts/verify-infrastructure.ps1
 
-# PLOS Backend - Connection Verification Script
-# Run this after docker-compose up to verify all connections
-
-echo "========================================"
-echo "PLOS Backend - Connection Verification"
-echo "========================================"
+echo "=========================================="
+echo "PLOS Backend - Service Verification"
+echo "=========================================="
 echo ""
 
-# Color codes
+# Colors
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Function to check service
-check_service() {
-    local name=$1
-    local url=$2
-    
-    if curl -f -s "$url" > /dev/null 2>&1; then
-        echo -e "${GREEN}✓${NC} $name is running"
-        return 0
-    else
-        echo -e "${RED}✗${NC} $name is NOT running"
-        return 1
-    fi
-}
-
-# Function to check port
-check_port() {
-    local name=$1
-    local port=$2
-    
-    if docker-compose exec -T postgres nc -z localhost $port > /dev/null 2>&1; then
-        echo -e "${GREEN}✓${NC} $name (port $port) is accessible"
-        return 0
-    else
-        echo -e "${RED}✗${NC} $name (port $port) is NOT accessible"
-        return 1
-    fi
-}
-
-echo "1. Checking Docker Services..."
-echo "--------------------------------"
-
-# Check if docker-compose is running
+# Check if services are running
 if ! docker-compose ps | grep -q "Up"; then
-    echo -e "${RED}✗${NC} No services are running. Please run: docker-compose up -d"
+    echo -e "${RED}✗${NC} No services running. Start with: ./scripts/dev.sh"
+    exit 1
+fi
+
+echo "Infrastructure Services:"
+echo "------------------------"
+
+# PostgreSQL
+if docker exec plos-postgres pg_isready -U postgres &>/dev/null; then
+    echo -e "${GREEN}✓${NC} PostgreSQL"
+else
+    echo -e "${RED}✗${NC} PostgreSQL"
+fi
+
+# Redis
+if docker exec plos-redis redis-cli -a plos_redis_secure_2025 ping 2>/dev/null | grep -q "PONG"; then
+    echo -e "${GREEN}✓${NC} Redis"
+else
+    echo -e "${RED}✗${NC} Redis"
+fi
+
+# Kafka
+if docker exec plos-kafka kafka-topics --bootstrap-server localhost:9092 --list &>/dev/null; then
+    echo -e "${GREEN}✓${NC} Kafka"
+else
+    echo -e "${RED}✗${NC} Kafka"
+fi
+
+# Qdrant
+if curl -s -H "api-key: qdrant_secure_key_2025" http://localhost:6333/collections &>/dev/null; then
+    echo -e "${GREEN}✓${NC} Qdrant"
+else
+    echo -e "${RED}✗${NC} Qdrant"
+fi
+
+echo ""
+echo "Application Services:"
+echo "---------------------"
+
+# Context Broker
+if curl -s http://localhost:8001/health &>/dev/null; then
+    echo -e "${GREEN}✓${NC} Context Broker (http://localhost:8001/health)"
+else
+    echo -e "${RED}✗${NC} Context Broker"
+fi
+
+# Journal Parser  
+if curl -s http://localhost:8002/health &>/dev/null; then
+    echo -e "${GREEN}✓${NC} Journal Parser (http://localhost:8002/health)"
+else
+    echo -e "${RED}✗${NC} Journal Parser"
+fi
+
+# Knowledge System
+if curl -s http://localhost:8003/health &>/dev/null; then
+    echo -e "${GREEN}✓${NC} Knowledge System (http://localhost:8003/health)"
+else
+    echo -e "${RED}✗${NC} Knowledge System"
+fi
+
+echo ""
+echo "=========================================="
+echo "For detailed verification, use:"
+echo "  ./scripts/verify-infrastructure.ps1 (Windows)"
+echo "=========================================="
+echo ""
     exit 1
 fi
 

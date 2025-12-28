@@ -211,7 +211,7 @@ services:
       KAFKA_BROKERS: kafka:9092
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       GEMINI_API_KEY: ${GEMINI_API_KEY}
-      GEMINI_DEFAULT_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-2.0-flash-exp}
+      GEMINI_DEFAULT_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-2.5-flash}
       USE_GEMINI_CACHING: ${USE_GEMINI_CACHING:-true}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
@@ -250,7 +250,8 @@ services:
       QDRANT_URL: http://qdrant:6333
       QDRANT_API_KEY: ${QDRANT_API_KEY:-qdrant_secure_key_2025}
       GEMINI_API_KEY: ${GEMINI_API_KEY}
-      GEMINI_DEFAULT_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-2.0-flash-exp}
+      GEMINI_DEFAULT_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-2.5-flash}
+      GEMINI_EMBEDDING_MODEL: ${GEMINI_EMBEDDING_MODEL:-gemini-embedding-001}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
       - "${KNOWLEDGE_SYSTEM_PORT:-8003}:8003"

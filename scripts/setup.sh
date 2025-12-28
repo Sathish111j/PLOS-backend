@@ -1,6 +1,6 @@
 #!/bin/bash
-# PLOS Setup Script
-# Initial setup for local development environment
+# PLOS Setup Script - Linux/Mac
+# For Windows, use PowerShell scripts instead
 
 set -e
 
@@ -18,7 +18,7 @@ if ! command -v docker &> /dev/null; then
 fi
 
 if ! command -v docker-compose &> /dev/null; then
-    echo "❌ Docker Compose is not installed. Please install Docker Compose first."
+    echo "❌ Docker Compose is not installed."
     exit 1
 fi
 
@@ -28,11 +28,14 @@ echo ""
 # Check .env file
 if [ ! -f .env ]; then
     echo "📝 Creating .env file from template..."
+    if [ ! -f .env.example ]; then
+        echo "❌ .env.example not found!"
+        exit 1
+    fi
     cp .env.example .env
     echo "✓ .env file created"
     echo ""
     echo "⚠️  IMPORTANT: Edit .env and add your GEMINI_API_KEY!"
-    echo "   Without it, AI features won't work."
     echo ""
     read -p "Press Enter when you've updated .env..."
 else
@@ -40,13 +43,11 @@ else
 fi
 
 echo ""
-echo "🏗️  Building Docker images..."
-docker-compose build
-
+echo "✅ Setup complete!"
 echo ""
-echo "🚀 Starting infrastructure services (PostgreSQL, Redis, Kafka)..."
-docker-compose up -d postgres redis zookeeper kafka
-
+echo "Next steps:"
+echo "  1. Make sure GEMINI_API_KEY is set in .env"
+echo "  2. Run: ./scripts/dev.sh"
 echo ""
 echo "⏳ Waiting for services to be ready..."
 sleep 15

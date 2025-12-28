@@ -8,21 +8,26 @@ This service:
 4. Detects missing information (gap detection)
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import uvicorn
-import logging
+import time
 
 from parser_engine import JournalParserEngine
 from gap_detector import GapDetector
 from kafka_handler import KafkaJournalConsumer
 from shared.utils.logger import get_logger
 from shared.utils.config import get_settings
+from shared.utils.logging_config import setup_logging, MetricsLogger
+from shared.utils.errors import PLOSException, ErrorResponse, SuccessResponse
 from shared.models.journal import JournalEntry, ParsedJournalEntry
 
-# Setup logging
+# Setup structured logging
+setup_logging("journal-parser", log_level="INFO", json_logs=True)
 logger = get_logger(__name__)
+metrics = MetricsLogger("journal-parser")
 settings = get_settings()
 
 # Global instances
@@ -66,12 +71,57 @@ async def lifespan(app: FastAPI):
     logger.info("Journal Parser Service stopped")
 
 
-# Create FastAPI app
+# Create FastAPI app with comprehensive documentation
 app = FastAPI(
     title="PLOS Journal Parser Service",
-    description="AI-powered journal entry extraction using Gemini API",
+    description="""
+    # PLOS Journal Parser API
+    
+    AI-powered extraction of structured data from free-form journal entries.
+    
+    ## Features
+    
+    * **Gemini AI Extraction** - Extract mood, health, nutrition, exercise, work, habits
+    * **Gap Detection** - Identify missing information in journal entries
+    * **Confidence Scoring** - AI confidence levels for extracted data
+    * **Kafka Integration** - Async event processing
+    
+    ## AI Models
+    
+    - **Default:** gemini-2.5-flash (balanced performance)
+    - **Caching:** Enabled (reduces API costs)
+    
+    ## Extracted Data
+    
+    - Mood (score, labels)
+    - Health (sleep, energy, stress)
+    - Nutrition (meals, calories, macros)
+    - Exercise (type, duration, intensity)
+    - Work (productivity, focus, tasks)
+    - Habits (tracked habits completion)
+    
+    ## Error Codes
+    
+    - `PARSING_FAILED` (500) - AI extraction failed
+    - `GEMINI_API_ERROR` (500) - Gemini API error
+    - `GEMINI_RATE_LIMIT` (429) - Rate limit exceeded
+    - `VALIDATION_ERROR` (400) - Invalid journal entry
+    """,
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_tags=[
+        {"name": "Health", "description": "Service health and status"},
+        {"name": "Parsing", "description": "Journal parsing operations"},
+        {"name": "Gap Detection", "description": "Missing information detection"},
+        {"name": "Monitoring", "description": "Service statistics and metrics"}
+    ],
+    responses={
+        400: {"model": ErrorResponse},
+        429: {"model": ErrorResponse},
+        500: {"model": ErrorResponse}
+    }
 )
 
 # CORS middleware

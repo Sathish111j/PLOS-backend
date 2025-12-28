@@ -1,6 +1,6 @@
 #!/bin/bash
-# PLOS Clean Script
-# Clean all Docker containers, volumes, and build cache
+# PLOS Clean Script - Linux/Mac
+# For Windows, use: ./scripts/stop.ps1 -CleanVolumes
 
 set -e
 
@@ -9,7 +9,7 @@ echo "  PLOS - Cleanup"
 echo "=========================================="
 echo ""
 
-read -p "⚠️  This will remove ALL containers, volumes, and images. Continue? (y/N) " -n 1 -r
+read -p "⚠️  This will remove ALL data (databases, cache). Continue? (y/N) " -n 1 -r
 echo ""
 
 if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -18,19 +18,16 @@ if [[ ! $REPLY =~ ^[Yy]$ ]]; then
 fi
 
 echo ""
-echo "🧹 Stopping all containers..."
-docker-compose down
-
-echo ""
-echo "🗑️  Removing volumes..."
+echo "🧹 Stopping and removing all containers and volumes..."
 docker-compose down -v
-
-echo ""
-echo "🔥 Removing Docker images..."
-docker-compose down --rmi all
 
 echo ""
 echo "✓ Cleanup complete!"
 echo ""
-echo "To start fresh, run: ./scripts/setup.sh"
+echo "To start fresh:"
+echo "  ./scripts/start-all.sh    (if exists)"
+echo "  OR"
+echo "  docker-compose up -d postgres redis kafka zookeeper qdrant"
+echo "  sleep 30"
+echo "  docker-compose up -d context-broker journal-parser knowledge-system"
 echo ""
