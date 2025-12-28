@@ -3,6 +3,9 @@ FROM kong:latest
 # Install required plugins
 USER root
 
+# Install PostgreSQL client (Kong is Debian-based)
+RUN apt-get update && apt-get install -y postgresql-client && rm -rf /var/lib/apt/lists/*
+
 # Copy Kong configuration
 COPY services/api-gateway/kong.conf /etc/kong/kong.conf
 
@@ -13,4 +16,4 @@ RUN chmod +x /docker-entrypoint.sh
 USER kong
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
-CMD ["kong", "docker-start"]
+CMD ["kong", "start"]
