@@ -72,32 +72,32 @@ app = FastAPI(
     title="PLOS Journal Parser Service",
     description="""
     # PLOS Journal Parser API
-    
+
     AI-powered extraction of structured data from free-form journal entries.
-    
+
     ## Features
-    
+
     * **Gemini AI Extraction** - Extract mood, health, nutrition, exercise, work, habits
     * **Gap Detection** - Identify missing information in journal entries
     * **Confidence Scoring** - AI confidence levels for extracted data
     * **Kafka Integration** - Async event processing
-    
+
     ## AI Models
-    
+
     - **Default:** gemini-2.5-flash (balanced performance)
     - **Caching:** Enabled (reduces API costs)
-    
+
     ## Extracted Data
-    
+
     - Mood (score, labels)
     - Health (sleep, energy, stress)
     - Nutrition (meals, calories, macros)
     - Exercise (type, duration, intensity)
     - Work (productivity, focus, tasks)
     - Habits (tracked habits completion)
-    
+
     ## Error Codes
-    
+
     - `PARSING_FAILED` (500) - AI extraction failed
     - `GEMINI_API_ERROR` (500) - Gemini API error
     - `GEMINI_RATE_LIMIT` (429) - Rate limit exceeded

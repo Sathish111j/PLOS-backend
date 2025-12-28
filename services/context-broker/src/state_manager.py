@@ -61,7 +61,7 @@ class StateManager:
                 # Fetch from user_context_state table
                 query = text(
                     """
-                    SELECT 
+                    SELECT
                         user_id,
                         current_mood_score,
                         current_energy_level,
@@ -117,7 +117,7 @@ class StateManager:
                     """
                     INSERT INTO user_context_state (user_id, updated_at)
                     VALUES (:user_id, :updated_at)
-                    ON CONFLICT (user_id) 
+                    ON CONFLICT (user_id)
                     DO UPDATE SET updated_at = :updated_at
                 """
                 )

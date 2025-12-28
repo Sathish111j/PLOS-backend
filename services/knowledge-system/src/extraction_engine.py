@@ -12,6 +12,7 @@ import structlog
 from bs4 import BeautifulSoup
 from google import genai
 from google.genai import types
+
 from src.vector_store import VectorStore
 
 logger = structlog.get_logger(__name__)
@@ -84,7 +85,7 @@ Extract structured information from this webpage content:
 URL: {url}
 
 Content:
-{text_content[:4000]}  
+{text_content[:4000]}
 
 Extract:
 1. Title - The main title or headline

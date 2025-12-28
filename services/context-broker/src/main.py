@@ -58,30 +58,30 @@ app = FastAPI(
     title="PLOS Context Broker",
     description="""
     # PLOS Context Broker API
-    
+
     Single source of truth for real-time user context and state management.
-    
+
     ## Features
-    
+
     * **Real-time Context** - Get aggregated user state in <100ms
     * **Cache-First Strategy** - Redis cache for ultra-fast retrieval
     * **Event-Driven Updates** - Kafka integration for async updates
     * **Rolling Metrics** - 7-day averages for health/productivity
-    
+
     ## Authentication
-    
+
     All endpoints (except /health) require JWT authentication.
     Pass token in `Authorization: Bearer <token>` header.
-    
+
     ## Error Codes
-    
+
     - `CONTEXT_NOT_FOUND` (404) - User context doesn't exist
     - `VALIDATION_ERROR` (400) - Invalid request data
     - `CACHE_CONNECTION_ERROR` (500) - Redis unavailable
     - `DB_QUERY_ERROR` (500) - Database query failed
-    
+
     ## Rate Limits
-    
+
     - Anonymous: 100 requests/minute
     - Authenticated: 1000 requests/minute
     """,
@@ -206,9 +206,9 @@ async def metrics_endpoint():
     - 7-day rolling averages for health metrics
     - Active goals and pending tasks count
     - Extended context data (custom fields)
-    
+
     **Performance:** Typically <100ms (cached) or <500ms (database)
-    
+
     **Cache Strategy:** Cache-first with automatic invalidation
     """,
     responses={
@@ -267,9 +267,9 @@ async def get_user_context(user_id: UUID):
     summary="Update user context",
     description="""
     Processes context updates from various services (journal parser, task manager, etc.)
-    
+
     Updates are applied asynchronously and cached immediately.
-    
+
     **Update Types:**
     - `mood` - Mood score and labels
     - `health` - Sleep, energy, stress metrics

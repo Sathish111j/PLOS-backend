@@ -10,6 +10,7 @@ from typing import List, Optional
 import structlog
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
+
 from src.extraction_engine import KnowledgeExtractor
 from src.vector_store import VectorStore
 
