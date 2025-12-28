@@ -6,11 +6,11 @@ Centralized topic name definitions
 
 class KafkaTopics:
     """Kafka topic names"""
-    
+
     # Journal & Parsing
     JOURNAL_ENTRIES = "journal_entries"
     PARSED_ENTRIES = "parsed_entries"
-    
+
     # Data Extraction
     MOOD_EVENTS = "mood_events"
     HEALTH_EVENTS = "health_events"
@@ -18,30 +18,30 @@ class KafkaTopics:
     EXERCISE_EVENTS = "exercise_events"
     WORK_EVENTS = "work_events"
     HABIT_EVENTS = "habit_events"
-    
+
     # Context & State
     CONTEXT_UPDATES = "context_updates"
-    
+
     # Tasks & Goals
     TASK_EVENTS = "task_events"
     GOAL_EVENTS = "goal_events"
-    
+
     # Calendar
     CALENDAR_EVENTS = "calendar_events"
-    
+
     # Notifications
     NOTIFICATION_EVENTS = "notification_events"
-    
+
     # Knowledge
     KNOWLEDGE_EVENTS = "knowledge_events"
-    
+
     # AI Agents
     INSIGHT_REQUESTS = "insight_requests"
     SCHEDULING_REQUESTS = "scheduling_requests"
-    
+
     # General Event Stream
     EVENT_STREAM = "event_stream"
-    
+
     @classmethod
     def all_topics(cls) -> list[str]:
         """Get list of all topic names"""

@@ -11,7 +11,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 class User(BaseModel):
     """User account model"""
-    
+
     id: UUID
     email: EmailStr
     username: str = Field(..., min_length=3, max_length=100)
@@ -22,7 +22,7 @@ class User(BaseModel):
     last_login: Optional[datetime] = None
     is_active: bool = True
     is_verified: bool = False
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -35,20 +35,20 @@ class User(BaseModel):
                 "updated_at": "2025-01-15T10:30:00Z",
                 "last_login": "2025-01-15T09:00:00Z",
                 "is_active": True,
-                "is_verified": True
+                "is_verified": True,
             }
         }
 
 
 class UserCreate(BaseModel):
     """Create new user request"""
-    
+
     email: EmailStr
     username: str = Field(..., min_length=3, max_length=100)
     password: str = Field(..., min_length=8)
     full_name: Optional[str] = None
     timezone: str = "UTC"
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -56,63 +56,57 @@ class UserCreate(BaseModel):
                 "username": "newuser",
                 "password": "securepassword123",
                 "full_name": "New User",
-                "timezone": "America/Los_Angeles"
+                "timezone": "America/Los_Angeles",
             }
         }
 
 
 class UserUpdate(BaseModel):
     """Update user request"""
-    
+
     email: Optional[EmailStr] = None
     username: Optional[str] = Field(None, min_length=3, max_length=100)
     full_name: Optional[str] = None
     timezone: Optional[str] = None
-    
+
     class Config:
         json_schema_extra = {
-            "example": {
-                "full_name": "John Updated Doe",
-                "timezone": "Europe/London"
-            }
+            "example": {"full_name": "John Updated Doe", "timezone": "Europe/London"}
         }
 
 
 class UserLogin(BaseModel):
     """User login request"""
-    
+
     username: str
     password: str
-    
+
     class Config:
         json_schema_extra = {
-            "example": {
-                "username": "johndoe",
-                "password": "securepassword123"
-            }
+            "example": {"username": "johndoe", "password": "securepassword123"}
         }
 
 
 class Token(BaseModel):
     """JWT token response"""
-    
+
     access_token: str
     token_type: str = "bearer"
     expires_in: int = 3600
-    
+
     class Config:
         json_schema_extra = {
             "example": {
                 "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
                 "token_type": "bearer",
-                "expires_in": 3600
+                "expires_in": 3600,
             }
         }
 
 
 class TokenData(BaseModel):
     """Token payload data"""
-    
+
     user_id: UUID
     username: str
     exp: Optional[datetime] = None

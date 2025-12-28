@@ -11,12 +11,18 @@ from uuid import UUID
 from typing import Optional
 import sys
 import time
-sys.path.append('/app')
+
+sys.path.append("/app")
 
 from shared.models.context import UserContext, ContextUpdate
 from shared.utils.logger import get_logger
 from shared.utils.config import get_settings
-from shared.utils.errors import PLOSException, ErrorResponse, SuccessResponse, NotFoundError
+from shared.utils.errors import (
+    PLOSException,
+    ErrorResponse,
+    SuccessResponse,
+    NotFoundError,
+)
 from shared.utils.logging_config import setup_logging, MetricsLogger
 from .context_engine import ContextEngine
 from .state_manager import StateManager
@@ -83,24 +89,15 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_tags=[
-        {
-            "name": "Health",
-            "description": "Service health and status endpoints"
-        },
-        {
-            "name": "Context",
-            "description": "User context management operations"
-        },
-        {
-            "name": "Admin",
-            "description": "Administrative and monitoring endpoints"
-        }
+        {"name": "Health", "description": "Service health and status endpoints"},
+        {"name": "Context", "description": "User context management operations"},
+        {"name": "Admin", "description": "Administrative and monitoring endpoints"},
     ],
     responses={
         400: {"model": ErrorResponse, "description": "Validation Error"},
         404: {"model": ErrorResponse, "description": "Not Found"},
         500: {"model": ErrorResponse, "description": "Internal Server Error"},
-    }
+    },
 )
 
 # CORS middleware
@@ -119,15 +116,13 @@ async def plos_exception_handler(request: Request, exc: PLOSException):
     """Handle custom PLOS exceptions"""
     metrics.log_event(
         "exception_occurred",
-        {"error_code": exc.error_code, "status_code": exc.status_code}
+        {"error_code": exc.error_code, "status_code": exc.status_code},
     )
     return JSONResponse(
         status_code=exc.status_code,
         content=ErrorResponse(
-            error_code=exc.error_code,
-            message=exc.message,
-            details=exc.details
-        ).model_dump()
+            error_code=exc.error_code, message=exc.message, details=exc.details
+        ).model_dump(),
     )
 
 
@@ -138,15 +133,15 @@ async def add_process_time_header(request: Request, call_next):
     start_time = time.time()
     response = await call_next(request)
     process_time = (time.time() - start_time) * 1000  # Convert to ms
-    
+
     # Log API call metrics
     metrics.log_api_call(
         endpoint=request.url.path,
         method=request.method,
         status_code=response.status_code,
-        duration_ms=process_time
+        duration_ms=process_time,
     )
-    
+
     response.headers["X-Process-Time-Ms"] = str(round(process_time, 2))
     return response
 
@@ -154,6 +149,7 @@ async def add_process_time_header(request: Request, call_next):
 # ============================================================================
 # HEALTH & STATUS
 # ============================================================================
+
 
 @app.get(
     "/health",
@@ -169,30 +165,23 @@ async def add_process_time_header(request: Request, call_next):
                         "status": "healthy",
                         "service": "context-broker",
                         "version": "1.0.0",
-                        "dependencies": {
-                            "redis": "connected",
-                            "postgres": "connected"
-                        }
+                        "dependencies": {"redis": "connected", "postgres": "connected"},
                     }
                 }
-            }
+            },
         }
-    }
+    },
 )
 async def health_check():
     """Health check endpoint - no authentication required"""
-    return {
-        "status": "healthy",
-        "service": "context-broker",
-        "version": "1.0.0"
-    }
+    return {"status": "healthy", "service": "context-broker", "version": "1.0.0"}
 
 
 @app.get(
     "/metrics",
     tags=["Health"],
     summary="Prometheus metrics endpoint",
-    description="Returns Prometheus-compatible metrics for monitoring"
+    description="Returns Prometheus-compatible metrics for monitoring",
 )
 async def metrics_endpoint():
     """Prometheus metrics endpoint"""
@@ -203,6 +192,7 @@ async def metrics_endpoint():
 # ============================================================================
 # CONTEXT ENDPOINTS
 # ============================================================================
+
 
 @app.get(
     "/context/{user_id}",
@@ -235,32 +225,32 @@ async def metrics_endpoint():
                         "active_goals_count": 5,
                         "pending_tasks_count": 12,
                         "completed_tasks_today": 3,
-                        "context_data": {
-                            "last_journal_entry": "2025-01-15"
-                        },
-                        "updated_at": "2025-01-15T10:30:00Z"
+                        "context_data": {"last_journal_entry": "2025-01-15"},
+                        "updated_at": "2025-01-15T10:30:00Z",
                     }
                 }
-            }
+            },
         },
-        404: {"model": ErrorResponse}
-    }
+        404: {"model": ErrorResponse},
+    },
 )
 async def get_user_context(user_id: UUID):
     """
     Get complete user context
-    
+
     Returns real-time aggregated state from cache + database
     """
     try:
         start_time = time.time()
         context = await context_engine.get_context(user_id)
         duration_ms = (time.time() - start_time) * 1000
-        
+
         if not context:
             raise NotFoundError(f"User context not found for user_id: {user_id}")
-        
-        metrics.log_metric("context_retrieval_time_ms", duration_ms, user_id=str(user_id))
+
+        metrics.log_metric(
+            "context_retrieval_time_ms", duration_ms, user_id=str(user_id)
+        )
         return context
     except NotFoundError:
         raise
@@ -294,26 +284,30 @@ async def get_user_context(user_id: UUID):
                         "success": True,
                         "message": "Context updated successfully",
                         "data": {"user_id": "123e4567-e89b-12d3-a456-426614174000"},
-                        "timestamp": "2025-01-15T10:30:00Z"
+                        "timestamp": "2025-01-15T10:30:00Z",
                     }
                 }
-            }
+            },
         }
-    }
+    },
 )
 async def update_context(update: ContextUpdate):
     """
     Update user context
-    
+
     Processes context updates from various services
     """
     try:
         await context_engine.update_context(update)
-        metrics.log_event("context_updated", {"update_type": update.update_type}, user_id=str(update.user_id))
-        
+        metrics.log_event(
+            "context_updated",
+            {"update_type": update.update_type},
+            user_id=str(update.user_id),
+        )
+
         return SuccessResponse(
             message="Context updated successfully",
-            data={"user_id": str(update.user_id)}
+            data={"user_id": str(update.user_id)},
         )
     except Exception as e:
         logger.error(f"Error updating context: {e}", exc_info=True)
@@ -324,7 +318,7 @@ async def update_context(update: ContextUpdate):
     "/context/{user_id}/summary",
     tags=["Context"],
     summary="Get lightweight context summary",
-    description="Returns a lightweight summary of user context (faster than full context)"
+    description="Returns a lightweight summary of user context (faster than full context)",
 )
 async def get_context_summary(user_id: UUID):
     """Get lightweight context summary"""
@@ -341,15 +335,14 @@ async def get_context_summary(user_id: UUID):
     response_model=SuccessResponse,
     tags=["Context"],
     summary="Invalidate user cache",
-    description="Forces cache refresh for user (next request will fetch fresh data from database)"
+    description="Forces cache refresh for user (next request will fetch fresh data from database)",
 )
 async def invalidate_cache(user_id: UUID):
     """Invalidate cache for user (force refresh)"""
     try:
         await cache_manager.invalidate(user_id)
         return SuccessResponse(
-            message="Cache invalidated successfully",
-            data={"user_id": str(user_id)}
+            message="Cache invalidated successfully", data={"user_id": str(user_id)}
         )
     except Exception as e:
         logger.error(f"Error invalidating cache for {user_id}: {e}")
@@ -360,11 +353,12 @@ async def invalidate_cache(user_id: UUID):
 # ADMIN ENDPOINTS
 # ============================================================================
 
+
 @app.get(
     "/admin/stats",
     tags=["Admin"],
     summary="Get service statistics",
-    description="Returns comprehensive service statistics and performance metrics"
+    description="Returns comprehensive service statistics and performance metrics",
 )
 async def get_stats():
     """Get service statistics"""
@@ -378,4 +372,5 @@ async def get_stats():
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8001)

@@ -40,30 +40,27 @@ kafka_consumer: KafkaJournalConsumer = None
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events"""
     global parser_engine, gap_detector, kafka_consumer
-    
+
     logger.info("Starting Journal Parser Service...")
-    
+
     # Initialize components
     parser_engine = JournalParserEngine(
-        api_key=settings.gemini_api_key,
-        model=settings.gemini_default_model
+        api_key=settings.gemini_api_key, model=settings.gemini_default_model
     )
     gap_detector = GapDetector(
-        api_key=settings.gemini_api_key,
-        model=settings.gemini_default_model
+        api_key=settings.gemini_api_key, model=settings.gemini_default_model
     )
-    
+
     # Initialize and start Kafka consumer
     kafka_consumer = KafkaJournalConsumer(
-        parser_engine=parser_engine,
-        gap_detector=gap_detector
+        parser_engine=parser_engine, gap_detector=gap_detector
     )
     await kafka_consumer.start()
-    
+
     logger.info("Journal Parser Service started successfully")
-    
+
     yield
-    
+
     # Cleanup
     logger.info("Shutting down Journal Parser Service...")
     if kafka_consumer:
@@ -115,13 +112,13 @@ app = FastAPI(
         {"name": "Health", "description": "Service health and status"},
         {"name": "Parsing", "description": "Journal parsing operations"},
         {"name": "Gap Detection", "description": "Missing information detection"},
-        {"name": "Monitoring", "description": "Service statistics and metrics"}
+        {"name": "Monitoring", "description": "Service statistics and metrics"},
     ],
     responses={
         400: {"model": ErrorResponse},
         429: {"model": ErrorResponse},
-        500: {"model": ErrorResponse}
-    }
+        500: {"model": ErrorResponse},
+    },
 )
 
 # CORS middleware
@@ -140,7 +137,7 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "journal-parser",
-        "gemini_model": settings.gemini_default_model
+        "gemini_model": settings.gemini_default_model,
     }
 
 
@@ -148,32 +145,28 @@ async def health_check():
 async def metrics():
     """Prometheus metrics endpoint"""
     # TODO: Implement Prometheus metrics
-    return {
-        "total_parsed": 0,
-        "total_errors": 0,
-        "avg_parse_time": 0
-    }
+    return {"total_parsed": 0, "total_errors": 0, "avg_parse_time": 0}
 
 
 @app.post("/parse", response_model=ParsedJournalEntry)
 async def parse_entry(entry: JournalEntry):
     """
     Parse a single journal entry (for testing/manual parsing)
-    
+
     Args:
         entry: Journal entry to parse
-    
+
     Returns:
         ParsedJournalEntry: Extracted structured data
     """
     try:
         logger.info(f"Parsing journal entry: {entry.id}")
-        
+
         parsed = await parser_engine.parse_entry(entry.content)
-        
+
         logger.info(f"Successfully parsed entry: {entry.id}")
         return parsed
-        
+
     except Exception as e:
         logger.error(f"Error parsing entry {entry.id}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -183,24 +176,24 @@ async def parse_entry(entry: JournalEntry):
 async def detect_gaps(entry: JournalEntry):
     """
     Detect missing information in a journal entry
-    
+
     Args:
         entry: Journal entry to analyze
-    
+
     Returns:
         List of missing metrics/information
     """
     try:
         logger.info(f"Detecting gaps in entry: {entry.id}")
-        
+
         gaps = await gap_detector.detect_gaps(entry.content)
-        
+
         return {
             "entry_id": entry.id,
             "missing_metrics": gaps,
-            "completeness_score": 1.0 - (len(gaps) / 10.0)  # Rough estimate
+            "completeness_score": 1.0 - (len(gaps) / 10.0),  # Rough estimate
         }
-        
+
     except Exception as e:
         logger.error(f"Error detecting gaps in entry {entry.id}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -211,25 +204,22 @@ async def get_stats():
     """Get service statistics"""
     if not kafka_consumer:
         return {"status": "initializing"}
-    
+
     return {
         "service": "journal-parser",
         "kafka_consumer": {
             "running": kafka_consumer.running,
             "messages_processed": kafka_consumer.messages_processed,
-            "errors": kafka_consumer.errors
+            "errors": kafka_consumer.errors,
         },
         "parser_engine": {
             "model": settings.gemini_default_model,
-            "cache_enabled": settings.use_gemini_caching
-        }
+            "cache_enabled": settings.use_gemini_caching,
+        },
     }
 
 
 if __name__ == "__main__":
     uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8002,  # Journal Parser port
-        reload=False
+        "main:app", host="0.0.0.0", port=8002, reload=False  # Journal Parser port
     )

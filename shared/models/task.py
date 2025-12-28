@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 class Goal(BaseModel):
     """Long-term goal"""
-    
+
     id: Optional[UUID] = None
     user_id: UUID
     title: str = Field(..., min_length=1, max_length=500)
@@ -25,7 +25,7 @@ class Goal(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -36,14 +36,14 @@ class Goal(BaseModel):
                 "status": "active",
                 "priority": 5,
                 "target_date": "2025-06-30T00:00:00Z",
-                "progress_percentage": 35
+                "progress_percentage": 35,
             }
         }
 
 
 class Task(BaseModel):
     """Individual task"""
-    
+
     id: Optional[UUID] = None
     user_id: UUID
     goal_id: Optional[UUID] = None
@@ -58,7 +58,7 @@ class Task(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -70,14 +70,14 @@ class Task(BaseModel):
                 "priority": 4,
                 "due_date": "2025-01-20T17:00:00Z",
                 "estimated_duration_minutes": 120,
-                "tags": ["development", "database"]
+                "tags": ["development", "database"],
             }
         }
 
 
 class TaskCreate(BaseModel):
     """Create new task request"""
-    
+
     goal_id: Optional[UUID] = None
     title: str = Field(..., min_length=1, max_length=500)
     description: Optional[str] = None
@@ -89,7 +89,7 @@ class TaskCreate(BaseModel):
 
 class TaskUpdate(BaseModel):
     """Update task request"""
-    
+
     title: Optional[str] = Field(None, min_length=1, max_length=500)
     description: Optional[str] = None
     status: Optional[str] = None
@@ -102,7 +102,7 @@ class TaskUpdate(BaseModel):
 
 class GoalCreate(BaseModel):
     """Create new goal request"""
-    
+
     title: str = Field(..., min_length=1, max_length=500)
     description: Optional[str] = None
     category: Optional[str] = None
@@ -113,7 +113,7 @@ class GoalCreate(BaseModel):
 
 class GoalUpdate(BaseModel):
     """Update goal request"""
-    
+
     title: Optional[str] = Field(None, min_length=1, max_length=500)
     description: Optional[str] = None
     category: Optional[str] = None

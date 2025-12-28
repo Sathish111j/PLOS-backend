@@ -9,4 +9,4 @@ from . import models
 from . import utils
 from . import kafka
 
-__all__ = ['models', 'utils', 'kafka']
+__all__ = ["models", "utils", "kafka"]

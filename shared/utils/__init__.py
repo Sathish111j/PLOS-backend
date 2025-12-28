@@ -9,13 +9,13 @@ from .errors import PLOSException, ValidationError, NotFoundError, Authenticatio
 from .validators import validate_uuid, validate_date_range
 
 __all__ = [
-    'get_settings',
-    'Settings',
-    'get_logger',
-    'PLOSException',
-    'ValidationError',
-    'NotFoundError',
-    'AuthenticationError',
-    'validate_uuid',
-    'validate_date_range',
+    "get_settings",
+    "Settings",
+    "get_logger",
+    "PLOSException",
+    "ValidationError",
+    "NotFoundError",
+    "AuthenticationError",
+    "validate_uuid",
+    "validate_date_range",
 ]

@@ -10,15 +10,15 @@ from .task import Task, Goal
 from .user import User, UserCreate, UserUpdate
 
 __all__ = [
-    'UserContext',
-    'ContextUpdate',
-    'JournalEntry',
-    'ParsedJournalEntry',
-    'KnowledgeItem',
-    'KnowledgeBucket',
-    'Task',
-    'Goal',
-    'User',
-    'UserCreate',
-    'UserUpdate',
+    "UserContext",
+    "ContextUpdate",
+    "JournalEntry",
+    "ParsedJournalEntry",
+    "KnowledgeItem",
+    "KnowledgeBucket",
+    "Task",
+    "Goal",
+    "User",
+    "UserCreate",
+    "UserUpdate",
 ]

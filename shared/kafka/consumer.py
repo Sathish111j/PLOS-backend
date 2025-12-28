@@ -16,17 +16,17 @@ logger = get_logger(__name__)
 
 class KafkaConsumerClient:
     """Kafka consumer wrapper for easy message consumption"""
-    
+
     def __init__(
         self,
         topics: List[str],
         group_id: Optional[str] = None,
         bootstrap_servers: Optional[str] = None,
-        auto_offset_reset: str = 'earliest'
+        auto_offset_reset: str = "earliest",
     ):
         """
         Initialize Kafka consumer
-        
+
         Args:
             topics: List of topics to subscribe to
             group_id: Consumer group ID (defaults to settings)
@@ -35,40 +35,41 @@ class KafkaConsumerClient:
         """
         settings = get_settings()
         self.topics = topics
-        self.group_id = group_id or settings.kafka_consumer_group or settings.service_name
+        self.group_id = (
+            group_id or settings.kafka_consumer_group or settings.service_name
+        )
         self.bootstrap_servers = bootstrap_servers or settings.kafka_brokers
-        
+
         self.consumer = KafkaConsumer(
             *topics,
-            bootstrap_servers=self.bootstrap_servers.split(','),
+            bootstrap_servers=self.bootstrap_servers.split(","),
             group_id=self.group_id,
-            value_deserializer=lambda m: json.loads(m.decode('utf-8')),
-            key_deserializer=lambda k: k.decode('utf-8') if k else None,
+            value_deserializer=lambda m: json.loads(m.decode("utf-8")),
+            key_deserializer=lambda k: k.decode("utf-8") if k else None,
             auto_offset_reset=auto_offset_reset,
             enable_auto_commit=True,
             auto_commit_interval_ms=1000,
-            max_poll_records=500
+            max_poll_records=500,
         )
-        
+
         logger.info(
-            f"Kafka consumer initialized: {self.topics} "
-            f"(group: {self.group_id})"
+            f"Kafka consumer initialized: {self.topics} " f"(group: {self.group_id})"
         )
-    
+
     def consume(
         self,
         callback: Callable[[Dict[str, Any]], None],
-        error_callback: Optional[Callable[[Exception], None]] = None
+        error_callback: Optional[Callable[[Exception], None]] = None,
     ) -> None:
         """
         Start consuming messages (blocking)
-        
+
         Args:
             callback: Function to call for each message
             error_callback: Optional error handler
         """
         logger.info(f"Starting to consume from {self.topics}")
-        
+
         try:
             for message in self.consumer:
                 try:
@@ -76,14 +77,14 @@ class KafkaConsumerClient:
                         f"Received message from {message.topic} "
                         f"(partition: {message.partition}, offset: {message.offset})"
                     )
-                    
+
                     callback(message.value)
-                    
+
                 except Exception as e:
                     logger.error(f"Error processing message: {e}")
                     if error_callback:
                         error_callback(e)
-                    
+
         except KeyboardInterrupt:
             logger.info("Consumer interrupted by user")
         except KafkaError as e:
@@ -92,45 +93,45 @@ class KafkaConsumerClient:
                 error_callback(e)
         finally:
             self.close()
-    
+
     def consume_batch(
-        self,
-        batch_size: int = 100,
-        timeout_ms: int = 1000
+        self, batch_size: int = 100, timeout_ms: int = 1000
     ) -> List[Dict[str, Any]]:
         """
         Consume a batch of messages
-        
+
         Args:
             batch_size: Maximum messages to consume
             timeout_ms: Timeout for polling
-            
+
         Returns:
             List of messages
         """
         messages = []
-        
+
         try:
-            msg_batch = self.consumer.poll(timeout_ms=timeout_ms, max_records=batch_size)
-            
+            msg_batch = self.consumer.poll(
+                timeout_ms=timeout_ms, max_records=batch_size
+            )
+
             for topic_partition, records in msg_batch.items():
                 for record in records:
                     messages.append(record.value)
-            
+
             logger.debug(f"Consumed batch of {len(messages)} messages")
-            
+
         except KafkaError as e:
             logger.error(f"Error consuming batch: {e}")
-        
+
         return messages
-    
+
     def close(self) -> None:
         """Close consumer connection"""
         self.consumer.close()
         logger.info("Kafka consumer closed")
-    
+
     def __enter__(self):
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
