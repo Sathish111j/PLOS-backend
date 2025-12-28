@@ -1,4 +1,4 @@
-# PLOS - Personal Life Operating System
+# PLOS - Personal Life Management System
 
 🧠 **Your Complete Personal Life Management Platform**
 
