@@ -1,15 +1,16 @@
 version: '3.9'
 
+# ============================================================================
 # PLOS - Personal Life Operating System
-# Complete Docker setup for local development
-# All services are containerized and orchestrated here
+# Backend Services - Production Ready (Clean Version)
+# ============================================================================
 
 services:
-  # ============================================================================
+  # ==========================================================================
   # INFRASTRUCTURE LAYER
-  # ============================================================================
+  # ==========================================================================
 
-  # PostgreSQL Database (Primary OLTP)
+  # PostgreSQL Database (Primary OLTP + TimescaleDB)
   postgres:
     image: postgres:15-alpine
     container_name: plos-postgres
@@ -50,21 +51,19 @@ services:
     networks:
       - plos-network
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis}", "ping"]
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
     restart: unless-stopped
 
-  # Zookeeper (Kafka coordinator)
+  # Zookeeper (Required for Kafka)
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
     container_name: plos-zookeeper
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
-    ports:
-      - "2181:2181"
     volumes:
       - zookeeper_data:/var/lib/zookeeper/data
       - zookeeper_datalog:/var/lib/zookeeper/log
@@ -72,7 +71,7 @@ services:
       - plos-network
     restart: unless-stopped
 
-  # Apache Kafka Message Broker
+  # Apache Kafka (Event Streaming)
   kafka:
     image: confluentinc/cp-kafka:7.5.0
     container_name: plos-kafka
@@ -81,12 +80,11 @@ services:
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_INTERNAL://kafka:29092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-      KAFKA_LOG_RETENTION_HOURS: 168
     ports:
       - "9092:9092"
       - "29092:29092"
@@ -95,21 +93,21 @@ services:
     networks:
       - plos-network
     healthcheck:
-      test: ["CMD-SHELL", "kafka-broker-api-versions.sh --bootstrap-server localhost:9092 | grep ApiVersion"]
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
       interval: 10s
-      timeout: 5s
+      timeout: 10s
       retries: 5
     restart: unless-stopped
 
-  # Kafka UI (Visual monitoring)
+  # Kafka UI (Optional - for monitoring)
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     container_name: plos-kafka-ui
     depends_on:
       - kafka
     environment:
-      KAFKA_CLUSTERS_0_NAME: plos
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_NAME: plos-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
       KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
     ports:
       - "${KAFKA_UI_PORT:-8080}:8080"
@@ -117,19 +115,17 @@ services:
       - plos-network
     restart: unless-stopped
 
-  # ============================================================================
-  # API GATEWAY & AUTHENTICATION
-  # ============================================================================
+  # ==========================================================================
+  # API GATEWAY
+  # ==========================================================================
 
   api-gateway:
     build:
-      context: ./services/api-gateway
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./services/api-gateway/Dockerfile
     container_name: plos-api-gateway
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     environment:
       KONG_DATABASE: postgres
@@ -141,28 +137,28 @@ services:
       KONG_ADMIN_ACCESS_LOG: /dev/stdout
       KONG_PROXY_ERROR_LOG: /dev/stderr
       KONG_ADMIN_ERROR_LOG: /dev/stderr
-      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+      KONG_ADMIN_LISTEN: "0.0.0.0:8001"
     ports:
       - "${API_GATEWAY_PORT:-8000}:8000"
-      - "8001:8001"
+      - "8444:8001"
     networks:
       - plos-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/status"]
+      test: ["CMD", "kong", "health"]
       interval: 10s
       timeout: 5s
       retries: 5
     restart: unless-stopped
 
-  # ============================================================================
-  # CORE SERVICES
-  # ============================================================================
+  # ==========================================================================
+  # CORE SERVICES (AI-Powered)
+  # ==========================================================================
 
-  # Context Broker (Single Source of Truth)
+  # Context Broker - Central state management
   context-broker:
     build:
-      context: ./services/context-broker
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./services/context-broker/Dockerfile
     container_name: plos-context-broker
     depends_on:
       postgres:
@@ -180,7 +176,7 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       GEMINI_API_KEY: ${GEMINI_API_KEY}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-1.5-pro-latest}
+      GEMINI_DEFAULT_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-2.0-flash-exp}
     ports:
       - "${CONTEXT_BROKER_PORT:-8001}:8001"
     volumes:
@@ -195,11 +191,11 @@ services:
       retries: 5
     restart: unless-stopped
 
-  # Journal Parser (AI-powered extraction)
+  # Journal Parser - AI-powered extraction with Gemini
   journal-parser:
     build:
-      context: ./services/journal-parser
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./services/journal-parser/Dockerfile
     container_name: plos-journal-parser
     depends_on:
       postgres:
@@ -232,445 +228,11 @@ services:
       retries: 5
     restart: unless-stopped
 
-  # ============================================================================
+  # ==========================================================================
   # MONITORING & OBSERVABILITY
-  # ============================================================================
+  # ==========================================================================
 
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: plos-prometheus
-      dockerfile: Dockerfile
-    container_name: plos-knowledge-system
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-    environment:
-      SERVICE_NAME: knowledge-system
-      SERVICE_PORT: 8003
-      POSTGRES_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-plos}
-      REDIS_URL: redis://:${REDIS_PASSWORD:-redis}@redis:6379/1
-      KAFKA_BROKERS: kafka:9092
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-1.5-pro-latest}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    ports:
-      - "${KNOWLEDGE_SYSTEM_PORT:-8003}:8003"
-    volumes:
-      - ./shared:/app/shared:ro
-      - ./services/knowledge-system/src:/app/src
-    networks:
-      - plos-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
-  # ============================================================================
-  # PARALLEL EXTRACTORS (Data Processing)
-  # ============================================================================
-
-  mood-extractor:
-    build:
-      context: ./services/extractors/mood-extractor
-      dockerfile: Dockerfile
-    container_name: plos-mood-extractor
-    depends_on:
-      kafka:
-        condition: service_healthy
-      context-broker:
-        condition: service_healthy
-    environment:
-      SERVICE_NAME: mood-extractor
-      SERVICE_PORT: 8010
-      KAFKA_BROKERS: kafka:9092
-      KAFKA_CONSUMER_GROUP: mood-extractors
-      POSTGRES_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-plos}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    volumes:
-      - ./shared:/app/shared:ro
-    networks:
-      - plos-network
-    restart: unless-stopped
-
-  health-extractor:
-    build:
-      context: ./services/extractors/health-extractor
-      dockerfile: Dockerfile
-    container_name: plos-health-extractor
-    depends_on:
-      kafka:
-        condition: service_healthy
-      context-broker:
-        condition: service_healthy
-    environment:
-      SERVICE_NAME: health-extractor
-      SERVICE_PORT: 8011
-      KAFKA_BROKERS: kafka:9092
-      KAFKA_CONSUMER_GROUP: health-extractors
-      POSTGRES_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-plos}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    volumes:
-      - ./shared:/app/shared:ro
-    networks:
-      - plos-network
-    restart: unless-stopped
-
-  nutrition-extractor:
-    build:
-      context: ./services/extractors/nutrition-extractor
-      dockerfile: Dockerfile
-    container_name: plos-nutrition-extractor
-    depends_on:
-      kafka:
-        condition: service_healthy
-      context-broker:
-        condition: service_healthy
-    environment:
-      SERVICE_NAME: nutrition-extractor
-      SERVICE_PORT: 8012
-      KAFKA_BROKERS: kafka:9092
-      KAFKA_CONSUMER_GROUP: nutrition-extractors
-      POSTGRES_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-plos}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    volumes:
-      - ./shared:/app/shared:ro
-    networks:
-      - plos-network
-    restart: unless-stopped
-
-  exercise-extractor:
-    build:
-      context: ./services/extractors/exercise-extractor
-      dockerfile: Dockerfile
-    container_name: plos-exercise-extractor
-    depends_on:
-      kafka:
-        condition: service_healthy
-      context-broker:
-        condition: service_healthy
-    environment:
-      SERVICE_NAME: exercise-extractor
-      SERVICE_PORT: 8013
-      KAFKA_BROKERS: kafka:9092
-      KAFKA_CONSUMER_GROUP: exercise-extractors
-      POSTGRES_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-plos}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    volumes:
-      - ./shared:/app/shared:ro
-    networks:
-      - plos-network
-    restart: unless-stopped
-
-  work-extractor:
-    build:
-      context: ./services/extractors/work-extractor
-      dockerfile: Dockerfile
-    container_name: plos-work-extractor
-    depends_on:
-      kafka:
-        condition: service_healthy
-      context-broker:
-        condition: service_healthy
-    environment:
-      SERVICE_NAME: work-extractor
-      SERVICE_PORT: 8014
-      KAFKA_BROKERS: kafka:9092
-      KAFKA_CONSUMER_GROUP: work-extractors
-      POSTGRES_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-plos}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    volumes:
-      - ./shared:/app/shared:ro
-    networks:
-      - plos-network
-    restart: unless-stopped
-
-  habit-extractor:
-    build:
-      context: ./services/extractors/habit-extractor
-      dockerfile: Dockerfile
-    container_name: plos-habit-extractor
-    depends_on:
-      kafka:
-        condition: service_healthy
-      context-broker:
-        condition: service_healthy
-    environment:
-      SERVICE_NAME: habit-extractor
-      SERVICE_PORT: 8015
-      KAFKA_BROKERS: kafka:9092
-      KAFKA_CONSUMER_GROUP: habit-extractors
-      POSTGRES_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-plos}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    volumes:
-      - ./shared:/app/shared:ro
-    networks:
-      - plos-network
-    restart: unless-stopped
-
-  # ============================================================================
-  # AI AGENTS & INTELLIGENCE
-  # ============================================================================
-
-  insight-agent:
-    build:
-      context: ./services/agents/insight-agent
-      dockerfile: Dockerfile
-    container_name: plos-insight-agent
-    depends_on:
-      context-broker:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    environment:
-      SERVICE_NAME: insight-agent
-      SERVICE_PORT: 8020
-      REDIS_URL: redis://:${REDIS_PASSWORD:-redis}@redis:6379/2
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-1.5-pro-latest}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    ports:
-      - "${INSIGHT_AGENT_PORT:-8020}:8020"
-    volumes:
-      - ./shared:/app/shared:ro
-    networks:
-      - plos-network
-    restart: unless-stopped
-
-  scheduling-agent:
-    build:
-      context: ./services/agents/scheduling-agent
-      dockerfile: Dockerfile
-    container_name: plos-scheduling-agent
-    depends_on:
-      context-broker:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    environment:
-      SERVICE_NAME: scheduling-agent
-      SERVICE_PORT: 8021
-      REDIS_URL: redis://:${REDIS_PASSWORD:-redis}@redis:6379/2
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-1.5-pro-latest}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    ports:
-      - "${SCHEDULING_AGENT_PORT:-8021}:8021"
-    volumes:
-      - ./shared:/app/shared:ro
-    networks:
-      - plos-network
-    restart: unless-stopped
-
-  motivation-agent:
-    build:
-      context: ./services/agents/motivation-agent
-      dockerfile: Dockerfile
-    container_name: plos-motivation-agent
-    depends_on:
-      context-broker:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    environment:
-      SERVICE_NAME: motivation-agent
-      SERVICE_PORT: 8022
-      REDIS_URL: redis://:${REDIS_PASSWORD:-redis}@redis:6379/2
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-1.5-pro-latest}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    ports:
-      - "${MOTIVATION_AGENT_PORT:-8022}:8022"
-    volumes:
-      - ./shared:/app/shared:ro
-    networks:
-      - plos-network
-    restart: unless-stopped
-
-  reflection-agent:
-    build:
-      context: ./services/agents/reflection-agent
-      dockerfile: Dockerfile
-    container_name: plos-reflection-agent
-    depends_on:
-      context-broker:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    environment:
-      SERVICE_NAME: reflection-agent
-      SERVICE_PORT: 8023
-      REDIS_URL: redis://:${REDIS_PASSWORD:-redis}@redis:6379/2
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-1.5-pro-latest}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    ports:
-      - "${REFLECTION_AGENT_PORT:-8023}:8023"
-    volumes:
-      - ./shared:/app/shared:ro
-    networks:
-      - plos-network
-    restart: unless-stopped
-
-  # ============================================================================
-  # CORE BUSINESS LOGIC
-  # ============================================================================
-
-  correlation-engine:
-    build:
-      context: ./services/correlation-engine
-      dockerfile: Dockerfile
-    container_name: plos-correlation-engine
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-    environment:
-      SERVICE_NAME: correlation-engine
-      SERVICE_PORT: 8030
-      POSTGRES_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-plos}
-      REDIS_URL: redis://:${REDIS_PASSWORD:-redis}@redis:6379/3
-      KAFKA_BROKERS: kafka:9092
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    ports:
-      - "${CORRELATION_ENGINE_PORT:-8030}:8030"
-    volumes:
-      - ./shared:/app/shared:ro
-    networks:
-      - plos-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8030/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
-  goals-tasks:
-    build:
-      context: ./services/goals-tasks
-      dockerfile: Dockerfile
-    container_name: plos-goals-tasks
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-    environment:
-      SERVICE_NAME: goals-tasks
-      SERVICE_PORT: 8031
-      POSTGRES_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-plos}
-      REDIS_URL: redis://:${REDIS_PASSWORD:-redis}@redis:6379/4
-      KAFKA_BROKERS: kafka:9092
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    ports:
-      - "${GOALS_TASKS_PORT:-8031}:8031"
-    volumes:
-      - ./shared:/app/shared:ro
-    networks:
-      - plos-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8031/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
-  calendar:
-    build:
-      context: ./services/calendar
-      dockerfile: Dockerfile
-    container_name: plos-calendar
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-    environment:
-      SERVICE_NAME: calendar
-      SERVICE_PORT: 8032
-      POSTGRES_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-plos}
-      REDIS_URL: redis://:${REDIS_PASSWORD:-redis}@redis:6379/5
-      KAFKA_BROKERS: kafka:9092
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    ports:
-      - "${CALENDAR_PORT:-8032}:8032"
-    volumes:
-      - ./shared:/app/shared:ro
-    networks:
-      - plos-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8032/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
-  notifications:
-    build:
-      context: ./services/notifications
-      dockerfile: Dockerfile
-    container_name: plos-notifications
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-    environment:
-      SERVICE_NAME: notifications
-      SERVICE_PORT: 8033
-      POSTGRES_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-plos}
-      REDIS_URL: redis://:${REDIS_PASSWORD:-redis}@redis:6379/6
-      KAFKA_BROKERS: kafka:9092
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    ports:
-      - "${NOTIFICATIONS_PORT:-8033}:8033"
-    volumes:
-      - ./shared:/app/shared:ro
-    networks:
-      - plos-network
-    restart: unless-stopped
-
-  # ============================================================================
-  # FRONTEND
-  # ============================================================================
-
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: plos-frontend
-    depends_on:
-      - api-gateway
-    environment:
-      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
-      VITE_WS_URL: ${VITE_WS_URL:-ws://localhost:8000/ws}
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./frontend/src:/app/src
-      - ./frontend/public:/app/public
-    networks:
-      - plos-network
-    restart: unless-stopped
-
-  # ============================================================================
-  # MONITORING & OBSERVABILITY
-  # ============================================================================
-
+  # Prometheus - Metrics collection
   prometheus:
     image: prom/prometheus:latest
     container_name: plos-prometheus
@@ -686,6 +248,7 @@ services:
       - plos-network
     restart: unless-stopped
 
+  # Grafana - Dashboards
   grafana:
     image: grafana/grafana:latest
     container_name: plos-grafana
@@ -695,7 +258,7 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: admin
       GF_USERS_ALLOW_SIGN_UP: "false"
     ports:
-      - "${GRAFANA_PORT:-3001}:3000"
+      - "${GRAFANA_PORT:-3333}:3000"
     volumes:
       - grafana_data:/var/lib/grafana
     networks:
