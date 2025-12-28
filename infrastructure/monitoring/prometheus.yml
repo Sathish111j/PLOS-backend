@@ -1,0 +1,126 @@
+# PLOS Prometheus Configuration
+# Scrapes metrics from all microservices
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'plos-dev'
+    environment: 'development'
+
+# Alertmanager configuration (optional)
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+# Scrape configurations
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Context Broker
+  - job_name: 'context-broker'
+    static_configs:
+      - targets: ['context-broker:8001']
+    metrics_path: '/metrics'
+
+  # Journal Parser
+  - job_name: 'journal-parser'
+    static_configs:
+      - targets: ['journal-parser:8002']
+    metrics_path: '/metrics'
+
+  # Knowledge System
+  - job_name: 'knowledge-system'
+    static_configs:
+      - targets: ['knowledge-system:8003']
+    metrics_path: '/metrics'
+
+  # Extractors
+  - job_name: 'mood-extractor'
+    static_configs:
+      - targets: ['mood-extractor:8010']
+    metrics_path: '/metrics'
+
+  - job_name: 'health-extractor'
+    static_configs:
+      - targets: ['health-extractor:8011']
+    metrics_path: '/metrics'
+
+  - job_name: 'nutrition-extractor'
+    static_configs:
+      - targets: ['nutrition-extractor:8012']
+    metrics_path: '/metrics'
+
+  - job_name: 'exercise-extractor'
+    static_configs:
+      - targets: ['exercise-extractor:8013']
+    metrics_path: '/metrics'
+
+  - job_name: 'work-extractor'
+    static_configs:
+      - targets: ['work-extractor:8014']
+    metrics_path: '/metrics'
+
+  - job_name: 'habit-extractor'
+    static_configs:
+      - targets: ['habit-extractor:8015']
+    metrics_path: '/metrics'
+
+  # AI Agents
+  - job_name: 'insight-agent'
+    static_configs:
+      - targets: ['insight-agent:8020']
+    metrics_path: '/metrics'
+
+  - job_name: 'scheduling-agent'
+    static_configs:
+      - targets: ['scheduling-agent:8021']
+    metrics_path: '/metrics'
+
+  - job_name: 'motivation-agent'
+    static_configs:
+      - targets: ['motivation-agent:8022']
+    metrics_path: '/metrics'
+
+  - job_name: 'reflection-agent'
+    static_configs:
+      - targets: ['reflection-agent:8023']
+    metrics_path: '/metrics'
+
+  # Business Logic Services
+  - job_name: 'correlation-engine'
+    static_configs:
+      - targets: ['correlation-engine:8030']
+    metrics_path: '/metrics'
+
+  - job_name: 'goals-tasks'
+    static_configs:
+      - targets: ['goals-tasks:8031']
+    metrics_path: '/metrics'
+
+  - job_name: 'calendar'
+    static_configs:
+      - targets: ['calendar:8032']
+    metrics_path: '/metrics'
+
+  - job_name: 'notifications'
+    static_configs:
+      - targets: ['notifications:8033']
+    metrics_path: '/metrics'
+
+  # Infrastructure
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres:5432']
+
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+
+  - job_name: 'kafka'
+    static_configs:
+      - targets: ['kafka:9092']
