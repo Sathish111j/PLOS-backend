@@ -1,0 +1,60 @@
+# Automatic PR labeling based on changed files
+
+# Services
+'service/context-broker':
+  - services/context-broker/**/*
+
+'service/journal-parser':
+  - services/journal-parser/**/*
+
+'service/knowledge-system':
+  - services/knowledge-system/**/*
+
+'service/api-gateway':
+  - services/api-gateway/**/*
+
+# Infrastructure
+'infrastructure':
+  - infrastructure/**/*
+  - docker-compose.yml
+  - .dockerignore
+
+# Scripts
+'scripts':
+  - scripts/**/*
+
+# Documentation
+'documentation':
+  - '**/*.md'
+  - docs/**/*
+
+# Configuration
+'configuration':
+  - '**/*.yml'
+  - '**/*.yaml'
+  - '**/*.conf'
+  - '**/*.config'
+
+# Shared code
+'shared':
+  - shared/**/*
+
+# GitHub workflows
+'github-actions':
+  - .github/workflows/**/*
+  - .github/dependabot.yml
+
+# Python dependencies
+'dependencies':
+  - '**/requirements.txt'
+  - '**/setup.py'
+  - '**/pyproject.toml'
+
+# Database
+'database':
+  - infrastructure/database/**/*
+  - '**/migrations/**/*'
+
+# Monitoring
+'monitoring':
+  - infrastructure/monitoring/**/*
