@@ -19,10 +19,13 @@ cd LifeOSbackend
 cp .env.example .env
 # Edit .env and add your GEMINI_API_KEY
 
-# 3. Start the complete system (infrastructure + services)
+# 3. Start the complete system (infrastructure → services)
 ./scripts/start-all.ps1
 
-# 4. Access the system
+# 4. Verify everything works
+./scripts/verify-infrastructure.ps1
+
+# 5. Access the system
 # API Gateway:    http://localhost:8000
 # Context Broker: http://localhost:8001/health
 # Journal Parser: http://localhost:8002/health
@@ -40,21 +43,18 @@ cp .env.example .env
 git clone <your-repo-url>
 cd LifeOSbackend
 
-# 2. Setup environment
-cp .env.example .env
+# 2. First-time setup
+./scripts/setup.sh
 # Edit .env and add your GEMINI_API_KEY
 
-# 3. Make scripts executable
-chmod +x scripts/*.sh
+# 3. Start development environment (infrastructure → services)
+./scripts/dev.sh
 
-# 4. Start infrastructure first
-docker-compose up -d postgres redis kafka zookeeper qdrant prometheus grafana
-
-# 5. Wait 30 seconds, then start services
-docker-compose up -d context-broker journal-parser knowledge-system api-gateway
+# 4. Verify services
+./scripts/verify.sh
 ```
 
-**📚 For detailed startup options, see [scripts/README.md](scripts/README.md)**
+**📚 For detailed options and troubleshooting, see [scripts/README.md](scripts/README.md)**
 
 ---
 
@@ -114,7 +114,7 @@ docker-compose up -d context-broker journal-parser knowledge-system api-gateway
 **Backend:** Python 3.11+, FastAPI, PostgreSQL, TimescaleDB  
 **Messaging:** Apache Kafka  
 **Cache:** Redis  
-**AI:** Google Gemini API  
+**AI:** Google Gemini 2.5 (Flash, Pro, Embeddings)  
 **Frontend:** React 18, TypeScript, Vite, Tailwind CSS  
 **DevOps:** Docker, Docker Compose, Prometheus, Grafana  
 
@@ -145,32 +145,64 @@ plos/
 
 ## 🧪 Development
 
-```bash
-# Start development environment
-./scripts/dev.sh
+```powershell
+# Windows - Start everything
+./scripts/start-all.ps1
 
-# Run tests
-./scripts/test.sh
+# Or start infrastructure only
+./scripts/start-infrastructure.ps1
+
+# Then services separately
+./scripts/start-services.ps1
+
+# Verify system health
+./scripts/verify-infrastructure.ps1
 
 # View logs
-docker-compose logs -f
+docker-compose logs -f [service-name]
 
-# Stop all services
-docker-compose down
+# Stop services (keep data)
+./scripts/stop.ps1
 
-# Clean everything (including volumes)
+# Clean everything (delete data)
+./scripts/stop.ps1 -CleanVolumes
+```
+
+```bash
+# Linux/Mac - Start everything
+./scripts/dev.sh
+
+# Verify services
+./scripts/verify.sh
+
+# Clean everything
 ./scripts/clean.sh
 ```
+
+**💡 See [scripts/README.md](scripts/README.md) for all options**
 
 ---
 
 ## 📚 Documentation
 
-- [API Documentation](docs/API.md)
-- [Architecture Deep Dive](docs/ARCHITECTURE.md)
-- [Local Setup Guide](docs/LOCAL_SETUP.md)
-- [Contributing Guidelines](docs/CONTRIBUTING.md)
-- [Deployment Guide](docs/DEPLOYMENT.md)
+**Getting Started:**
+- [Quick Reference](docs/QUICK_REFERENCE.md) - Commands and endpoints cheatsheet
+- [Local Setup Guide](docs/LOCAL_SETUP.md) - Detailed setup instructions
+- [Scripts Guide](scripts/README.md) - All startup and management scripts
+
+**Architecture:**
+- [Architecture Overview](docs/ARCHITECTURE.md) - System design and patterns
+- [Startup Architecture](docs/STARTUP_ARCHITECTURE.md) - Why infrastructure → services
+- [Infrastructure Stability](docs/INFRASTRUCTURE_STABILITY.md) - Production readiness report
+
+**Development:**
+- [Developer Guide](docs/DEVELOPER_GUIDE.md) - Complete development workflow
+- [Gemini Integration](docs/GEMINI_INTEGRATION.md) - AI configuration and usage
+- [API Documentation](docs/API.md) - API endpoints and examples
+
+**Operations:**
+- [Deployment Guide](docs/DEPLOYMENT.md) - Production deployment
+- [Contributing Guidelines](docs/CONTRIBUTING.md) - How to contribute
 
 ---
 
@@ -206,21 +238,5 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ---
 
-## 🙏 Acknowledgments
-
-- Google Gemini for AI capabilities
-- FastAPI for the excellent async framework
-- Apache Kafka for reliable messaging
-- The open-source community
-
----
-
-## 📞 Support
-
-- 📧 Email: support@plos.dev
-- 💬 Discord: [Join our server](https://discord.gg/plos)
-- 🐛 Issues: [GitHub Issues](https://github.com/yourusername/plos/issues)
-
----
 
 **Built with ❤️ for personal productivity**
