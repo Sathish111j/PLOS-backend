@@ -9,9 +9,9 @@ from typing import List
 from google import genai
 from google.genai.types import GenerateContentConfig
 
-from shared.utils.logger import setup_logger
+from shared.utils.logger import get_logger
 
-logger = setup_logger(__name__)
+logger = get_logger(__name__)
 
 
 class GapDetector:

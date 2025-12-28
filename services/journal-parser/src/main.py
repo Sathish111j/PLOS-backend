@@ -17,12 +17,12 @@ import logging
 from parser_engine import JournalParserEngine
 from gap_detector import GapDetector
 from kafka_handler import KafkaJournalConsumer
-from shared.utils.logger import setup_logger
+from shared.utils.logger import get_logger
 from shared.utils.config import get_settings
 from shared.models.journal import JournalEntry, ParsedJournalEntry
 
 # Setup logging
-logger = setup_logger(__name__)
+logger = get_logger(__name__)
 settings = get_settings()
 
 # Global instances

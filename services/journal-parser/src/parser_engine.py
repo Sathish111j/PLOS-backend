@@ -15,10 +15,10 @@ from google import genai
 from google.genai.types import GenerateContentConfig, GoogleSearch
 from pydantic import BaseModel, Field
 
-from shared.utils.logger import setup_logger
+from shared.utils.logger import get_logger
 from shared.models.journal import ParsedJournalEntry
 
-logger = setup_logger(__name__)
+logger = get_logger(__name__)
 
 
 class ExtractedData(BaseModel):

@@ -185,7 +185,7 @@ services:
     networks:
       - plos-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8001/health')"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -222,7 +222,7 @@ services:
     networks:
       - plos-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8002/health')"]
       interval: 10s
       timeout: 5s
       retries: 5

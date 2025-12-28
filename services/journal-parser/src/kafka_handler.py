@@ -11,14 +11,14 @@ from typing import Optional
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from aiokafka.errors import KafkaError
 
-from shared.utils.logger import setup_logger
+from shared.utils.logger import get_logger
 from shared.utils.config import get_settings
-from shared.kafka.topics import JOURNAL_ENTRIES_TOPIC, PARSED_ENTRIES_TOPIC
+from shared.kafka.topics import KafkaTopics
 from shared.models.journal import JournalEntry, ParsedJournalEntry
 from parser_engine import JournalParserEngine
 from gap_detector import GapDetector
 
-logger = setup_logger(__name__)
+logger = get_logger(__name__)
 settings = get_settings()
 
 
@@ -54,7 +54,7 @@ class KafkaJournalConsumer:
         try:
             # Initialize consumer
             self.consumer = AIOKafkaConsumer(
-                JOURNAL_ENTRIES_TOPIC,
+                KafkaTopics.JOURNAL_ENTRIES,
                 bootstrap_servers=settings.kafka_bootstrap_servers,
                 group_id="journal-parser-group",
                 auto_offset_reset="earliest",
@@ -74,7 +74,7 @@ class KafkaJournalConsumer:
             
             self.running = True
             
-            logger.info(f"Kafka consumer started - listening on topic: {JOURNAL_ENTRIES_TOPIC}")
+            logger.info(f"Kafka consumer started - listening on topic: {KafkaTopics.JOURNAL_ENTRIES}")
             
             # Start consuming in background
             asyncio.create_task(self._consume_loop())
@@ -156,7 +156,7 @@ class KafkaJournalConsumer:
             
             # Publish to parsed_entries topic
             await self.producer.send(
-                PARSED_ENTRIES_TOPIC,
+                KafkaTopics.PARSED_ENTRIES,
                 value=output_message
             )
             
