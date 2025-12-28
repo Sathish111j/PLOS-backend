@@ -16,12 +16,8 @@ sys.path.append("/app")
 
 from shared.models.context import ContextUpdate, UserContext
 from shared.utils.config import get_settings
-from shared.utils.errors import (
-    ErrorResponse,
-    NotFoundError,
-    PLOSException,
-    SuccessResponse,
-)
+from shared.utils.errors import (ErrorResponse, NotFoundError, PLOSException,
+                                 SuccessResponse)
 from shared.utils.logger import get_logger
 from shared.utils.logging_config import MetricsLogger, setup_logging
 

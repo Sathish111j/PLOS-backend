@@ -10,15 +10,8 @@ from typing import Any, Dict, List, Optional
 import structlog
 from google import genai
 from qdrant_client import QdrantClient
-from qdrant_client.models import (
-    Distance,
-    FieldCondition,
-    Filter,
-    MatchAny,
-    MatchValue,
-    PointStruct,
-    VectorParams,
-)
+from qdrant_client.models import (Distance, FieldCondition, Filter, MatchAny,
+                                  MatchValue, PointStruct, VectorParams)
 
 logger = structlog.get_logger(__name__)
 
