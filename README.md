@@ -183,42 +183,6 @@ docker-compose logs -f [service-name]
 
 ---
 
-## 📚 Documentation
-
-**Getting Started:**
-- [Quick Reference](docs/QUICK_REFERENCE.md) - Commands and endpoints cheatsheet
-- [Local Setup Guide](docs/LOCAL_SETUP.md) - Detailed setup instructions
-- [Scripts Guide](scripts/README.md) - All startup and management scripts
-
-**Architecture:**
-- [Architecture Overview](docs/ARCHITECTURE.md) - System design and patterns
-- [Startup Architecture](docs/STARTUP_ARCHITECTURE.md) - Why infrastructure → services
-- [Infrastructure Stability](docs/INFRASTRUCTURE_STABILITY.md) - Production readiness report
-
-**Development:**
-- [Developer Guide](docs/DEVELOPER_GUIDE.md) - Complete development workflow
-- [Gemini Integration](docs/GEMINI_INTEGRATION.md) - AI configuration and usage
-- [API Documentation](docs/API.md) - API endpoints and examples
-
-**Operations:**
-- [Deployment Guide](docs/DEPLOYMENT.md) - Production deployment
-- [Contributing Guidelines](docs/CONTRIBUTING.md) - How to contribute
-
----
-
-## 🔐 Security
-
-⚠️ **Before deploying to production:**
-
-- Change all default passwords in `.env`
-- Enable HTTPS/TLS
-- Configure proper CORS settings
-- Set up secrets management (Vault, AWS Secrets Manager)
-- Enable database encryption at rest
-- Review and configure rate limiting
-- Set up proper authentication/authorization
-
----
 
 ## 🤝 Contributing
 
