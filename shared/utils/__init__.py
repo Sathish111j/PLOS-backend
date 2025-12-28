@@ -4,8 +4,7 @@ Common utility functions and classes used across services
 """
 
 from .config import Settings, get_settings
-from .errors import (AuthenticationError, NotFoundError, PLOSException,
-                     ValidationError)
+from .errors import AuthenticationError, NotFoundError, PLOSException, ValidationError
 from .logger import get_logger
 from .validators import validate_date_range, validate_uuid
 
