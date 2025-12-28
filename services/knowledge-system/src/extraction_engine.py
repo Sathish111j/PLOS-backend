@@ -4,17 +4,15 @@ Extracts content from URLs, PDFs, and images using Gemini AI
 """
 
 import json
-from typing import Dict, List, Optional, Any
 from datetime import datetime
-import structlog
+from typing import Any, Dict, List, Optional
 
 import httpx
+import structlog
+from bs4 import BeautifulSoup
 from google import genai
 from google.genai import types
-from bs4 import BeautifulSoup
-
 from src.vector_store import VectorStore, chunk_text
-
 
 logger = structlog.get_logger(__name__)
 

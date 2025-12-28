@@ -3,9 +3,10 @@ PLOS Shared Models - Journal Entry
 Journal and parsing models
 """
 
-from datetime import datetime, date
-from typing import Dict, Any, Optional, List
+from datetime import date, datetime
+from typing import Any, Dict, List, Optional
 from uuid import UUID
+
 from pydantic import BaseModel, Field
 
 

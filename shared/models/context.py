@@ -4,8 +4,9 @@ Real-time user state and context models
 """
 
 from datetime import datetime
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional
 from uuid import UUID
+
 from pydantic import BaseModel, Field
 
 

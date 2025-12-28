@@ -9,14 +9,15 @@ Uses Gemini API to extract structured data from journal entries:
 """
 
 import json
-from typing import Optional
 from datetime import datetime
+from typing import Optional
+
 from google import genai
 from google.genai.types import GenerateContentConfig, GoogleSearch
 from pydantic import BaseModel, Field
 
-from shared.utils.logger import get_logger
 from shared.models.journal import ParsedJournalEntry
+from shared.utils.logger import get_logger
 
 logger = get_logger(__name__)
 

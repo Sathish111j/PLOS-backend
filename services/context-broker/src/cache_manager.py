@@ -4,16 +4,17 @@ Redis caching for user context
 """
 
 import json
-from uuid import UUID
-from typing import Optional, Dict, Any
 import sys
+from typing import Any, Dict, Optional
+from uuid import UUID
 
 sys.path.append("/app")
 
 import redis.asyncio as redis
+
 from shared.models.context import UserContext
-from shared.utils.logger import get_logger
 from shared.utils.config import get_settings
+from shared.utils.logger import get_logger
 
 logger = get_logger(__name__)
 settings = get_settings()

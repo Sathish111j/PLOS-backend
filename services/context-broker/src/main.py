@@ -3,30 +3,28 @@ PLOS Context Broker - Main Application
 FastAPI service for managing user context (single source of truth)
 """
 
-from fastapi import FastAPI, HTTPException, Depends, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from contextlib import asynccontextmanager
-from uuid import UUID
-from typing import Optional
 import sys
 import time
+from contextlib import asynccontextmanager
+from typing import Optional
+from uuid import UUID
+
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 sys.path.append("/app")
 
-from shared.models.context import UserContext, ContextUpdate
-from shared.utils.logger import get_logger
+from shared.models.context import ContextUpdate, UserContext
 from shared.utils.config import get_settings
-from shared.utils.errors import (
-    PLOSException,
-    ErrorResponse,
-    SuccessResponse,
-    NotFoundError,
-)
-from shared.utils.logging_config import setup_logging, MetricsLogger
+from shared.utils.errors import (ErrorResponse, NotFoundError, PLOSException,
+                                 SuccessResponse)
+from shared.utils.logger import get_logger
+from shared.utils.logging_config import MetricsLogger, setup_logging
+
+from .cache_manager import CacheManager
 from .context_engine import ContextEngine
 from .state_manager import StateManager
-from .cache_manager import CacheManager
 
 # Setup structured logging
 setup_logging("context-broker", log_level="INFO", json_logs=True)

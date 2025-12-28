@@ -3,11 +3,12 @@ PLOS Centralized Logging Configuration
 Structured logging with JSON output for all services
 """
 
+import json
 import logging
 import sys
-import json
 from datetime import datetime
 from typing import Any, Dict, Optional
+
 from pythonjsonlogger import jsonlogger
 
 

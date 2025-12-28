@@ -3,10 +3,11 @@ PLOS Shared Utilities
 Common utility functions and classes used across services
 """
 
-from .config import get_settings, Settings
+from .config import Settings, get_settings
+from .errors import (AuthenticationError, NotFoundError, PLOSException,
+                     ValidationError)
 from .logger import get_logger
-from .errors import PLOSException, ValidationError, NotFoundError, AuthenticationError
-from .validators import validate_uuid, validate_date_range
+from .validators import validate_date_range, validate_uuid
 
 __all__ = [
     "get_settings",

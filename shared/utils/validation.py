@@ -3,17 +3,14 @@ PLOS Shared Validators
 Common validation functions and schemas
 """
 
-from typing import Any, Dict, List, Optional
-from pydantic import (
-    BaseModel,
-    Field,
-    validator,
-    ValidationError as PydanticValidationError,
-)
-from datetime import datetime, date
-from uuid import UUID
 import re
+from datetime import date, datetime
+from typing import Any, Dict, List, Optional
+from uuid import UUID
 
+from pydantic import BaseModel, Field
+from pydantic import ValidationError as PydanticValidationError
+from pydantic import validator
 
 # ============================================================================
 # VALIDATION SCHEMAS

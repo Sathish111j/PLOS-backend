@@ -6,22 +6,14 @@ Handles vector embeddings storage and semantic search using Qdrant
 import hashlib
 import json
 from datetime import datetime
-from typing import List, Dict, Optional, Any
-import structlog
+from typing import Any, Dict, List, Optional
 
-from qdrant_client import QdrantClient
-from qdrant_client.models import (
-    Distance,
-    VectorParams,
-    PointStruct,
-    Filter,
-    FieldCondition,
-    MatchValue,
-    MatchAny,
-)
+import structlog
 from google import genai
 from google.genai import types
-
+from qdrant_client import QdrantClient
+from qdrant_client.models import (Distance, FieldCondition, Filter, MatchAny,
+                                  MatchValue, PointStruct, VectorParams)
 
 logger = structlog.get_logger(__name__)
 

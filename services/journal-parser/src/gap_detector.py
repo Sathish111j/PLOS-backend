@@ -6,6 +6,7 @@ and should be tracked for complete health/productivity insights
 """
 
 from typing import List
+
 from google import genai
 from google.genai.types import GenerateContentConfig
 

@@ -4,16 +4,14 @@ FastAPI application for semantic knowledge management with vector search
 """
 
 import os
-from typing import List, Optional
 from contextlib import asynccontextmanager
+from typing import List, Optional
 
 import structlog
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
-
-from src.vector_store import VectorStore
 from src.extraction_engine import KnowledgeExtractor
-
+from src.vector_store import VectorStore
 
 # Configure structured logging
 structlog.configure(

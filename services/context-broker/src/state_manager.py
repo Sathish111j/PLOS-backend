@@ -3,18 +3,19 @@ PLOS State Manager
 Database operations for user context state
 """
 
-from uuid import UUID
-from typing import Optional
-from datetime import datetime
 import sys
+from datetime import datetime
+from typing import Optional
+from uuid import UUID
 
 sys.path.append("/app")
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
-from shared.models.context import UserContext, ContextUpdate
-from shared.utils.logger import get_logger
+
+from shared.models.context import ContextUpdate, UserContext
 from shared.utils.config import get_settings
+from shared.utils.logger import get_logger
 
 logger = get_logger(__name__)
 settings = get_settings()

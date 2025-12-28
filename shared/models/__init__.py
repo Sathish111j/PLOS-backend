@@ -3,10 +3,10 @@ PLOS Shared Library - Models Module
 Pydantic models used across all microservices
 """
 
-from .context import UserContext, ContextUpdate
+from .context import ContextUpdate, UserContext
 from .journal import JournalEntry, ParsedJournalEntry
-from .knowledge import KnowledgeItem, KnowledgeBucket
-from .task import Task, Goal
+from .knowledge import KnowledgeBucket, KnowledgeItem
+from .task import Goal, Task
 from .user import User, UserCreate, UserUpdate
 
 __all__ = [

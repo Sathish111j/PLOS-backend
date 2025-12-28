@@ -8,21 +8,22 @@ This service:
 4. Detects missing information (gap detection)
 """
 
+import time
+from contextlib import asynccontextmanager
+
+import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from contextlib import asynccontextmanager
-import uvicorn
-import time
-
-from parser_engine import JournalParserEngine
 from gap_detector import GapDetector
 from kafka_handler import KafkaJournalConsumer
-from shared.utils.logger import get_logger
-from shared.utils.config import get_settings
-from shared.utils.logging_config import setup_logging, MetricsLogger
-from shared.utils.errors import PLOSException, ErrorResponse, SuccessResponse
+from parser_engine import JournalParserEngine
+
 from shared.models.journal import JournalEntry, ParsedJournalEntry
+from shared.utils.config import get_settings
+from shared.utils.errors import ErrorResponse, PLOSException, SuccessResponse
+from shared.utils.logger import get_logger
+from shared.utils.logging_config import MetricsLogger, setup_logging
 
 # Setup structured logging
 setup_logging("journal-parser", log_level="INFO", json_logs=True)

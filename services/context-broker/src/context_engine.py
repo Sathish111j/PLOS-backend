@@ -3,17 +3,18 @@ PLOS Context Engine
 Core logic for managing user context
 """
 
-from uuid import UUID
-from typing import Optional, Dict, Any
-from datetime import datetime
 import sys
+from datetime import datetime
+from typing import Any, Dict, Optional
+from uuid import UUID
 
 sys.path.append("/app")
 
-from shared.models.context import UserContext, ContextUpdate
+from shared.models.context import ContextUpdate, UserContext
 from shared.utils.logger import get_logger
-from .state_manager import StateManager
+
 from .cache_manager import CacheManager
+from .state_manager import StateManager
 
 logger = get_logger(__name__)
 

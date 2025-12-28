@@ -5,18 +5,19 @@ Consumes from: journal_entries topic
 Publishes to: parsed_entries topic
 """
 
-import json
 import asyncio
+import json
 from typing import Optional
+
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from aiokafka.errors import KafkaError
+from gap_detector import GapDetector
+from parser_engine import JournalParserEngine
 
-from shared.utils.logger import get_logger
-from shared.utils.config import get_settings
 from shared.kafka.topics import KafkaTopics
 from shared.models.journal import JournalEntry, ParsedJournalEntry
-from parser_engine import JournalParserEngine
-from gap_detector import GapDetector
+from shared.utils.config import get_settings
+from shared.utils.logger import get_logger
 
 logger = get_logger(__name__)
 settings = get_settings()

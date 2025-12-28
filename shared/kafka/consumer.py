@@ -4,12 +4,13 @@ Wrapper for Kafka consumer with JSON deserialization
 """
 
 import json
-from typing import Callable, Any, Dict, Optional, List
+from typing import Any, Callable, Dict, List, Optional
+
 from kafka import KafkaConsumer
 from kafka.errors import KafkaError
-from ..utils.logger import get_logger
-from ..utils.config import get_settings
 
+from ..utils.config import get_settings
+from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
 

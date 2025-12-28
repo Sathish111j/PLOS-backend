@@ -5,11 +5,12 @@ Wrapper for Kafka producer with JSON serialization
 
 import json
 from typing import Any, Dict, Optional
+
 from kafka import KafkaProducer
 from kafka.errors import KafkaError
-from ..utils.logger import get_logger
-from ..utils.config import get_settings
 
+from ..utils.config import get_settings
+from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
 
