@@ -228,6 +228,66 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # Knowledge System - Vector DB powered semantic search
+  knowledge-system:
+    build:
+      context: .
+      dockerfile: ./services/knowledge-system/Dockerfile
+    container_name: plos-knowledge-system
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    environment:
+      SERVICE_NAME: knowledge-system
+      SERVICE_PORT: 8003
+      POSTGRES_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-plos_db_secure_2025}@postgres:5432/${POSTGRES_DB:-plos}
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-qdrant_secure_key_2025}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_DEFAULT_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-2.0-flash-exp}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "${KNOWLEDGE_SYSTEM_PORT:-8003}:8003"
+    volumes:
+      - ./shared:/app/shared:ro
+      - ./services/knowledge-system/src:/app/src
+    networks:
+      - plos-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8003/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Qdrant Vector Database - Semantic search engine
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: plos-qdrant
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:-qdrant_secure_key_2025}
+      QDRANT__SERVICE__ENABLE_TLS: "false"
+    ports:
+      - "${QDRANT_REST_PORT:-6333}:6333"  # REST API
+      - "${QDRANT_GRPC_PORT:-6334}:6334"  # gRPC API
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - plos-network
+    healthcheck:
+      test: timeout 10s bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
   # ==========================================================================
   # MONITORING & OBSERVABILITY
   # ==========================================================================
@@ -292,4 +352,6 @@ volumes:
   prometheus_data:
     driver: local
   grafana_data:
+    driver: local
+  qdrant_data:
     driver: local
