@@ -140,7 +140,7 @@ class KafkaConsumerClient:
 
 class KafkaConsumerService:
     """
-    Async Kafka consumer service for PLOS v2.0
+    Async Kafka consumer service for PLOS
     Wraps aiokafka for async message consumption
     """
 

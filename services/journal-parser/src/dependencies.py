@@ -1,5 +1,5 @@
 """
-PLOS v2.0 - Dependency Injection for Journal Parser Service
+PLOS - Dependency Injection for Journal Parser Service
 Production-ready FastAPI dependencies
 """
 

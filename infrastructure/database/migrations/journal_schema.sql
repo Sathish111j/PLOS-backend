@@ -1,5 +1,5 @@
 -- ============================================================================
--- PLOS v2.2 GENERALIZED DATABASE SCHEMA
+-- PLOS GENERALIZED DATABASE SCHEMA
 -- Handles infinite variety of user data with controlled vocabulary
 -- ============================================================================
 

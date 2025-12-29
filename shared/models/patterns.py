@@ -1,5 +1,5 @@
 """
-PLOS v2.0 - Pattern & Analysis Models
+PLOS - Pattern & Analysis Models
 Models for user patterns, baselines, predictions, and analytics
 """
 

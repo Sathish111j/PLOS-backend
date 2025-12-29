@@ -1,5 +1,5 @@
 """
-PLOS v2.0 - Extraction Data Models
+PLOS - Extraction Data Models
 Comprehensive models for intelligent journal extraction with context
 """
 

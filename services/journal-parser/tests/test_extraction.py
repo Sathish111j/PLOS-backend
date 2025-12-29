@@ -1,5 +1,5 @@
 """
-PLOS v2.0 - Test Suite for Journal Parser Service
+PLOS - Test Suite for Journal Parser Service
 Comprehensive tests for all components
 """
 

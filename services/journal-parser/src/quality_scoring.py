@@ -1,5 +1,5 @@
 """
-PLOS v2.0 - Quality Scoring System
+PLOS - Quality Scoring System
 Comprehensive quality assessment matching architecture specification
 """
 

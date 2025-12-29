@@ -109,7 +109,7 @@ class KafkaProducerClient:
 
 class KafkaProducerService:
     """
-    Async Kafka producer service for PLOS v2.0
+    Async Kafka producer service for PLOS
     Wraps aiokafka for async message publishing
     """
 

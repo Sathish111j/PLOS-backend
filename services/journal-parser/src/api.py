@@ -65,10 +65,11 @@ class ConsumptionResponse(BaseModel):
 class ClarificationQuestion(BaseModel):
     """A question for the user to clarify ambiguous data"""
     
-    field: str
     question: str
+    context: Optional[str] = None
+    category: str
     priority: str
-    options: Optional[List[str]] = None
+    suggestions: Optional[List[str]] = None
 
 
 class ExtractionResponse(BaseModel):
@@ -77,7 +78,7 @@ class ExtractionResponse(BaseModel):
     entry_id: str
     user_id: str
     entry_date: str
-    quality: float
+    quality: str
     
     # Extracted data
     sleep: Optional[Dict[str, Any]] = None
@@ -116,9 +117,11 @@ class PendingGap(BaseModel):
     gap_id: str
     field: str
     question: str
+    context: Optional[str] = None
     priority: str
     raw_value: Optional[str] = None
     created_at: str
+    entry_date: Optional[str] = None
 
 
 class HealthCheckResponse(BaseModel):
@@ -279,9 +282,11 @@ async def get_pending_gaps(
                 gap_id=str(g["gap_id"]),
                 field=g["field"],
                 question=g["question"],
+                context=g.get("context"),
                 priority=g["priority"],
                 raw_value=g.get("raw_value"),
                 created_at=g["created_at"],
+                entry_date=g.get("entry_date"),
             )
             for g in gaps
         ]

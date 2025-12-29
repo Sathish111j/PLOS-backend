@@ -1,4 +1,4 @@
 """
-PLOS v2.0 - Journal Parser Tests
+PLOS - Journal Parser Tests
 Test suite for journal parsing service
 """

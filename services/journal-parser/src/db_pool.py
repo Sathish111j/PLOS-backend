@@ -1,5 +1,5 @@
 """
-PLOS v2.0 - Database Connection Pooling & Performance Optimization
+PLOS - Database Connection Pooling & Performance Optimization
 Production-grade connection management and query optimization
 """
 

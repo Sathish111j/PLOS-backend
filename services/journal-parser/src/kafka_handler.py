@@ -171,7 +171,7 @@ class KafkaJournalConsumer:
 
             logger.info(
                 f"Successfully processed entry {entry.id} - "
-                f"quality: {result['quality']:.2f}, "
+                f"quality: {result['quality']}, "
                 f"has_gaps: {result['has_gaps']}"
             )
 

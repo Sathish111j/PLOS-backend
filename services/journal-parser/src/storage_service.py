@@ -6,7 +6,7 @@ Matches the journal_schema.sql generalized schema.
 
 from datetime import date
 from typing import Any, Dict, List, Optional
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -72,11 +72,11 @@ class StorageService:
             gemini_model: Model used for extraction
         
         Returns:
-            entry_id: UUID of the journal entry record
+            extraction_id: UUID of the journal extraction record
         """
         try:
-            # 1. Insert/update base journal entry
-            entry_id = await self._upsert_journal_entry(
+            # 1. Insert/update base journal extraction
+            extraction_id = await self._upsert_journal_entry(
                 user_id=user_id,
                 entry_date=entry_date,
                 raw_entry=raw_entry,
@@ -87,27 +87,27 @@ class StorageService:
             )
             
             # 2. Store metrics (mood, energy, stress, etc.)
-            await self._store_metrics(entry_id, extraction.metrics)
+            await self._store_metrics(extraction_id, extraction.metrics)
             
             # 3. Store activities with vocabulary resolution
-            await self._store_activities(entry_id, extraction.activities)
+            await self._store_activities(extraction_id, extraction.activities)
             
             # 4. Store consumptions (food/drinks)
-            await self._store_consumptions(entry_id, extraction.consumptions)
+            await self._store_consumptions(extraction_id, extraction.consumptions)
             
             # 5. Store social interactions
-            await self._store_social(entry_id, extraction.social)
+            await self._store_social(extraction_id, extraction.social)
             
             # 6. Store notes (goals, gratitude, etc.)
-            await self._store_notes(entry_id, extraction.notes)
+            await self._store_notes(extraction_id, extraction.notes)
             
             # 7. Store sleep data
             if extraction.sleep:
-                await self._store_sleep(entry_id, extraction.sleep)
+                await self._store_sleep(extraction_id, extraction.sleep)
             
             # 8. Store gaps for clarification
             if extraction.gaps:
-                await self._store_gaps(entry_id, extraction.gaps)
+                await self._store_gaps(extraction_id, extraction.gaps)
             
             # 9. Commit transaction
             await self.db.commit()
@@ -121,9 +121,9 @@ class StorageService:
             
             # 10. Publish events to Kafka
             if self.kafka:
-                await self._publish_events(entry_id, user_id, entry_date, extraction)
+                await self._publish_events(extraction_id, user_id, entry_date, extraction)
             
-            return entry_id
+            return extraction_id
             
         except Exception as e:
             await self.db.rollback()
@@ -144,21 +144,19 @@ class StorageService:
         extraction_time_ms: int,
         gemini_model: str,
     ) -> UUID:
-        """Insert or update base journal entry."""
-        entry_id = uuid4()
-        
+        """Insert or update base journal extraction."""
         query = text("""
-            INSERT INTO journal_entries 
-                (id, user_id, entry_date, raw_content, extraction_quality,
-                 has_pending_gaps, extraction_time_ms, gemini_model)
+            INSERT INTO journal_extractions 
+                (user_id, entry_date, raw_entry, overall_quality,
+                 has_gaps, extraction_time_ms, gemini_model)
             VALUES 
-                (:id, :user_id, :entry_date, :raw_content, :quality,
+                (:user_id, :entry_date, :raw_entry, :quality::extraction_quality,
                  :has_gaps, :time_ms, :model)
             ON CONFLICT (user_id, entry_date) 
             DO UPDATE SET
-                raw_content = EXCLUDED.raw_content,
-                extraction_quality = EXCLUDED.extraction_quality,
-                has_pending_gaps = EXCLUDED.has_pending_gaps,
+                raw_entry = EXCLUDED.raw_entry,
+                overall_quality = EXCLUDED.overall_quality,
+                has_gaps = EXCLUDED.has_gaps,
                 extraction_time_ms = EXCLUDED.extraction_time_ms,
                 gemini_model = EXCLUDED.gemini_model,
                 updated_at = NOW()
@@ -166,10 +164,9 @@ class StorageService:
         """)
         
         result = await self.db.execute(query, {
-            "id": entry_id,
             "user_id": user_id,
             "entry_date": entry_date,
-            "raw_content": raw_entry,
+            "raw_entry": raw_entry,
             "quality": quality,
             "has_gaps": has_gaps,
             "time_ms": extraction_time_ms,
@@ -177,7 +174,9 @@ class StorageService:
         })
         
         row = result.fetchone()
-        return row[0] if row else entry_id
+        if not row:
+            raise ValueError("Failed to insert journal extraction")
+        return row[0]
 
     # ========================================================================
     # METRICS
@@ -185,17 +184,17 @@ class StorageService:
 
     async def _store_metrics(
         self, 
-        entry_id: UUID, 
+        extraction_id: UUID, 
         metrics: Dict[str, Dict[str, Any]]
     ) -> None:
         """Store extraction metrics (mood, energy, stress, etc.)."""
         if not metrics:
             return
         
-        # First, clear existing metrics for this entry
+        # First, clear existing metrics for this extraction
         await self.db.execute(
-            text("DELETE FROM extraction_metrics WHERE entry_id = :entry_id"),
-            {"entry_id": entry_id}
+            text("DELETE FROM extraction_metrics WHERE extraction_id = :extraction_id"),
+            {"extraction_id": extraction_id}
         )
         
         for metric_name, metric_data in metrics.items():
@@ -203,47 +202,48 @@ class StorageService:
             if value is None:
                 continue
             
-            # Resolve metric type from vocabulary
+            # Resolve metric type from vocabulary (returns int, not UUID)
             metric_type_id = await self._resolve_metric_type(metric_name)
             
             time_of_day = metric_data.get("time_of_day")
             
             query = text("""
                 INSERT INTO extraction_metrics
-                    (entry_id, metric_type_id, value, time_of_day, confidence)
+                    (extraction_id, metric_type_id, value, time_of_day, confidence)
                 VALUES
-                    (:entry_id, :metric_type_id, :value, :time_of_day::time_of_day, :confidence)
+                    (:extraction_id, :metric_type_id, :value, :time_of_day::time_of_day, :confidence)
             """)
             
             await self.db.execute(query, {
-                "entry_id": entry_id,
+                "extraction_id": extraction_id,
                 "metric_type_id": metric_type_id,
                 "value": float(value),
                 "time_of_day": time_of_day if time_of_day else None,
                 "confidence": metric_data.get("confidence", 0.7),
             })
 
-    async def _resolve_metric_type(self, metric_name: str) -> UUID:
+    async def _resolve_metric_type(self, metric_name: str) -> int:
         """Get or create metric type from vocabulary."""
         # Try to find existing
         result = await self.db.execute(
-            text("SELECT id FROM metric_types WHERE canonical_name = :name"),
+            text("SELECT id FROM metric_types WHERE name = :name"),
             {"name": metric_name}
         )
         row = result.fetchone()
         if row:
             return row[0]
         
-        # Create new metric type
-        new_id = uuid4()
-        await self.db.execute(
+        # Create new metric type (SERIAL id)
+        result = await self.db.execute(
             text("""
-                INSERT INTO metric_types (id, canonical_name, display_name, unit, min_value, max_value)
-                VALUES (:id, :name, :display, 'score', 1, 10)
+                INSERT INTO metric_types (name, display_name, unit, min_value, max_value)
+                VALUES (:name, :display, 'score', 1, 10)
+                RETURNING id
             """),
-            {"id": new_id, "name": metric_name, "display": metric_name.replace("_", " ").title()}
+            {"name": metric_name, "display": metric_name.replace("_", " ").title()}
         )
-        return new_id
+        row = result.fetchone()
+        return row[0]
 
     # ========================================================================
     # ACTIVITIES
@@ -251,21 +251,21 @@ class StorageService:
 
     async def _store_activities(
         self, 
-        entry_id: UUID, 
+        extraction_id: UUID, 
         activities: List[NormalizedActivity]
     ) -> None:
         """Store activities with vocabulary resolution."""
         if not activities:
             return
         
-        # Clear existing activities for this entry
+        # Clear existing activities for this extraction
         await self.db.execute(
-            text("DELETE FROM extraction_activities WHERE entry_id = :entry_id"),
-            {"entry_id": entry_id}
+            text("DELETE FROM extraction_activities WHERE extraction_id = :extraction_id"),
+            {"extraction_id": extraction_id}
         )
         
         for activity in activities:
-            # Resolve activity type from vocabulary
+            # Resolve activity type from vocabulary (returns int, not UUID)
             activity_type_id = await self._resolve_activity_type(
                 activity.canonical_name or activity.raw_name,
                 activity.raw_name,
@@ -278,18 +278,19 @@ class StorageService:
             
             query = text("""
                 INSERT INTO extraction_activities
-                    (entry_id, activity_type_id, duration_minutes, time_of_day,
-                     start_time, end_time, intensity, satisfaction,
-                     calories_burned, is_screen_time, confidence, raw_mention)
+                    (extraction_id, activity_type_id, activity_raw, duration_minutes, 
+                     time_of_day, start_time, end_time, intensity, satisfaction,
+                     calories_burned, confidence, raw_mention, needs_clarification)
                 VALUES
-                    (:entry_id, :activity_type_id, :duration, :time_of_day::time_of_day,
-                     :start_time, :end_time, :intensity, :satisfaction,
-                     :calories, :is_screen, :confidence, :raw_mention)
+                    (:extraction_id, :activity_type_id, :activity_raw, :duration, 
+                     :time_of_day::time_of_day, :start_time, :end_time, :intensity, 
+                     :satisfaction, :calories, :confidence, :raw_mention, :needs_clarification)
             """)
             
             await self.db.execute(query, {
-                "entry_id": entry_id,
+                "extraction_id": extraction_id,
                 "activity_type_id": activity_type_id,
+                "activity_raw": activity.raw_name if not activity_type_id else None,
                 "duration": activity.duration_minutes,
                 "time_of_day": time_of_day,
                 "start_time": activity.start_time,
@@ -297,9 +298,9 @@ class StorageService:
                 "intensity": activity.intensity,
                 "satisfaction": activity.satisfaction,
                 "calories": activity.calories_burned,
-                "is_screen": activity.is_screen_time,
                 "confidence": activity.confidence,
                 "raw_mention": activity.raw_mention,
+                "needs_clarification": activity.needs_clarification,
             })
 
     async def _resolve_activity_type(
@@ -307,7 +308,7 @@ class StorageService:
         name: str, 
         raw_name: str,
         category: str
-    ) -> UUID:
+    ) -> Optional[int]:
         """Resolve activity name to activity_type using vocabulary and aliases."""
         name_lower = name.lower()
         
@@ -358,33 +359,32 @@ class StorageService:
         canonical_name: str, 
         display_name: str,
         category: str
-    ) -> UUID:
+    ) -> int:
         """Create new activity type in vocabulary."""
-        new_id = uuid4()
-        
         # Get or create category
         category_id = await self._get_or_create_category(category, "activities")
         
-        await self.db.execute(
+        result = await self.db.execute(
             text("""
                 INSERT INTO activity_types 
-                    (id, canonical_name, display_name, category_id)
+                    (canonical_name, display_name, category_id)
                 VALUES 
-                    (:id, :canonical, :display, :category_id)
-                ON CONFLICT (canonical_name) DO NOTHING
+                    (:canonical, :display, :category_id)
+                ON CONFLICT (canonical_name) DO UPDATE SET canonical_name = EXCLUDED.canonical_name
+                RETURNING id
             """),
             {
-                "id": new_id,
                 "canonical": canonical_name,
                 "display": display_name.title(),
                 "category_id": category_id,
             }
         )
+        row = result.fetchone()
         
         logger.info(f"Created new activity type: {canonical_name}")
-        return new_id
+        return row[0]
 
-    async def _learn_activity_alias(self, alias: str, activity_type_id: UUID) -> None:
+    async def _learn_activity_alias(self, alias: str, activity_type_id: int) -> None:
         """Learn a new alias for an activity type."""
         await self.db.execute(
             text("""
@@ -396,7 +396,7 @@ class StorageService:
         )
         logger.info(f"Learned activity alias: {alias}")
 
-    async def _get_or_create_category(self, name: str, parent_name: str) -> UUID:
+    async def _get_or_create_category(self, name: str, parent_name: str) -> int:
         """Get or create a category."""
         # Try to find existing
         result = await self.db.execute(
@@ -418,21 +418,21 @@ class StorageService:
             parent_id = row[0]
         
         # Create new category
-        new_id = uuid4()
-        await self.db.execute(
+        result = await self.db.execute(
             text("""
-                INSERT INTO categories (id, name, display_name, parent_id)
-                VALUES (:id, :name, :display, :parent_id)
-                ON CONFLICT (name) DO NOTHING
+                INSERT INTO categories (name, display_name, parent_id)
+                VALUES (:name, :display, :parent_id)
+                ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+                RETURNING id
             """),
             {
-                "id": new_id,
                 "name": name,
                 "display": name.title(),
                 "parent_id": parent_id,
             }
         )
-        return new_id
+        row = result.fetchone()
+        return row[0]
 
     # ========================================================================
     # CONSUMPTIONS
@@ -440,7 +440,7 @@ class StorageService:
 
     async def _store_consumptions(
         self, 
-        entry_id: UUID, 
+        extraction_id: UUID, 
         consumptions: List[NormalizedConsumption]
     ) -> None:
         """Store food/drink consumptions with vocabulary resolution."""
@@ -449,12 +449,12 @@ class StorageService:
         
         # Clear existing
         await self.db.execute(
-            text("DELETE FROM extraction_consumptions WHERE entry_id = :entry_id"),
-            {"entry_id": entry_id}
+            text("DELETE FROM extraction_consumptions WHERE extraction_id = :extraction_id"),
+            {"extraction_id": extraction_id}
         )
         
         for item in consumptions:
-            # Resolve food item from vocabulary
+            # Resolve food item from vocabulary (returns int, not UUID)
             food_item_id = await self._resolve_food_item(
                 item.canonical_name or item.raw_name,
                 item.raw_name
@@ -466,20 +466,21 @@ class StorageService:
             
             query = text("""
                 INSERT INTO extraction_consumptions
-                    (entry_id, food_item_id, consumption_type, meal_type,
+                    (extraction_id, food_item_id, item_raw, consumption_type, meal_type,
                      time_of_day, consumption_time, quantity, unit,
                      calories, protein_g, carbs_g, fat_g,
                      is_healthy, is_home_cooked, confidence, raw_mention)
                 VALUES
-                    (:entry_id, :food_id, :type, :meal_type,
+                    (:extraction_id, :food_id, :item_raw, :type, :meal_type,
                      :time_of_day::time_of_day, :time, :quantity, :unit,
                      :calories, :protein, :carbs, :fat,
                      :healthy, :home_cooked, :confidence, :raw_mention)
             """)
             
             await self.db.execute(query, {
-                "entry_id": entry_id,
+                "extraction_id": extraction_id,
                 "food_id": food_item_id,
+                "item_raw": item.raw_name if not food_item_id else None,
                 "type": item.consumption_type,
                 "meal_type": item.meal_type,
                 "time_of_day": time_of_day,
@@ -496,7 +497,7 @@ class StorageService:
                 "raw_mention": item.raw_mention,
             })
 
-    async def _resolve_food_item(self, name: str, raw_name: str) -> UUID:
+    async def _resolve_food_item(self, name: str, raw_name: str) -> Optional[int]:
         """Resolve food name to food_items vocabulary."""
         name_lower = name.lower()
         
@@ -525,31 +526,27 @@ class StorageService:
         # 3. Create new food item
         return await self._create_food_item(name_lower, raw_name)
 
-    async def _create_food_item(self, canonical_name: str, display_name: str) -> UUID:
+    async def _create_food_item(self, canonical_name: str, display_name: str) -> int:
         """Create new food item in vocabulary."""
-        new_id = uuid4()
-        
-        # Get food category
-        category_id = await self._get_or_create_category("food", "consumptions")
-        
-        await self.db.execute(
+        result = await self.db.execute(
             text("""
                 INSERT INTO food_items 
-                    (id, canonical_name, display_name, category_id)
+                    (canonical_name, display_name, category)
                 VALUES 
-                    (:id, :canonical, :display, :category_id)
-                ON CONFLICT (canonical_name) DO NOTHING
+                    (:canonical, :display, :category)
+                ON CONFLICT (canonical_name) DO UPDATE SET canonical_name = EXCLUDED.canonical_name
+                RETURNING id
             """),
             {
-                "id": new_id,
                 "canonical": canonical_name,
                 "display": display_name.title(),
-                "category_id": category_id,
+                "category": "other",
             }
         )
+        row = result.fetchone()
         
         logger.info(f"Created new food item: {canonical_name}")
-        return new_id
+        return row[0]
 
     # ========================================================================
     # SOCIAL
@@ -557,7 +554,7 @@ class StorageService:
 
     async def _store_social(
         self, 
-        entry_id: UUID, 
+        extraction_id: UUID, 
         social: List[Dict[str, Any]]
     ) -> None:
         """Store social interactions."""
@@ -566,8 +563,8 @@ class StorageService:
         
         # Clear existing
         await self.db.execute(
-            text("DELETE FROM extraction_social WHERE entry_id = :entry_id"),
-            {"entry_id": entry_id}
+            text("DELETE FROM extraction_social WHERE extraction_id = :extraction_id"),
+            {"extraction_id": extraction_id}
         )
         
         for interaction in social:
@@ -575,25 +572,24 @@ class StorageService:
             
             query = text("""
                 INSERT INTO extraction_social
-                    (entry_id, person_name, relationship, interaction_type,
-                     duration_minutes, time_of_day, sentiment, topic,
-                     is_quality_time, confidence, raw_mention)
+                    (extraction_id, person_name, relationship, interaction_type,
+                     duration_minutes, time_of_day, sentiment, notes,
+                     confidence, raw_mention)
                 VALUES
-                    (:entry_id, :person, :relationship, :type,
-                     :duration, :time_of_day::time_of_day, :sentiment, :topic,
-                     :quality_time, :confidence, :raw_mention)
+                    (:extraction_id, :person, :relationship, :type,
+                     :duration, :time_of_day::time_of_day, :sentiment, :notes,
+                     :confidence, :raw_mention)
             """)
             
             await self.db.execute(query, {
-                "entry_id": entry_id,
+                "extraction_id": extraction_id,
                 "person": interaction.get("person"),
                 "relationship": interaction.get("relationship"),
                 "type": interaction.get("interaction_type"),
                 "duration": interaction.get("duration_minutes"),
                 "time_of_day": time_of_day if time_of_day else None,
                 "sentiment": interaction.get("sentiment"),
-                "topic": interaction.get("topic"),
-                "quality_time": interaction.get("is_quality_time", False),
+                "notes": interaction.get("topic"),
                 "confidence": interaction.get("confidence", 0.7),
                 "raw_mention": interaction.get("raw_mention"),
             })
@@ -604,7 +600,7 @@ class StorageService:
 
     async def _store_notes(
         self, 
-        entry_id: UUID, 
+        extraction_id: UUID, 
         notes: List[Dict[str, Any]]
     ) -> None:
         """Store notes (goals, gratitude, symptoms, thoughts)."""
@@ -613,20 +609,20 @@ class StorageService:
         
         # Clear existing
         await self.db.execute(
-            text("DELETE FROM extraction_notes WHERE entry_id = :entry_id"),
-            {"entry_id": entry_id}
+            text("DELETE FROM extraction_notes WHERE extraction_id = :extraction_id"),
+            {"extraction_id": extraction_id}
         )
         
         for note in notes:
             query = text("""
                 INSERT INTO extraction_notes
-                    (entry_id, note_type, content, sentiment, confidence, raw_mention)
+                    (extraction_id, note_type, content, sentiment, confidence, raw_mention)
                 VALUES
-                    (:entry_id, :type, :content, :sentiment, :confidence, :raw_mention)
+                    (:extraction_id, :type, :content, :sentiment, :confidence, :raw_mention)
             """)
             
             await self.db.execute(query, {
-                "entry_id": entry_id,
+                "extraction_id": extraction_id,
                 "type": note.get("type", "thought"),
                 "content": note.get("content"),
                 "sentiment": note.get("sentiment"),
@@ -638,28 +634,25 @@ class StorageService:
     # SLEEP
     # ========================================================================
 
-    async def _store_sleep(self, entry_id: UUID, sleep: Dict[str, Any]) -> None:
+    async def _store_sleep(self, extraction_id: UUID, sleep: Dict[str, Any]) -> None:
         """Store sleep data."""
+        # Delete existing sleep for this extraction
+        await self.db.execute(
+            text("DELETE FROM extraction_sleep WHERE extraction_id = :extraction_id"),
+            {"extraction_id": extraction_id}
+        )
+        
         query = text("""
             INSERT INTO extraction_sleep
-                (entry_id, duration_hours, quality, bedtime, waketime,
-                 disruptions, nap_minutes, confidence, raw_mention)
+                (extraction_id, duration_hours, quality, bedtime, waketime,
+                 disruptions, nap_duration_minutes, confidence, raw_mention)
             VALUES
-                (:entry_id, :duration, :quality, :bedtime, :waketime,
+                (:extraction_id, :duration, :quality, :bedtime, :waketime,
                  :disruptions, :nap, :confidence, :raw_mention)
-            ON CONFLICT (entry_id) DO UPDATE SET
-                duration_hours = EXCLUDED.duration_hours,
-                quality = EXCLUDED.quality,
-                bedtime = EXCLUDED.bedtime,
-                waketime = EXCLUDED.waketime,
-                disruptions = EXCLUDED.disruptions,
-                nap_minutes = EXCLUDED.nap_minutes,
-                confidence = EXCLUDED.confidence,
-                raw_mention = EXCLUDED.raw_mention
         """)
         
         await self.db.execute(query, {
-            "entry_id": entry_id,
+            "extraction_id": extraction_id,
             "duration": sleep.get("duration_hours"),
             "quality": sleep.get("quality"),
             "bedtime": sleep.get("bedtime"),
@@ -674,26 +667,25 @@ class StorageService:
     # GAPS
     # ========================================================================
 
-    async def _store_gaps(self, entry_id: UUID, gaps: List[DataGap]) -> None:
+    async def _store_gaps(self, extraction_id: UUID, gaps: List[DataGap]) -> None:
         """Store extraction gaps for user clarification."""
         for gap in gaps:
             query = text("""
                 INSERT INTO extraction_gaps
-                    (entry_id, field_category, question, context,
-                     original_mention, priority, suggested_options, status)
+                    (extraction_id, field_category, question, context,
+                     original_mention, priority, status)
                 VALUES
-                    (:entry_id, :category, :question, :context,
-                     :mention, :priority, :suggestions, 'pending')
+                    (:extraction_id, :category, :question, :context,
+                     :mention, :priority, 'pending')
             """)
             
             await self.db.execute(query, {
-                "entry_id": entry_id,
+                "extraction_id": extraction_id,
                 "category": gap.field_category,
                 "question": gap.question,
                 "context": gap.context,
                 "mention": gap.original_mention,
                 "priority": gap.priority.value,
-                "suggestions": gap.suggested_options,
             })
 
     # ========================================================================
@@ -709,7 +701,7 @@ class StorageService:
         await self.db.execute(
             text("""
                 UPDATE extraction_gaps
-                SET status = 'resolved',
+                SET status = 'answered',
                     user_response = :response,
                     resolved_at = NOW()
                 WHERE id = :gap_id
@@ -722,10 +714,10 @@ class StorageService:
         """Get pending gaps for a user."""
         result = await self.db.execute(
             text("""
-                SELECT g.id, g.question, g.context, g.suggested_options,
-                       g.priority, je.entry_date
+                SELECT g.id, g.field_category, g.question, g.context,
+                       g.original_mention, g.priority, g.created_at, je.entry_date
                 FROM extraction_gaps g
-                JOIN journal_entries je ON g.entry_id = je.id
+                JOIN journal_extractions je ON g.extraction_id = je.id
                 WHERE je.user_id = :user_id AND g.status = 'pending'
                 ORDER BY g.priority ASC, je.entry_date DESC
             """),
@@ -735,11 +727,13 @@ class StorageService:
         return [
             {
                 "gap_id": row[0],
-                "question": row[1],
-                "context": row[2],
-                "suggestions": row[3],
-                "priority": row[4],
-                "entry_date": row[5],
+                "field": row[1],
+                "question": row[2],
+                "context": row[3],
+                "raw_value": row[4],
+                "priority": "high" if row[5] == 1 else "medium" if row[5] == 2 else "low",
+                "created_at": row[6].isoformat() if row[6] else None,
+                "entry_date": row[7].isoformat() if row[7] else None,
             }
             for row in result.fetchall()
         ]
@@ -769,7 +763,7 @@ class StorageService:
             FROM extraction_activities ea
             JOIN activity_types at ON ea.activity_type_id = at.id
             JOIN categories c ON at.category_id = c.id
-            JOIN journal_entries je ON ea.entry_id = je.id
+            JOIN journal_extractions je ON ea.extraction_id = je.id
             WHERE je.user_id = :user_id
         """
         params: Dict[str, Any] = {"user_id": user_id}
@@ -807,7 +801,7 @@ class StorageService:
                 FROM extraction_activities ea
                 JOIN activity_types at ON ea.activity_type_id = at.id
                 JOIN categories c ON at.category_id = c.id
-                JOIN journal_entries je ON ea.entry_id = je.id
+                JOIN journal_extractions je ON ea.extraction_id = je.id
                 WHERE je.user_id = :user_id
                   AND je.entry_date >= CURRENT_DATE - :days
                 GROUP BY at.canonical_name, c.name
@@ -819,7 +813,7 @@ class StorageService:
         activities = [dict(row._mapping) for row in result.fetchall()]
         
         # Group by category
-        by_category = {}
+        by_category: Dict[str, List[Dict[str, Any]]] = {}
         for act in activities:
             cat = act["category"]
             if cat not in by_category:
@@ -838,7 +832,7 @@ class StorageService:
 
     async def _publish_events(
         self,
-        entry_id: UUID,
+        extraction_id: UUID,
         user_id: UUID,
         entry_date: date,
         extraction: ExtractionResult,
@@ -851,7 +845,7 @@ class StorageService:
             await self.kafka.publish(
                 topic=KafkaTopics.JOURNAL_EXTRACTION_COMPLETE,
                 message={
-                    "entry_id": str(entry_id),
+                    "extraction_id": str(extraction_id),
                     "user_id": str(user_id),
                     "entry_date": entry_date.isoformat(),
                     "activity_count": len(extraction.activities),

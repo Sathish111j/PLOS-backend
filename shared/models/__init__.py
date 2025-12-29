@@ -60,7 +60,7 @@ __all__ = [
     "User",
     "UserCreate",
     "UserUpdate",
-    # v2.0 Extraction models
+    # Extraction models
     "JournalExtraction",
     "JournalExtractionCreate",
     "JournalExtractionResponse",

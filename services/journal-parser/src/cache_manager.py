@@ -1,5 +1,5 @@
 """
-PLOS v2.0 - Multi-Layer Cache Manager
+PLOS - Multi-Layer Cache Manager
 Implements Memory -> Redis -> PostgreSQL -> Defaults fallback strategy
 """
 

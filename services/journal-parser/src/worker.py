@@ -4,7 +4,7 @@ Background Kafka worker for asynchronous journal entry processing.
 This module implements a Kafka consumer that processes journal entries in the background,
 providing status updates via Redis and webhook notifications upon completion.
 
-Part of PLOS v2.0 async-first architecture for <200ms API response times.
+Part of PLOS async-first architecture for <200ms API response times.
 """
 
 import asyncio

@@ -1,5 +1,5 @@
 """
-PLOS v2.0 - Preprocessing & Explicit Extraction
+PLOS - Preprocessing & Explicit Extraction
 Spell correction, time normalization, and rule-based extraction before AI
 """
 

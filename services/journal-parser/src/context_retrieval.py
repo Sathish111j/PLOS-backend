@@ -1,5 +1,5 @@
 """
-PLOS v2.0 - Context Retrieval Engine
+PLOS - Context Retrieval Engine
 Retrieves user context, baselines, patterns, and historical data for intelligent extraction
 """
 
