@@ -6,11 +6,16 @@ Environment configuration management using Pydantic
 from functools import lru_cache
 from typing import Optional
 
+from pydantic import ConfigDict
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables"""
+
+    model_config = ConfigDict(
+        env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"
+    )
 
     # Application
     app_env: str = "development"
@@ -20,11 +25,18 @@ class Settings(BaseSettings):
     service_port: int = 8000
 
     # Gemini API Configuration
-    gemini_api_key: str
-    gemini_default_model: str = "gemini-2.0-flash-exp"
-    gemini_vision_model: str = "gemini-2.0-flash-exp"
-    gemini_pro_model: str = "gemini-2.0-flash-exp"
+    gemini_api_key: Optional[str] = None
+    gemini_api_keys: Optional[str] = None
+    gemini_default_model: str = "gemini-2.5-flash"
+    gemini_vision_model: str = "gemini-2.5-flash"
+    gemini_pro_model: str = "gemini-2.5-pro"
+    gemini_embedding_model: str = "gemini-embedding-001"
     use_gemini_caching: bool = True
+
+    # Gemini API Key Rotation Configuration
+    gemini_api_key_rotation_enabled: bool = True
+    gemini_api_key_rotation_max_retries: int = 3
+    gemini_api_key_rotation_backoff_seconds: int = 60
 
     # PostgreSQL
     postgres_url: str = "postgresql://postgres:postgres@localhost:5432/plos"
@@ -47,11 +59,6 @@ class Settings(BaseSettings):
 
     # Optional External Services
     openai_api_key: Optional[str] = None
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
 
 
 @lru_cache()
