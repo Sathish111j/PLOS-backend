@@ -54,7 +54,7 @@ class MemoryCache:
         """Set in memory cache with TTL"""
         # Evict oldest if at capacity
         if len(self._cache) >= self.max_size:
-            oldest_key = min(self._timestamps, key=self._timestamps.get)
+            oldest_key = min(self._timestamps.keys(), key=lambda k: self._timestamps[k])
             self._evict(oldest_key)
 
         self._cache[key] = value
@@ -191,8 +191,11 @@ class MultiLayerCacheManager:
                 if redis_data:
                     self.memory.set(key, redis_data)
                     return redis_data
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(
+                    f"Redis get failed for patterns key '{key}' (user_id={user_id}, pattern_type={pattern_type}): {e}",
+                    exc_info=True
+                )
 
         # L3: PostgreSQL
         if self.db:
@@ -205,8 +208,8 @@ class MultiLayerCacheManager:
                     if self.redis:
                         await self._redis_set(key, db_data, ttl=3600)
                     return db_data
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Database error fetching patterns for user {user_id}: {e}")
 
         # L4: Defaults
         return {}
@@ -218,7 +221,7 @@ class MultiLayerCacheManager:
         # L1: Memory
         cached = self.memory.get(key)
         if cached:
-            return cached
+            return cached.get("data", [])
 
         # L2: Redis
         if self.redis:
@@ -226,9 +229,9 @@ class MultiLayerCacheManager:
                 redis_data = await asyncio.wait_for(self._redis_get(key), timeout=5.0)
                 if redis_data:
                     self.memory.set(key, redis_data)
-                    return redis_data
-            except Exception:
-                pass
+                    return redis_data.get("data", [])
+            except Exception as e:
+                logger.warning(f"Redis error fetching activities for {key}: {e}")
 
         # L3: PostgreSQL
         if self.db:
@@ -237,12 +240,14 @@ class MultiLayerCacheManager:
                     self._db_get_activities(user_id), timeout=2.0
                 )
                 if db_data:
-                    self.memory.set(key, db_data)
+                    # Wrap in dict for cache storage
+                    cache_data = {"data": db_data}
+                    self.memory.set(key, cache_data)
                     if self.redis:
-                        await self._redis_set(key, db_data, ttl=3600)
+                        await self._redis_set(key, cache_data, ttl=3600)
                     return db_data
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Database error fetching activities for user {user_id}: {e}")
 
         # L4: Empty list
         return []

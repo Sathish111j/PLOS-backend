@@ -4,6 +4,13 @@
 -- ============================================================================
 
 -- ============================================================================
+-- EXTENSIONS
+-- ============================================================================
+
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";  -- For gen_random_uuid()
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";   -- For text search (optional)
+
+-- ============================================================================
 -- ENUMS
 -- ============================================================================
 
@@ -374,8 +381,33 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Schedule refresh (requires pg_cron extension)
--- SELECT cron.schedule('refresh-7day-context', '0 * * * *', 'SELECT refresh_context_views()');
+-- ============================================================================
+-- MATERIALIZED VIEW REFRESH STRATEGY
+-- ============================================================================
+-- Option 1: Using pg_cron (recommended for production)
+-- Requires: CREATE EXTENSION IF NOT EXISTS pg_cron;
+-- Then run: SELECT cron.schedule('refresh-context-views', '0 * * * *', 'SELECT refresh_context_views()');
+
+-- Option 2: Application-level refresh (alternative)
+-- Call refresh_context_views() after each journal entry is processed:
+--   - After storing extraction in journal_extractions table
+--   - Or on a scheduled basis from your application (e.g., FastAPI background task)
+
+-- Option 3: Trigger-based refresh (for low-volume usage)
+-- CREATE OR REPLACE FUNCTION trigger_refresh_views()
+-- RETURNS TRIGGER AS $$
+-- BEGIN
+--     PERFORM refresh_context_views();
+--     RETURN NEW;
+-- END;
+-- $$ LANGUAGE plpgsql;
+-- CREATE TRIGGER refresh_views_after_insert
+--     AFTER INSERT ON journal_extractions
+--     FOR EACH STATEMENT
+--     EXECUTE FUNCTION trigger_refresh_views();
+
+-- RECOMMENDED: Use Option 1 (pg_cron) for production environments
+-- Hourly refresh balances performance vs data freshness
 
 -- ============================================================================
 -- GRANTS (adjust as needed)

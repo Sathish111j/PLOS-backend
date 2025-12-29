@@ -111,7 +111,7 @@ class JournalParserOrchestrator:
 
             logger.info(
                 f"Preprocessing complete: {len(explicit_extractions)} explicit extractions, "
-                f"{preprocessing_data['spell_corrections']} spelling corrections"
+                f"spell_corrected={preprocessing_data['spell_corrected']}"
             )
 
             # ================================================================

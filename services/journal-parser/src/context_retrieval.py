@@ -82,7 +82,7 @@ class ContextRetrievalEngine:
         ) = results
 
         context = {
-            "baseline": baseline,
+            "baseline": baseline if not isinstance(baseline, Exception) else None,
             "recent_entries": (
                 recent_entries if not isinstance(recent_entries, Exception) else []
             ),

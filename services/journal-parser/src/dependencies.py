@@ -26,7 +26,7 @@ _gemini_client: ResilientGeminiClient = None
 _kafka_producer: KafkaProducerService = None
 
 
-async def initialize_dependencies():
+async def initialize_dependencies() -> None:
     """Initialize global dependencies at startup"""
     global _gemini_client, _kafka_producer
 
@@ -44,7 +44,7 @@ async def initialize_dependencies():
     logger.info("Dependencies initialized successfully")
 
 
-async def shutdown_dependencies():
+async def shutdown_dependencies() -> None:
     """Shutdown global dependencies"""
     global _kafka_producer
 

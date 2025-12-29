@@ -1,6 +1,7 @@
 #!/bin/bash
 # PLOS Kafka Topic Initialization Script
 # Creates all necessary Kafka topics with appropriate partitions and replication
+# Uses dot notation for topic naming (standard Kafka practice)
 
 set -e
 
@@ -9,145 +10,181 @@ sleep 10
 
 echo "Creating Kafka topics..."
 
-# Journal & Parsing Topics
+# Journal and Parsing Topics
 kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
-  --topic journal_entries \
+  --topic plos.journal.entries \
   --partitions 3 \
   --replication-factor 1 \
   --config retention.ms=604800000
 
 kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
-  --topic journal_entries_raw \
+  --topic plos.journal.entries.raw \
   --partitions 3 \
   --replication-factor 1 \
   --config retention.ms=604800000
 
 kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
-  --topic parsed_entries \
+  --topic plos.journal.parsed \
+  --partitions 3 \
+  --replication-factor 1 \
+  --config retention.ms=604800000
+
+kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
+  --topic plos.journal.extraction.complete \
   --partitions 3 \
   --replication-factor 1 \
   --config retention.ms=604800000
 
 # Data Extraction Topics
 kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
-  --topic mood_events \
+  --topic plos.mood.events \
   --partitions 3 \
   --replication-factor 1 \
   --config retention.ms=604800000
 
 kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
-  --topic health_events \
+  --topic plos.health.events \
   --partitions 3 \
   --replication-factor 1 \
   --config retention.ms=604800000
 
 kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
-  --topic nutrition_events \
+  --topic plos.nutrition.events \
   --partitions 3 \
   --replication-factor 1 \
   --config retention.ms=604800000
 
 kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
-  --topic exercise_events \
+  --topic plos.exercise.events \
   --partitions 3 \
   --replication-factor 1 \
   --config retention.ms=604800000
 
 kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
-  --topic work_events \
+  --topic plos.work.events \
   --partitions 3 \
   --replication-factor 1 \
   --config retention.ms=604800000
 
 kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
-  --topic habit_events \
+  --topic plos.habit.events \
   --partitions 3 \
   --replication-factor 1 \
   --config retention.ms=604800000
 
-# Context & State Updates
 kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
-  --topic context_updates \
+  --topic plos.sleep.data.extracted \
+  --partitions 3 \
+  --replication-factor 1 \
+  --config retention.ms=604800000
+
+kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
+  --topic plos.mood.data.extracted \
+  --partitions 3 \
+  --replication-factor 1 \
+  --config retention.ms=604800000
+
+# Context and State Updates
+kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
+  --topic plos.context.updates \
   --partitions 3 \
   --replication-factor 1 \
   --config retention.ms=86400000
 
 # Relationship Events
 kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
-  --topic relationship_events \
+  --topic plos.relationship.events \
+  --partitions 3 \
+  --replication-factor 1 \
+  --config retention.ms=604800000
+
+kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
+  --topic plos.relationship.state.changed \
   --partitions 3 \
   --replication-factor 1 \
   --config retention.ms=604800000
 
 # Health Alerts
 kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
-  --topic health_alerts \
+  --topic plos.health.alerts \
+  --partitions 3 \
+  --replication-factor 1 \
+  --config retention.ms=604800000
+
+kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
+  --topic plos.health.alerts.triggered \
   --partitions 3 \
   --replication-factor 1 \
   --config retention.ms=604800000
 
 # Predictions
 kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
-  --topic predictions \
+  --topic plos.predictions \
   --partitions 3 \
   --replication-factor 1 \
   --config retention.ms=86400000
 
-# Task & Goal Events
 kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
-  --topic task_events \
+  --topic plos.predictions.generated \
+  --partitions 3 \
+  --replication-factor 1 \
+  --config retention.ms=86400000
+
+# Task and Goal Events
+kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
+  --topic plos.task.events \
   --partitions 3 \
   --replication-factor 1 \
   --config retention.ms=604800000
 
 kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
-  --topic goal_events \
+  --topic plos.goal.events \
   --partitions 3 \
   --replication-factor 1 \
   --config retention.ms=604800000
 
 # Calendar Events
 kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
-  --topic calendar_events \
+  --topic plos.calendar.events \
   --partitions 3 \
   --replication-factor 1 \
   --config retention.ms=604800000
 
 # Notification Events
 kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
-  --topic notification_events \
+  --topic plos.notification.events \
   --partitions 3 \
   --replication-factor 1 \
   --config retention.ms=604800000
 
 # Knowledge Events
 kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
-  --topic knowledge_events \
+  --topic plos.knowledge.events \
   --partitions 3 \
   --replication-factor 1 \
   --config retention.ms=604800000
 
 # AI Agent Events
 kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
-  --topic insight_requests \
+  --topic plos.insight.requests \
   --partitions 3 \
   --replication-factor 1 \
   --config retention.ms=86400000
 
 kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
-  --topic scheduling_requests \
+  --topic plos.scheduling.requests \
   --partitions 3 \
   --replication-factor 1 \
   --config retention.ms=86400000
 
 # Event Stream (General)
 kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
-  --topic event_stream \
+  --topic plos.event.stream \
   --partitions 3 \
   --replication-factor 1 \
   --config retention.ms=604800000
 
-echo "✓ All Kafka topics created successfully!"
+echo "All Kafka topics created successfully!"
 echo ""
 echo "Listing all topics:"
 kafka-topics.sh --bootstrap-server kafka:9092 --list

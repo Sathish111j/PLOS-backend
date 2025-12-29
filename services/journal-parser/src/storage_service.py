@@ -193,15 +193,23 @@ class JournalStorageService:
 
         # Publish event
         if self.kafka:
+            event_message = {
+                "user_id": str(user_id),
+                "from_state": from_state.value,
+                "to_state": to_state.value,
+                "trigger": trigger,
+                "duration_in_previous_state": duration_in_previous_state,
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+            # Publish to relationship events topic
             await self.kafka.publish(
                 topic=KafkaTopic.RELATIONSHIP_EVENTS,
-                message={
-                    "user_id": str(user_id),
-                    "from_state": from_state.value,
-                    "to_state": to_state.value,
-                    "trigger": trigger,
-                    "timestamp": datetime.utcnow().isoformat(),
-                },
+                message=event_message,
+            )
+            # Also publish to state changed topic for specific tracking
+            await self.kafka.publish(
+                topic=KafkaTopic.RELATIONSHIP_STATE_CHANGED,
+                message=event_message,
             )
 
     async def update_activity_impact(
@@ -302,6 +310,18 @@ class JournalStorageService:
             critical_alerts = [a for a in alerts if a["level"] in ["CRITICAL", "HIGH"]]
             for alert in critical_alerts:
                 await self.kafka.publish(
+                    topic=KafkaTopic.HEALTH_ALERTS_TRIGGERED,
+                    message={
+                        "user_id": str(user_id),
+                        "alert_type": alert["type"],
+                        "level": alert["level"],
+                        "message": alert["message"],
+                        "recommendation": alert.get("recommendation"),
+                        "timestamp": datetime.utcnow().isoformat(),
+                    },
+                )
+                # Also publish to general health alerts topic
+                await self.kafka.publish(
                     topic=KafkaTopic.HEALTH_ALERTS,
                     message={
                         "user_id": str(user_id),
@@ -353,7 +373,35 @@ class JournalStorageService:
             "timestamp": datetime.utcnow().isoformat(),
         }
 
+        # Publish main extraction complete event
+        await self.kafka.publish(topic=KafkaTopic.JOURNAL_EXTRACTION_COMPLETE, message=event)
+
+        # Also publish to parsed entries for backward compatibility
         await self.kafka.publish(topic=KafkaTopic.PARSED_ENTRIES, message=event)
+
+        # Publish specific data extraction events
+        if "sleep_hours" in extracted_data or "sleep_quality" in extracted_data:
+            sleep_event = {
+                "user_id": str(user_id),
+                "extraction_id": str(extraction_id),
+                "sleep_hours": extracted_data.get("sleep_hours", {}).get("value"),
+                "sleep_quality": extracted_data.get("sleep_quality", {}).get("value"),
+                "bedtime": extracted_data.get("bedtime", {}).get("value"),
+                "waketime": extracted_data.get("waketime", {}).get("value"),
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+            await self.kafka.publish(topic=KafkaTopic.SLEEP_DATA_EXTRACTED, message=sleep_event)
+
+        if "mood_score" in extracted_data or "mood_score_estimate" in extracted_data:
+            mood_key = "mood_score" if "mood_score" in extracted_data else "mood_score_estimate"
+            mood_event = {
+                "user_id": str(user_id),
+                "extraction_id": str(extraction_id),
+                "mood_score": extracted_data.get(mood_key, {}).get("value"),
+                "confidence": extracted_data.get(mood_key, {}).get("confidence"),
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+            await self.kafka.publish(topic=KafkaTopic.MOOD_DATA_EXTRACTED, message=mood_event)
 
         logger.debug(f"Published extraction event for {extraction_id}")
 
@@ -425,4 +473,7 @@ class JournalEventPublisher:
             "timestamp": datetime.utcnow().isoformat(),
         }
 
+        # Publish to main predictions topic
         await self.kafka.publish(topic=KafkaTopic.PREDICTIONS, message=event)
+        # Also publish to predictions generated topic for event tracking
+        await self.kafka.publish(topic=KafkaTopic.PREDICTIONS_GENERATED, message=event)
