@@ -9,14 +9,14 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# Import v2.0 components
-from .api import router as journal_router
-from .dependencies import initialize_dependencies, shutdown_dependencies
-from .db_pool import initialize_global_pool, close_global_pool
-
 from shared.utils.config import get_settings
 from shared.utils.logger import get_logger
 from shared.utils.logging_config import setup_logging
+
+# Import v2.0 components
+from .api import router as journal_router
+from .db_pool import close_global_pool, initialize_global_pool
+from .dependencies import initialize_dependencies, shutdown_dependencies
 
 # Setup structured logging
 setup_logging("journal-parser", log_level="INFO", json_logs=True)
@@ -32,11 +32,11 @@ async def lifespan(app: FastAPI):
     # Initialize database connection pool
     logger.info("Initializing database connection pool...")
     await initialize_global_pool(settings.postgres_url)
-    
+
     # Initialize dependencies (Gemini, Kafka producer)
     logger.info("Initializing service dependencies...")
     await initialize_dependencies()
-    
+
     logger.info("✅ Journal Parser Service started successfully")
 
     yield
@@ -57,7 +57,7 @@ app = FastAPI(
     **Intelligent Context-Aware Journal Entry Processing**
 
     ## 14-Stage Processing Pipeline
-    
+
     1. **Context Retrieval** - Load user baseline, patterns, relationship state
     2. **Preprocessing** - Spell correction, time normalization, tokenization
     3. **Explicit Extraction** - Direct mentions, calculations
@@ -115,7 +115,10 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_tags=[
-        {"name": "journal-parser", "description": "Intelligent journal entry processing"},
+        {
+            "name": "journal-parser",
+            "description": "Intelligent journal entry processing",
+        },
         {"name": "health", "description": "Service health and monitoring"},
     ],
 )
@@ -146,8 +149,8 @@ async def root():
 
 if __name__ == "__main__":
     uvicorn.run(
-        "main:app", 
-        host="0.0.0.0", 
+        "main:app",
+        host="0.0.0.0",
         port=settings.journal_parser_port,
-        reload=settings.debug
+        reload=settings.debug,
     )

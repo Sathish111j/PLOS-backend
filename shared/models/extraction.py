@@ -8,12 +8,12 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
-
+from pydantic import BaseModel, Field
 
 # ============================================================================
 # ENUMS
 # ============================================================================
+
 
 class RelationshipState(str, Enum):
     HARMONY = "HARMONY"
@@ -57,8 +57,10 @@ class Trajectory(str, Enum):
 # FIELD METADATA
 # ============================================================================
 
+
 class FieldMetadata(BaseModel):
     """Metadata for each extracted field"""
+
     value: Optional[Any] = None
     type: ExtractionType
     confidence: float = Field(ge=0, le=1)
@@ -74,8 +76,10 @@ class FieldMetadata(BaseModel):
 # EXTRACTED DATA STRUCTURES
 # ============================================================================
 
+
 class MoodData(BaseModel):
     """Mood extraction"""
+
     score: Optional[float] = Field(None, ge=1, le=10)
     labels: List[str] = Field(default_factory=list)
     confidence: float = Field(ge=0, le=1)
@@ -84,6 +88,7 @@ class MoodData(BaseModel):
 
 class HealthData(BaseModel):
     """Health metrics extraction"""
+
     sleep_hours: Optional[float] = Field(None, ge=0, le=24)
     sleep_quality: Optional[int] = Field(None, ge=1, le=10)
     energy_level: Optional[int] = Field(None, ge=1, le=10)
@@ -96,6 +101,7 @@ class HealthData(BaseModel):
 
 class NutritionData(BaseModel):
     """Nutrition extraction"""
+
     meals: List[Dict[str, Any]] = Field(default_factory=list)
     meals_count: int = 0
     water_intake: Optional[float] = None  # liters
@@ -107,6 +113,7 @@ class NutritionData(BaseModel):
 
 class ExerciseData(BaseModel):
     """Exercise extraction"""
+
     activities: List[Dict[str, Any]] = Field(default_factory=list)
     total_duration_minutes: int = 0
     exercise_type: Optional[str] = None
@@ -117,6 +124,7 @@ class ExerciseData(BaseModel):
 
 class WorkData(BaseModel):
     """Work/productivity extraction"""
+
     work_hours: Optional[float] = None
     productivity_score: Optional[int] = Field(None, ge=1, le=10)
     focus_level: Optional[int] = Field(None, ge=1, le=10)
@@ -126,6 +134,7 @@ class WorkData(BaseModel):
 
 class ActivityData(BaseModel):
     """General activities"""
+
     type: str
     duration_minutes: Optional[int] = None
     satisfaction: Optional[int] = Field(None, ge=1, le=10)
@@ -134,6 +143,7 @@ class ActivityData(BaseModel):
 
 class RelationshipData(BaseModel):
     """Relationship mentions"""
+
     conflict_mentioned: bool = False
     positive_interaction: bool = False
     trigger: Optional[str] = None
@@ -145,27 +155,29 @@ class RelationshipData(BaseModel):
 # EXTRACTION METADATA
 # ============================================================================
 
+
 class ExtractionMetadata(BaseModel):
     """Metadata about the extraction process"""
+
     quality_score: float = Field(ge=0, le=1)
     quality_level: QualityLevel
     overall_confidence: float = Field(ge=0, le=1)
-    
+
     # What was used
     sources_used: List[str] = Field(default_factory=list)
     gemini_used: bool = False
     inference_used: bool = False
     baseline_used: bool = False
-    
+
     # Processing time
     extraction_time_ms: Optional[int] = None
     gemini_time_ms: Optional[int] = None
-    
+
     # Field statistics
     explicit_fields: int = 0
     inferred_fields: int = 0
     missing_fields: int = 0
-    
+
     # Model version
     model_version: str = "v2.0"
     gemini_model: Optional[str] = None
@@ -175,8 +187,10 @@ class ExtractionMetadata(BaseModel):
 # USER BASELINE
 # ============================================================================
 
+
 class UserBaseline(BaseModel):
     """User's baseline metrics (30-day)"""
+
     sleep_hours: float
     sleep_stddev: float
     mood_score: float
@@ -185,10 +199,10 @@ class UserBaseline(BaseModel):
     energy_stddev: float
     stress_level: float
     stress_stddev: float
-    
+
     sample_count: int
     last_updated: datetime
-    
+
     # Day-of-week patterns
     day_of_week_patterns: Optional[Dict[str, Any]] = None
 
@@ -197,25 +211,27 @@ class UserBaseline(BaseModel):
 # COMPLETE EXTRACTION
 # ============================================================================
 
+
 class ExtractedData(BaseModel):
     """Complete extracted data structure"""
+
     # Core metrics
     mood: Optional[MoodData] = None
     health: Optional[HealthData] = None
     nutrition: Optional[NutritionData] = None
     exercise: Optional[ExerciseData] = None
     work: Optional[WorkData] = None
-    
+
     # Activities and relationships
     activities: List[ActivityData] = Field(default_factory=list)
     relationship: Optional[RelationshipData] = None
-    
+
     # Habits tracking
     habits: List[Dict[str, Any]] = Field(default_factory=list)
-    
+
     # Screen time
     screen_time: Optional[Dict[str, int]] = None  # app: minutes
-    
+
     # Field-level metadata
     field_metadata: Dict[str, FieldMetadata] = Field(default_factory=dict)
 
@@ -224,45 +240,47 @@ class ExtractedData(BaseModel):
 # JOURNAL EXTRACTION (Main Model)
 # ============================================================================
 
+
 class JournalExtraction(BaseModel):
     """Complete journal extraction with intelligence"""
+
     id: Optional[UUID] = None
     user_id: UUID
     entry_date: date
-    
+
     # Raw input
     raw_entry: str
-    
+
     # Extracted data
     extracted_data: ExtractedData
-    
+
     # Metadata
     extraction_metadata: ExtractionMetadata
-    
+
     # Context at extraction time
     user_baseline: Optional[UserBaseline] = None
     day_of_week_pattern: Optional[Dict[str, Any]] = None
-    
+
     # State tracking
     relationship_state: Optional[RelationshipState] = None
     relationship_state_day: int = 0
     sleep_debt_cumulative: float = 0
     fatigue_trajectory: Optional[Trajectory] = None
     mood_trajectory: Optional[Trajectory] = None
-    
+
     # Detected issues
     anomalies_detected: List[str] = Field(default_factory=list)
     health_alerts: List[str] = Field(default_factory=list)
     clarification_needed: List[str] = Field(default_factory=list)
-    
+
     # Temporal linkage
     previous_entry_id: Optional[UUID] = None
     conflict_resolution_status: Optional[str] = None
-    
+
     # Timestamps
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-    
+
     class Config:
         from_attributes = True
 
@@ -271,8 +289,10 @@ class JournalExtraction(BaseModel):
 # CREATE/UPDATE MODELS
 # ============================================================================
 
+
 class JournalExtractionCreate(BaseModel):
     """Model for creating a new extraction"""
+
     user_id: UUID
     entry_date: date
     raw_entry: str = Field(min_length=1)
@@ -280,6 +300,7 @@ class JournalExtractionCreate(BaseModel):
 
 class JournalExtractionResponse(BaseModel):
     """API response model"""
+
     extraction: JournalExtraction
     recommendations: List[str] = Field(default_factory=list)
     next_steps: List[str] = Field(default_factory=list)
@@ -289,6 +310,7 @@ class JournalExtractionResponse(BaseModel):
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
+
 
 def calculate_quality_level(score: float) -> QualityLevel:
     """Calculate quality level from score"""

@@ -8,19 +8,16 @@ import os
 from datetime import datetime
 from uuid import UUID
 
+from shared.gemini.client import ResilientGeminiClient
+from shared.kafka.consumer import KafkaConsumerService
+from shared.kafka.producer import KafkaProducerService
+from shared.utils.logger import get_logger
+
 # Core components
 from .cache_manager import MultiLayerCacheManager
-from .db_pool import (
-    DatabaseConnectionPool,
-    initialize_global_pool,
-    get_global_pool
-)
+from .db_pool import DatabaseConnectionPool, get_global_pool, initialize_global_pool
 from .orchestrator import JournalParserOrchestrator
 from .worker import JournalProcessingWorker
-from shared.kafka.producer import KafkaProducerService
-from shared.kafka.consumer import KafkaConsumerService
-from shared.gemini.client import ResilientGeminiClient
-from shared.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -29,12 +26,13 @@ logger = get_logger(__name__)
 # APPLICATION SETUP
 # ============================================================================
 
+
 class PLOSApplication:
     """
     Complete PLOS v2.0 application setup
     Wires together all components per architecture
     """
-    
+
     def __init__(self):
         # Core infrastructure
         self.db_pool: DatabaseConnectionPool | None = None
@@ -42,14 +40,16 @@ class PLOSApplication:
         self.kafka_producer: KafkaProducerService | None = None
         self.kafka_consumer: KafkaConsumerService | None = None
         self.gemini_client: ResilientGeminiClient | None = None
-        
+
         # Services
         self.orchestrator: JournalParserOrchestrator | None = None
         self.worker: JournalProcessingWorker | None = None
-        
+
         # Configuration from environment
         self.config = {
-            "database_url": os.getenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost:5432/plos"),
+            "database_url": os.getenv(
+                "DATABASE_URL", "postgresql+asyncpg://user:pass@localhost:5432/plos"
+            ),
             "redis_host": os.getenv("REDIS_HOST", "localhost"),
             "redis_port": int(os.getenv("REDIS_PORT", "6379")),
             "kafka_brokers": os.getenv("KAFKA_BROKERS", "localhost:9092"),
@@ -57,52 +57,50 @@ class PLOSApplication:
             "pool_min": int(os.getenv("DB_POOL_MIN", "5")),
             "pool_max": int(os.getenv("DB_POOL_MAX", "20")),
         }
-    
+
     async def initialize(self) -> None:
         """
         Initialize all components
         Call this at application startup
         """
         logger.info("Initializing PLOS v2.0 application")
-        
+
         # 1. Initialize database connection pool
         logger.info("Initializing database pool")
-        await initialize_global_pool(
-            self.config["database_url"]
-        )
+        await initialize_global_pool(self.config["database_url"])
         self.db_pool = get_global_pool()
-        
+
         # 2. Initialize Redis for caching
         logger.info("Initializing cache manager")
         import redis.asyncio as redis
+
         redis_client = await redis.from_url(
             f"redis://{self.config['redis_host']}:{self.config['redis_port']}"
         )
-        
+
         self.cache_manager = MultiLayerCacheManager(
-            redis_client=redis_client,
-            db_session=None  # Will use pool directly
+            redis_client=redis_client, db_session=None  # Will use pool directly
         )
-        
+
         # 3. Initialize Kafka
         logger.info("Initializing Kafka producer")
         self.kafka_producer = KafkaProducerService(
             bootstrap_servers=self.config["kafka_brokers"]
         )
         await self.kafka_producer.start()
-        
+
         logger.info("Initializing Kafka consumer")
         self.kafka_consumer = KafkaConsumerService(
             bootstrap_servers=self.config["kafka_brokers"],
-            group_id="journal-parser-workers"
+            group_id="journal-parser-workers",
         )
         await self.kafka_consumer.start()
-        
+
         # 4. Initialize Gemini client
         logger.info("Initializing Gemini client")
         self.gemini_client = ResilientGeminiClient()
         # Keys are loaded from environment by the client
-        
+
         # 5. Initialize orchestrator
         logger.info("Initializing orchestrator")
         async with self.db_pool.get_session() as session:
@@ -110,19 +108,19 @@ class PLOSApplication:
                 db_session=session,
                 cache_manager=self.cache_manager,
                 gemini_client=self.gemini_client,
-                kafka_producer=self.kafka_producer
+                kafka_producer=self.kafka_producer,
             )
-        
+
         # 6. Initialize worker
         logger.info("Initializing background worker")
         self.worker = JournalProcessingWorker(
             kafka_consumer=self.kafka_consumer,
             orchestrator=self.orchestrator,
-            redis_client=redis_client
+            redis_client=redis_client,
         )
-        
+
         logger.info("✅ PLOS v2.0 initialization complete")
-    
+
     async def start_worker(self) -> None:
         """
         Start background worker
@@ -130,38 +128,39 @@ class PLOSApplication:
         """
         logger.info("Starting background worker")
         await self.worker.start()
-    
+
     async def shutdown(self) -> None:
         """
         Graceful shutdown
         Call this on application exit
         """
         logger.info("Shutting down PLOS v2.0")
-        
+
         # Stop Kafka
         if self.kafka_producer:
             await self.kafka_producer.stop()
         if self.kafka_consumer:
             await self.kafka_consumer.stop()
-        
+
         # Close database pool
         if self.db_pool:
             await self.db_pool.close()
-        
+
         logger.info("✅ Shutdown complete")
-    
+
     def get_metrics(self) -> dict:
         """Get comprehensive system metrics"""
         return {
             "database": self.db_pool.get_pool_status() if self.db_pool else {},
             "cache": self.cache_manager.get_cache_stats() if self.cache_manager else {},
-            "worker": self.worker.get_metrics() if self.worker else {}
+            "worker": self.worker.get_metrics() if self.worker else {},
         }
 
 
 # ============================================================================
 # EXAMPLE USAGE: SYNC API
 # ============================================================================
+
 
 async def example_sync_processing():
     """
@@ -170,22 +169,22 @@ async def example_sync_processing():
     """
     app = PLOSApplication()
     await app.initialize()
-    
+
     try:
         # Process entry synchronously
-        async with app.db_pool.get_session() as session:
+        async with app.db_pool.get_session() as _:
             result = await app.orchestrator.process_journal_entry(
                 user_id=UUID("12345678-1234-1234-1234-123456789abc"),
                 journal_entry_id=UUID("87654321-4321-4321-4321-cba987654321"),
                 entry_text="Slept 7 hours. Played badminton for 1 hour. Feeling great!",
-                entry_date=datetime.utcnow()
+                entry_date=datetime.utcnow(),
             )
-        
+
         logger.info(f"Processing complete: {result['extraction_id']}")
         logger.info(f"Quality: {result['quality_level']}")
         logger.info(f"Health alerts: {len(result.get('health_alerts', []))}")
         logger.info(f"Predictions: {result.get('predictions', {})}")
-    
+
     finally:
         await app.shutdown()
 
@@ -194,6 +193,7 @@ async def example_sync_processing():
 # EXAMPLE USAGE: ASYNC API
 # ============================================================================
 
+
 async def example_async_processing():
     """
     Example: Asynchronous processing (fire-and-forget)
@@ -201,12 +201,13 @@ async def example_async_processing():
     """
     app = PLOSApplication()
     await app.initialize()
-    
+
     try:
         # Queue entry for async processing
         from uuid import uuid4
+
         task_id = str(uuid4())
-        
+
         await app.kafka_producer.publish(
             topic="journal_entries_raw",
             key=str("user-123"),
@@ -217,17 +218,17 @@ async def example_async_processing():
                 "entry_text": "Slept 7 hours. Played badminton for 1 hour. Feeling great!",
                 "entry_date": datetime.utcnow().isoformat(),
                 "priority": 5,
-                "queued_at": datetime.utcnow().isoformat()
-            }
+                "queued_at": datetime.utcnow().isoformat(),
+            },
         )
-        
+
         logger.info(f"Queued task: {task_id}")
         logger.info("User can check status at /v2/async/status/{task_id}")
-        
+
         # Start worker in background
         # In production, run this in separate process/container
         await app.start_worker()
-    
+
     finally:
         await app.shutdown()
 
@@ -236,38 +237,39 @@ async def example_async_processing():
 # FASTAPI INTEGRATION
 # ============================================================================
 
+
 async def create_fastapi_app():
     """
     Example: Integrate with FastAPI
     """
-    from fastapi import FastAPI, Depends
-    
+    from fastapi import FastAPI
+
     app_instance = FastAPI(title="PLOS v2.0 API")
     plos = PLOSApplication()
-    
+
     @app_instance.on_event("startup")
     async def startup():
         await plos.initialize()
-    
+
     @app_instance.on_event("shutdown")
     async def shutdown():
         await plos.shutdown()
-    
+
     @app_instance.get("/health")
     async def health_check():
         return {
             "status": "healthy",
             "service": "plos-v2",
-            "metrics": plos.get_metrics()
+            "metrics": plos.get_metrics(),
         }
-    
+
     # Include routers
     from .api import router as sync_router
     from .api_async import router as async_router
-    
+
     app_instance.include_router(sync_router)
     app_instance.include_router(async_router)
-    
+
     return app_instance
 
 
@@ -275,16 +277,17 @@ async def create_fastapi_app():
 # WORKER PROCESS ENTRYPOINT
 # ============================================================================
 
+
 async def run_worker_process():
     """
     Standalone worker process
     Run with: python -m services.journal-parser.src.integration_example
     """
     logger.info("Starting PLOS v2.0 background worker")
-    
+
     app = PLOSApplication()
     await app.initialize()
-    
+
     try:
         # Run worker indefinitely
         await app.start_worker()
@@ -316,7 +319,7 @@ services:
     volumes:
       - ./infrastructure/database/migrations/v2_schema.sql:/docker-entrypoint-initdb.d/schema.sql
       - postgres_data:/var/lib/postgresql/data
-  
+
   # Redis Cache
   redis:
     image: redis:7-alpine
@@ -324,7 +327,7 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
-  
+
   # Kafka
   kafka:
     image: confluentinc/cp-kafka:latest
@@ -334,12 +337,12 @@ services:
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
     ports:
       - "9092:9092"
-  
+
   zookeeper:
     image: confluentinc/cp-zookeeper:latest
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
-  
+
   # PLOS API (FastAPI)
   api:
     build: .
@@ -355,7 +358,7 @@ services:
       - postgres
       - redis
       - kafka
-  
+
   # PLOS Background Worker
   worker:
     build: .
@@ -411,7 +414,7 @@ LOG_LEVEL=INFO
 
 if __name__ == "__main__":
     import sys
-    
+
     if len(sys.argv) > 1 and sys.argv[1] == "worker":
         # Run as worker
         asyncio.run(run_worker_process())
