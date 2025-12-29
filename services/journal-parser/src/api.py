@@ -18,7 +18,7 @@ from shared.kafka.producer import KafkaProducerService
 
 logger = get_logger(__name__)
 
-router = APIRouter(prefix="/v2", tags=["journal-parser-v2"])
+router = APIRouter(prefix="/journal", tags=["journal-parser"])
 
 
 # ============================================================================
@@ -58,26 +58,7 @@ class HealthCheckResponse(BaseModel):
 # DEPENDENCY INJECTION
 # ============================================================================
 
-# These would be replaced with actual dependency injection
-# For now, placeholder functions
-
-async def get_db_session() -> AsyncSession:
-    """Get database session (placeholder)"""
-    # In production, this would return actual AsyncSession
-    # from dependency_injector or similar
-    raise NotImplementedError("Database session not configured")
-
-
-async def get_kafka_producer() -> KafkaProducerService:
-    """Get Kafka producer (placeholder)"""
-    # In production, return actual KafkaProducerService
-    raise NotImplementedError("Kafka producer not configured")
-
-
-async def get_gemini_client() -> ResilientGeminiClient:
-    """Get Gemini client (placeholder)"""
-    # In production, return configured client
-    return ResilientGeminiClient()
+from .dependencies import get_db_session, get_gemini_client, get_kafka_producer
 
 
 # ============================================================================
@@ -160,7 +141,7 @@ async def health_check() -> HealthCheckResponse:
     """
     return HealthCheckResponse(
         status="healthy",
-        service="journal-parser-v2",
+        service="journal-parser",
         version="2.0.0",
         timestamp=datetime.utcnow()
     )
@@ -181,7 +162,7 @@ async def get_metrics(
         metrics = gemini.get_key_metrics()
         
         return {
-            "service": "journal-parser-v2",
+            "service": "journal-parser",
             "timestamp": datetime.utcnow().isoformat(),
             "gemini_metrics": metrics,
         }
