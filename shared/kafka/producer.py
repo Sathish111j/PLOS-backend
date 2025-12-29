@@ -129,8 +129,6 @@ class KafkaProducerService:
         if self._started:
             return
 
-        import json
-
         from aiokafka import AIOKafkaProducer
 
         self._producer = AIOKafkaProducer(

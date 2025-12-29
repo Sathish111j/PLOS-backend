@@ -169,8 +169,6 @@ class KafkaConsumerService:
         if self._started:
             return
 
-        import json
-
         from aiokafka import AIOKafkaConsumer
 
         self._consumer = AIOKafkaConsumer(

@@ -42,7 +42,7 @@ class ProcessJournalRequest(BaseModel):
 
 class ActivityResponse(BaseModel):
     """Activity in extraction response"""
-    
+
     name: str
     category: str
     duration_minutes: Optional[int] = None
@@ -53,7 +53,7 @@ class ActivityResponse(BaseModel):
 
 class ConsumptionResponse(BaseModel):
     """Consumption in extraction response"""
-    
+
     name: str
     type: str
     meal_type: Optional[str] = None
@@ -64,7 +64,7 @@ class ConsumptionResponse(BaseModel):
 
 class ClarificationQuestion(BaseModel):
     """A question for the user to clarify ambiguous data"""
-    
+
     question: str
     context: Optional[str] = None
     category: str
@@ -79,7 +79,7 @@ class ExtractionResponse(BaseModel):
     user_id: str
     entry_date: str
     quality: str
-    
+
     # Extracted data
     sleep: Optional[Dict[str, Any]] = None
     metrics: Optional[Dict[str, Any]] = None
@@ -87,25 +87,25 @@ class ExtractionResponse(BaseModel):
     consumptions: List[ConsumptionResponse] = []
     social: Optional[Dict[str, Any]] = None
     notes: Optional[Dict[str, Any]] = None
-    
+
     # Gaps requiring clarification
     has_gaps: bool = False
     clarification_questions: List[ClarificationQuestion] = []
-    
+
     # Metadata
     processing_time_ms: int
 
 
 class ResolveGapRequest(BaseModel):
     """Request to resolve a clarification gap"""
-    
+
     gap_id: UUID = Field(..., description="Gap UUID to resolve")
     user_response: str = Field(..., description="User's answer to the question")
 
 
 class ResolveGapResponse(BaseModel):
     """Response after resolving a gap"""
-    
+
     status: str
     gap_id: str
     response: str
@@ -113,7 +113,7 @@ class ResolveGapResponse(BaseModel):
 
 class PendingGap(BaseModel):
     """A pending gap that needs user clarification"""
-    
+
     gap_id: str
     field: str
     question: str
@@ -151,7 +151,7 @@ class HealthCheckResponse(BaseModel):
     - Gap detection for ambiguous entries
     - Controlled vocabulary resolution
     - Storage with alias learning
-    
+
     Returns extracted data plus any clarification questions for ambiguous entries.
     """,
 )
@@ -188,9 +188,7 @@ async def process_journal_entry(
             quality=result["quality"],
             sleep=result.get("sleep"),
             metrics=result.get("metrics"),
-            activities=[
-                ActivityResponse(**a) for a in result.get("activities", [])
-            ],
+            activities=[ActivityResponse(**a) for a in result.get("activities", [])],
             consumptions=[
                 ConsumptionResponse(**c) for c in result.get("consumptions", [])
             ],
@@ -198,7 +196,7 @@ async def process_journal_entry(
             notes=result.get("notes"),
             has_gaps=result.get("has_gaps", False),
             clarification_questions=[
-                ClarificationQuestion(**q) 
+                ClarificationQuestion(**q)
                 for q in result.get("clarification_questions", [])
             ],
             processing_time_ms=result["metadata"]["processing_time_ms"],

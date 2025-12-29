@@ -14,14 +14,14 @@ from shared.gemini.client import ResilientGeminiClient
 from shared.kafka.producer import KafkaProducerService
 from shared.utils.logger import get_logger
 
-from .generalized_extraction import (
-    GeminiExtractor,
-    GapResolver,
-    ExtractionResult,
-)
 from .context_retrieval import ContextRetrievalEngine
-from .storage_service import StorageService
+from .generalized_extraction import (
+    ExtractionResult,
+    GapResolver,
+    GeminiExtractor,
+)
 from .preprocessing import Preprocessor
+from .storage_service import StorageService
 
 logger = get_logger(__name__)
 
@@ -36,7 +36,7 @@ class JournalParserOrchestrator:
     5. Detects gaps for clarification
     6. Stores in normalized tables
     7. Generates insights
-    
+
     Pipeline stages:
     1. Preprocessing
     2. Context Retrieval
@@ -71,12 +71,12 @@ class JournalParserOrchestrator:
     ) -> Dict[str, Any]:
         """
         Process a journal entry through the extraction pipeline.
-        
+
         Args:
             user_id: User UUID
             entry_text: Raw journal text
             entry_date: Date of the entry (defaults to today)
-        
+
         Returns:
             Complete extraction results with gaps and metadata
         """
@@ -159,7 +159,6 @@ class JournalParserOrchestrator:
                 "user_id": str(user_id),
                 "entry_date": entry_date.isoformat(),
                 "quality": extraction.quality,
-                
                 # Extraction data
                 "sleep": extraction.sleep,
                 "metrics": extraction.metrics,
@@ -187,11 +186,9 @@ class JournalParserOrchestrator:
                 ],
                 "social": extraction.social,
                 "notes": extraction.notes,
-                
                 # Gaps requiring user clarification
                 "has_gaps": extraction.has_gaps,
                 "clarification_questions": clarification_questions,
-                
                 # Metadata
                 "metadata": {
                     "processing_time_ms": processing_time_ms,
@@ -218,27 +215,27 @@ class JournalParserOrchestrator:
     ) -> Dict[str, Any]:
         """
         Resolve a clarification gap with user's response.
-        
+
         Args:
             user_id: User UUID
             gap_id: Gap UUID to resolve
             user_response: User's answer to the clarification question
-        
+
         Returns:
             Updated extraction data
         """
         try:
             # Update the gap in storage
             await self.storage.resolve_gap(gap_id, user_response)
-            
+
             logger.info(f"Resolved gap {gap_id} for user {user_id}")
-            
+
             return {
                 "status": "resolved",
                 "gap_id": str(gap_id),
                 "response": user_response,
             }
-            
+
         except Exception as e:
             logger.error(f"Error resolving gap: {e}")
             raise
@@ -246,10 +243,10 @@ class JournalParserOrchestrator:
     async def get_pending_gaps(self, user_id: UUID) -> List[Dict[str, Any]]:
         """
         Get all pending clarification gaps for a user.
-        
+
         Args:
             user_id: User UUID
-        
+
         Returns:
             List of pending gaps with questions
         """
@@ -262,11 +259,11 @@ class JournalParserOrchestrator:
     ) -> Dict[str, Any]:
         """
         Get activity summary for a user.
-        
+
         Args:
             user_id: User UUID
             days: Number of days to look back
-        
+
         Returns:
             Activity summary by category
         """
@@ -281,13 +278,13 @@ class JournalParserOrchestrator:
     ) -> List[Dict[str, Any]]:
         """
         Get user activities with optional filters.
-        
+
         Args:
             user_id: User UUID
             start_date: Start date filter
             end_date: End date filter
             category: Category filter (physical, mental, etc.)
-        
+
         Returns:
             List of activities
         """
@@ -311,7 +308,7 @@ async def process_journal(
 ) -> Dict[str, Any]:
     """
     Convenience function to process a journal entry.
-    
+
     Args:
         db_session: Database session
         user_id: User UUID
@@ -319,7 +316,7 @@ async def process_journal(
         entry_date: Date of the entry
         kafka_producer: Optional Kafka producer
         gemini_client: Optional Gemini client
-    
+
     Returns:
         Extraction results
     """

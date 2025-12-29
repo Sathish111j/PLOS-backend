@@ -149,9 +149,17 @@ class KafkaJournalConsumer:
             )
 
             result = await orchestrator.process_journal_entry(
-                user_id=UUID(entry.user_id) if isinstance(entry.user_id, str) else entry.user_id,
+                user_id=(
+                    UUID(entry.user_id)
+                    if isinstance(entry.user_id, str)
+                    else entry.user_id
+                ),
                 entry_text=entry.content,
-                entry_date=entry.entry_date.date() if hasattr(entry.entry_date, 'date') else entry.entry_date,
+                entry_date=(
+                    entry.entry_date.date()
+                    if hasattr(entry.entry_date, "date")
+                    else entry.entry_date
+                ),
             )
 
             # Prepare output message
@@ -196,9 +204,15 @@ class KafkaJournalConsumer:
         )
 
         result = await orchestrator.process_journal_entry(
-            user_id=UUID(entry.user_id) if isinstance(entry.user_id, str) else entry.user_id,
+            user_id=(
+                UUID(entry.user_id) if isinstance(entry.user_id, str) else entry.user_id
+            ),
             entry_text=entry.content,
-            entry_date=entry.entry_date.date() if hasattr(entry.entry_date, 'date') else entry.entry_date,
+            entry_date=(
+                entry.entry_date.date()
+                if hasattr(entry.entry_date, "date")
+                else entry.entry_date
+            ),
         )
 
         return result

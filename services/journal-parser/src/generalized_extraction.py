@@ -24,28 +24,31 @@ logger = get_logger(__name__)
 
 class TimeOfDay(Enum):
     """Time of day classification for activities and events."""
+
     EARLY_MORNING = "early_morning"  # 4am - 7am
-    MORNING = "morning"              # 7am - 12pm
-    AFTERNOON = "afternoon"          # 12pm - 5pm
-    EVENING = "evening"              # 5pm - 9pm
-    NIGHT = "night"                  # 9pm - 12am
-    LATE_NIGHT = "late_night"        # 12am - 4am
+    MORNING = "morning"  # 7am - 12pm
+    AFTERNOON = "afternoon"  # 12pm - 5pm
+    EVENING = "evening"  # 5pm - 9pm
+    NIGHT = "night"  # 9pm - 12am
+    LATE_NIGHT = "late_night"  # 12am - 4am
 
 
 class GapPriority(Enum):
     """Priority levels for data gaps requiring clarification."""
-    HIGH = 1      # Missing core data (sleep hours, main activity type)
-    MEDIUM = 2    # Missing details (duration, intensity)
-    LOW = 3       # Nice to have (satisfaction, notes)
+
+    HIGH = 1  # Missing core data (sleep hours, main activity type)
+    MEDIUM = 2  # Missing details (duration, intensity)
+    LOW = 3  # Nice to have (satisfaction, notes)
 
 
 @dataclass
 class DataGap:
     """Represents missing information that needs user clarification."""
-    field_category: str           # 'activity', 'meal', 'sleep', 'social'
-    question: str                 # "What sport did you play?"
-    context: str                  # "You mentioned 'played well'"
-    original_mention: str         # The exact ambiguous text
+
+    field_category: str  # 'activity', 'meal', 'sleep', 'social'
+    question: str  # "What sport did you play?"
+    context: str  # "You mentioned 'played well'"
+    original_mention: str  # The exact ambiguous text
     priority: GapPriority = GapPriority.MEDIUM
     suggested_options: List[str] = field(default_factory=list)
 
@@ -53,15 +56,16 @@ class DataGap:
 @dataclass
 class NormalizedActivity:
     """Normalized activity with canonical name from controlled vocabulary."""
+
     canonical_name: Optional[str]  # From controlled vocabulary (None if unknown)
-    raw_name: str                  # Original user text
-    category: str                  # physical, mental, leisure, etc.
+    raw_name: str  # Original user text
+    category: str  # physical, mental, leisure, etc.
     duration_minutes: Optional[int] = None
     time_of_day: Optional[TimeOfDay] = None
-    start_time: Optional[str] = None      # HH:MM
-    end_time: Optional[str] = None        # HH:MM
-    intensity: Optional[str] = None       # low, medium, high
-    satisfaction: Optional[int] = None    # 1-10
+    start_time: Optional[str] = None  # HH:MM
+    end_time: Optional[str] = None  # HH:MM
+    intensity: Optional[str] = None  # low, medium, high
+    satisfaction: Optional[int] = None  # 1-10
     calories_burned: Optional[int] = None
     is_screen_time: bool = False
     confidence: float = 0.5
@@ -72,10 +76,11 @@ class NormalizedActivity:
 @dataclass
 class NormalizedConsumption:
     """Normalized food/drink with canonical name."""
+
     canonical_name: Optional[str]
     raw_name: str
-    consumption_type: str          # meal, snack, drink, medication
-    meal_type: Optional[str] = None       # breakfast, lunch, dinner, snack
+    consumption_type: str  # meal, snack, drink, medication
+    meal_type: Optional[str] = None  # breakfast, lunch, dinner, snack
     time_of_day: Optional[TimeOfDay] = None
     consumption_time: Optional[str] = None  # HH:MM
     quantity: float = 1.0
@@ -93,27 +98,28 @@ class NormalizedConsumption:
 @dataclass
 class ExtractionResult:
     """Complete extraction result with gaps for clarification."""
+
     # Metrics (numeric scores)
     metrics: Dict[str, Dict[str, Any]]
-    
+
     # Activities
     activities: List[NormalizedActivity]
-    
+
     # Consumptions (food, drinks, meds)
     consumptions: List[NormalizedConsumption]
-    
+
     # Social interactions
     social: List[Dict[str, Any]]
-    
+
     # Sleep (special case)
     sleep: Optional[Dict[str, Any]]
-    
+
     # Notes (goals, gratitude, symptoms, etc.)
     notes: List[Dict[str, Any]]
-    
+
     # Gaps that need clarification
     gaps: List[DataGap]
-    
+
     # Metadata
     quality: str = "medium"
     has_gaps: bool = False
@@ -128,82 +134,145 @@ class ExtractionResult:
 # Activity mappings: alias -> canonical_name
 ACTIVITY_ALIASES = {
     # Running
-    "jogging": "running", "jog": "running", "run": "running", "running": "running",
-    
+    "jogging": "running",
+    "jog": "running",
+    "run": "running",
+    "running": "running",
     # Gym/Exercise
-    "gym": "gym", "gymming": "gym", "workout": "gym", "working out": "gym",
-    "exercise": "gym", "exercising": "gym", "weights": "gym", "lifting": "gym",
-    
+    "gym": "gym",
+    "gymming": "gym",
+    "workout": "gym",
+    "working out": "gym",
+    "exercise": "gym",
+    "exercising": "gym",
+    "weights": "gym",
+    "lifting": "gym",
     # Swimming
-    "swimming": "swimming", "swim": "swimming", "swam": "swimming",
-    
+    "swimming": "swimming",
+    "swim": "swimming",
+    "swam": "swimming",
     # Cycling
-    "cycling": "cycling", "biking": "cycling", "bike": "cycling", "cycle": "cycling",
-    
+    "cycling": "cycling",
+    "biking": "cycling",
+    "bike": "cycling",
+    "cycle": "cycling",
     # Walking
-    "walking": "walking", "walk": "walking", "walked": "walking", "stroll": "walking",
-    
+    "walking": "walking",
+    "walk": "walking",
+    "walked": "walking",
+    "stroll": "walking",
     # Yoga
     "yoga": "yoga",
-    
     # Sports
-    "badminton": "badminton", "cricket": "cricket", "football": "football",
-    "soccer": "football", "basketball": "basketball", "tennis": "tennis",
-    "table tennis": "table_tennis", "ping pong": "table_tennis",
-    
+    "badminton": "badminton",
+    "cricket": "cricket",
+    "football": "football",
+    "soccer": "football",
+    "basketball": "basketball",
+    "tennis": "tennis",
+    "table tennis": "table_tennis",
+    "ping pong": "table_tennis",
     # Mental activities
-    "reading": "reading", "read": "reading", "studying": "studying",
-    "study": "studying", "studied": "studying", "learning": "learning",
-    "programming": "programming", "coding": "programming", "code": "programming",
-    "coded": "programming", "meditation": "meditation", "meditate": "meditation",
+    "reading": "reading",
+    "read": "reading",
+    "studying": "studying",
+    "study": "studying",
+    "studied": "studying",
+    "learning": "learning",
+    "programming": "programming",
+    "coding": "programming",
+    "code": "programming",
+    "coded": "programming",
+    "meditation": "meditation",
+    "meditate": "meditation",
     "meditating": "meditation",
-    
     # Creative
-    "writing": "writing", "wrote": "writing", "drawing": "drawing",
-    "painting": "painting", "music": "music_playing",
-    
+    "writing": "writing",
+    "wrote": "writing",
+    "drawing": "drawing",
+    "painting": "painting",
+    "music": "music_playing",
     # Leisure/Screen
-    "netflix": "streaming", "watching": "watching_tv", "tv": "watching_tv",
-    "youtube": "youtube", "gaming": "gaming", "games": "gaming",
-    "instagram": "social_media", "insta": "social_media", "twitter": "social_media",
-    "facebook": "social_media", "scrolling": "social_media", "reels": "social_media",
-    
+    "netflix": "streaming",
+    "watching": "watching_tv",
+    "tv": "watching_tv",
+    "youtube": "youtube",
+    "gaming": "gaming",
+    "games": "gaming",
+    "instagram": "social_media",
+    "insta": "social_media",
+    "twitter": "social_media",
+    "facebook": "social_media",
+    "scrolling": "social_media",
+    "reels": "social_media",
     # Chores
-    "cooking": "cooking", "cooked": "cooking", "cleaning": "cleaning",
-    "cleaned": "cleaning", "shopping": "shopping", "laundry": "laundry",
+    "cooking": "cooking",
+    "cooked": "cooking",
+    "cleaning": "cleaning",
+    "cleaned": "cleaning",
+    "shopping": "shopping",
+    "laundry": "laundry",
 }
 
 # Activity categories
 ACTIVITY_CATEGORIES = {
-    "running": "physical", "gym": "physical", "swimming": "physical",
-    "cycling": "physical", "walking": "physical", "yoga": "physical",
-    "badminton": "physical", "cricket": "physical", "football": "physical",
-    "basketball": "physical", "tennis": "physical", "table_tennis": "physical",
+    "running": "physical",
+    "gym": "physical",
+    "swimming": "physical",
+    "cycling": "physical",
+    "walking": "physical",
+    "yoga": "physical",
+    "badminton": "physical",
+    "cricket": "physical",
+    "football": "physical",
+    "basketball": "physical",
+    "tennis": "physical",
+    "table_tennis": "physical",
     "dancing": "physical",
-    
-    "reading": "mental", "studying": "mental", "learning": "mental",
-    "programming": "mental", "meditation": "mental",
-    
-    "writing": "creative", "drawing": "creative", "painting": "creative",
+    "reading": "mental",
+    "studying": "mental",
+    "learning": "mental",
+    "programming": "mental",
+    "meditation": "mental",
+    "writing": "creative",
+    "drawing": "creative",
+    "painting": "creative",
     "music_playing": "creative",
-    
-    "streaming": "leisure", "watching_tv": "leisure", "youtube": "leisure",
-    "gaming": "leisure", "social_media": "leisure",
-    
-    "cooking": "chores", "cleaning": "chores", "shopping": "chores",
+    "streaming": "leisure",
+    "watching_tv": "leisure",
+    "youtube": "leisure",
+    "gaming": "leisure",
+    "social_media": "leisure",
+    "cooking": "chores",
+    "cleaning": "chores",
+    "shopping": "chores",
     "laundry": "chores",
 }
 
 # Screen time activities (for tracking)
 SCREEN_TIME_ACTIVITIES = {
-    "streaming", "watching_tv", "youtube", "gaming", "social_media", "programming"
+    "streaming",
+    "watching_tv",
+    "youtube",
+    "gaming",
+    "social_media",
+    "programming",
 }
 
 # Calories per hour for activities (approximate)
 ACTIVITY_CALORIES = {
-    "running": 600, "gym": 400, "swimming": 550, "cycling": 500,
-    "walking": 280, "yoga": 200, "badminton": 450, "cricket": 350,
-    "football": 500, "basketball": 550, "tennis": 450, "dancing": 400,
+    "running": 600,
+    "gym": 400,
+    "swimming": 550,
+    "cycling": 500,
+    "walking": 280,
+    "yoga": 200,
+    "badminton": 450,
+    "cricket": 350,
+    "football": 500,
+    "basketball": 550,
+    "tennis": 450,
+    "dancing": 400,
 }
 
 
@@ -215,42 +284,41 @@ ACTIVITY_CALORIES = {
 def normalize_activity_name(raw_name: str) -> Tuple[Optional[str], str]:
     """
     Normalize activity name to canonical form from controlled vocabulary.
-    
+
     Args:
         raw_name: The raw activity name from user or extraction
-    
+
     Returns:
         Tuple of (canonical_name, category). canonical_name is None if unknown.
     """
     raw_lower = raw_name.lower().strip()
-    
+
     # Direct match
     if raw_lower in ACTIVITY_ALIASES:
         canonical = ACTIVITY_ALIASES[raw_lower]
         category = ACTIVITY_CATEGORIES.get(canonical, "other")
         return canonical, category
-    
+
     # Partial match (contains)
     for alias, canonical in ACTIVITY_ALIASES.items():
         if alias in raw_lower or raw_lower in alias:
             category = ACTIVITY_CATEGORIES.get(canonical, "other")
             return canonical, category
-    
+
     # Unknown - return None for canonical
     return None, "other"
 
 
 def infer_time_of_day(
-    time_str: Optional[str] = None, 
-    context_hints: Optional[List[str]] = None
+    time_str: Optional[str] = None, context_hints: Optional[List[str]] = None
 ) -> Optional[TimeOfDay]:
     """
     Infer time of day from time string or contextual hints.
-    
+
     Args:
         time_str: Time in HH:MM format
         context_hints: List of text hints (e.g., ["morning workout"])
-    
+
     Returns:
         TimeOfDay enum value or None
     """
@@ -271,7 +339,7 @@ def infer_time_of_day(
                 return TimeOfDay.LATE_NIGHT
         except (ValueError, IndexError):
             pass
-    
+
     if context_hints:
         hints_lower = " ".join(context_hints).lower()
         if any(w in hints_lower for w in ["morning", "woke up", "breakfast"]):
@@ -282,24 +350,24 @@ def infer_time_of_day(
             return TimeOfDay.EVENING
         if any(w in hints_lower for w in ["night", "late", "before bed", "sleep"]):
             return TimeOfDay.NIGHT
-    
+
     return None
 
 
 def estimate_calories(activity: str, duration_minutes: Optional[int]) -> Optional[int]:
     """
     Estimate calories burned for an activity.
-    
+
     Args:
         activity: Canonical activity name
         duration_minutes: Duration in minutes
-    
+
     Returns:
         Estimated calories or None
     """
     if not duration_minutes or activity not in ACTIVITY_CALORIES:
         return None
-    
+
     cal_per_hour = ACTIVITY_CALORIES[activity]
     return int(cal_per_hour * duration_minutes / 60)
 
@@ -312,17 +380,17 @@ def estimate_calories(activity: str, duration_minutes: Optional[int]) -> Optiona
 def detect_gaps(raw_text: str, extraction: Dict[str, Any]) -> List[DataGap]:
     """
     Detect gaps in extraction that need user clarification.
-    
+
     Args:
         raw_text: Original journal text
         extraction: Raw extraction from Gemini
-    
+
     Returns:
         List of DataGap objects
     """
     gaps = []
     text_lower = raw_text.lower()
-    
+
     # Ambiguous activity mentions
     activity_patterns = [
         (r"played\s+(?:well|good|great|bad|poorly)", "What did you play?"),
@@ -332,63 +400,87 @@ def detect_gaps(raw_text: str, extraction: Dict[str, Any]) -> List[DataGap]:
         (r"practiced", "What did you practice?"),
         (r"trained", "What did you train for?"),
     ]
-    
+
     for pattern, question in activity_patterns:
         match = re.search(pattern, text_lower)
         if match:
-            gaps.append(DataGap(
-                field_category="activity",
-                question=question,
-                context=f"You mentioned: '{match.group(0)}'",
-                original_mention=match.group(0),
-                priority=GapPriority.HIGH,
-                suggested_options=["badminton", "cricket", "gym", "running", "yoga"]
-            ))
-    
+            gaps.append(
+                DataGap(
+                    field_category="activity",
+                    question=question,
+                    context=f"You mentioned: '{match.group(0)}'",
+                    original_mention=match.group(0),
+                    priority=GapPriority.HIGH,
+                    suggested_options=[
+                        "badminton",
+                        "cricket",
+                        "gym",
+                        "running",
+                        "yoga",
+                    ],
+                )
+            )
+
     # Ambiguous meal mentions
     meal_patterns = [
-        (r"had\s+(?:some|a)\s+(?:food|meal|lunch|dinner|breakfast)", "What did you eat?"),
+        (
+            r"had\s+(?:some|a)\s+(?:food|meal|lunch|dinner|breakfast)",
+            "What did you eat?",
+        ),
         (r"ate\s+(?:something|well|good|out)", "What did you eat?"),
         (r"ordered\s+(?:food|something)", "What did you order?"),
     ]
-    
+
     for pattern, question in meal_patterns:
         match = re.search(pattern, text_lower)
         if match:
-            gaps.append(DataGap(
-                field_category="meal",
-                question=question,
-                context=f"You mentioned: '{match.group(0)}'",
-                original_mention=match.group(0),
-                priority=GapPriority.MEDIUM,
-            ))
-    
+            gaps.append(
+                DataGap(
+                    field_category="meal",
+                    question=question,
+                    context=f"You mentioned: '{match.group(0)}'",
+                    original_mention=match.group(0),
+                    priority=GapPriority.MEDIUM,
+                )
+            )
+
     # Duration missing for activities
     activities = extraction.get("activities", [])
     for activity in activities:
         if isinstance(activity, dict):
-            if activity.get("duration_minutes") is None and activity.get("activity_name"):
-                gaps.append(DataGap(
-                    field_category="activity",
-                    question=f"How long did you do {activity.get('activity_name', 'this activity')}?",
-                    context=f"Activity: {activity.get('activity_name')}",
-                    original_mention=activity.get("raw_mention", ""),
-                    priority=GapPriority.MEDIUM,
-                    suggested_options=["15 minutes", "30 minutes", "1 hour", "2 hours"]
-                ))
-    
+            if activity.get("duration_minutes") is None and activity.get(
+                "activity_name"
+            ):
+                gaps.append(
+                    DataGap(
+                        field_category="activity",
+                        question=f"How long did you do {activity.get('activity_name', 'this activity')}?",
+                        context=f"Activity: {activity.get('activity_name')}",
+                        original_mention=activity.get("raw_mention", ""),
+                        priority=GapPriority.MEDIUM,
+                        suggested_options=[
+                            "15 minutes",
+                            "30 minutes",
+                            "1 hour",
+                            "2 hours",
+                        ],
+                    )
+                )
+
     # Sleep quality without hours
     sleep = extraction.get("sleep", {})
     if sleep:
         if sleep.get("quality") and not sleep.get("duration_hours"):
-            gaps.append(DataGap(
-                field_category="sleep",
-                question="How many hours did you sleep?",
-                context="You mentioned sleep quality but not duration",
-                original_mention=sleep.get("raw_mention", ""),
-                priority=GapPriority.HIGH,
-            ))
-    
+            gaps.append(
+                DataGap(
+                    field_category="sleep",
+                    question="How many hours did you sleep?",
+                    context="You mentioned sleep quality but not duration",
+                    original_mention=sleep.get("raw_mention", ""),
+                    priority=GapPriority.HIGH,
+                )
+            )
+
     return gaps
 
 
@@ -408,7 +500,7 @@ EXTRACTION_SCHEMA = """
     "nap_minutes": "int",
     "raw_mention": "exact text about sleep"
   },
-  
+
   "metrics": {
     "mood_score": {"value": "int 1-10", "time_of_day": "morning|afternoon|evening|night"},
     "energy_level": {"value": "int 1-10", "time_of_day": "..."},
@@ -418,7 +510,7 @@ EXTRACTION_SCHEMA = """
     "coffee_cups": {"value": "int"},
     "screen_time_hours": {"value": "float"}
   },
-  
+
   "activities": [
     {
       "activity_name": "the activity (badminton, coding, netflix, etc.)",
@@ -431,7 +523,7 @@ EXTRACTION_SCHEMA = """
       "raw_mention": "exact text"
     }
   ],
-  
+
   "meals": [
     {
       "meal_type": "breakfast|lunch|dinner|snack",
@@ -443,7 +535,7 @@ EXTRACTION_SCHEMA = """
       "raw_mention": "exact text"
     }
   ],
-  
+
   "drinks": [
     {
       "drink_name": "water|coffee|tea|juice|etc",
@@ -453,7 +545,7 @@ EXTRACTION_SCHEMA = """
       "raw_mention": "..."
     }
   ],
-  
+
   "social": [
     {
       "person": "name or relationship (mom, friend, colleague)",
@@ -464,7 +556,7 @@ EXTRACTION_SCHEMA = """
       "raw_mention": "..."
     }
   ],
-  
+
   "notes": [
     {
       "type": "goal|achievement|gratitude|symptom|thought|plan",
@@ -473,7 +565,7 @@ EXTRACTION_SCHEMA = """
       "raw_mention": "..."
     }
   ],
-  
+
   "ambiguous": [
     {
       "text": "the ambiguous text",
@@ -494,7 +586,7 @@ EXTRACTION_SCHEMA = """
 class GeminiExtractor:
     """
     Main extractor using Gemini for comprehensive journal analysis.
-    
+
     Features:
     - Uses controlled vocabulary for normalization
     - Detects gaps and generates clarification questions
@@ -509,7 +601,7 @@ class GeminiExtractor:
     ):
         """
         Initialize the extractor.
-        
+
         Args:
             gemini_client: Optional Gemini client instance
             model: Gemini model to use
@@ -525,35 +617,35 @@ class GeminiExtractor:
     ) -> ExtractionResult:
         """
         Extract all data from journal entry with normalization and gap detection.
-        
+
         Args:
             journal_text: The journal entry text
             user_context: Optional user baseline data for context
             entry_date: Date of the journal entry
-        
+
         Returns:
             ExtractionResult with normalized data and any gaps
         """
         prompt = self._build_prompt(journal_text, user_context, entry_date)
-        
+
         logger.debug(f"Extraction prompt length: {len(prompt)} chars")
-        
+
         try:
             response = await self.gemini_client.generate_content(
                 prompt=prompt,
                 model=self.model,
             )
-            
+
             raw_extraction = self._parse_response(response)
-            
+
             # Normalize and detect gaps
             result = self._normalize_extraction(raw_extraction, journal_text)
-            
+
             # Log summary
             self._log_summary(result)
-            
+
             return result
-            
+
         except Exception as e:
             logger.error(f"Extraction failed: {e}")
             return ExtractionResult(
@@ -574,8 +666,9 @@ class GeminiExtractor:
     ) -> str:
         """Build extraction prompt with instructions."""
         parts = []
-        
-        parts.append("""You are an intelligent journal analyzer for PLOS (Personal Life Operating System).
+
+        parts.append(
+            """You are an intelligent journal analyzer for PLOS (Personal Life Operating System).
 
 CRITICAL RULES:
 1. Extract EVERYTHING mentioned - activities, food, mood, sleep, social, etc.
@@ -601,30 +694,39 @@ TIME OF DAY:
 - night: 9pm-12am
 - late_night: 12am-4am
 
-""")
-        
+"""
+        )
+
         if entry_date:
             parts.append(f"## ENTRY DATE\n{entry_date.strftime('%A, %B %d, %Y')}\n\n")
-        
+
         if user_context:
             baseline = user_context.get("baseline", {})
             if baseline:
                 parts.append("## USER BASELINE (for reference)\n")
-                parts.append(f"- Typical sleep: {baseline.get('avg_sleep_hours', '?')} hours\n")
-                parts.append(f"- Typical mood: {baseline.get('avg_mood_score', '?')}/10\n")
-                parts.append(f"- Common activities: {', '.join(baseline.get('common_activities', []))}\n\n")
-        
+                parts.append(
+                    f"- Typical sleep: {baseline.get('avg_sleep_hours', '?')} hours\n"
+                )
+                parts.append(
+                    f"- Typical mood: {baseline.get('avg_mood_score', '?')}/10\n"
+                )
+                parts.append(
+                    f"- Common activities: {', '.join(baseline.get('common_activities', []))}\n\n"
+                )
+
         parts.append("## JOURNAL ENTRY\n")
         parts.append(f'"""\n{journal_text}\n"""\n\n')
-        
+
         parts.append("## EXTRACTION SCHEMA\n")
         parts.append(f"```json\n{EXTRACTION_SCHEMA}\n```\n\n")
-        
-        parts.append("""## RESPONSE
+
+        parts.append(
+            """## RESPONSE
 Return ONLY valid JSON. Include ONLY fields that have data.
 For ambiguous items, generate a helpful clarification question.
-""")
-        
+"""
+        )
+
         return "".join(parts)
 
     def _parse_response(self, response: str) -> Dict[str, Any]:
@@ -637,35 +739,33 @@ For ambiguous items, generate a helpful clarification question.
                 cleaned = cleaned[3:]
             if cleaned.endswith("```"):
                 cleaned = cleaned[:-3]
-            
+
             return json.loads(cleaned.strip())
         except json.JSONDecodeError as e:
             logger.error(f"JSON parse error: {e}")
             return {}
 
     def _normalize_extraction(
-        self,
-        raw: Dict[str, Any],
-        journal_text: str
+        self, raw: Dict[str, Any], journal_text: str
     ) -> ExtractionResult:
         """Normalize raw extraction to controlled vocabulary."""
-        
+
         # Normalize activities
         activities = []
         for act in raw.get("activities", []):
             if not isinstance(act, dict):
                 continue
-            
+
             raw_name = act.get("activity_name", "")
             canonical, category = normalize_activity_name(raw_name)
-            
+
             duration = act.get("duration_minutes")
             if isinstance(duration, str):
                 try:
                     duration = int(duration)
                 except ValueError:
                     duration = None
-            
+
             time_of_day = None
             tod_str = act.get("time_of_day")
             if tod_str:
@@ -673,31 +773,37 @@ For ambiguous items, generate a helpful clarification question.
                     time_of_day = TimeOfDay(tod_str.lower())
                 except ValueError:
                     time_of_day = infer_time_of_day(act.get("start_time"), [raw_name])
-            
-            activities.append(NormalizedActivity(
-                canonical_name=canonical,
-                raw_name=raw_name,
-                category=category,
-                duration_minutes=duration,
-                time_of_day=time_of_day,
-                start_time=act.get("start_time"),
-                end_time=act.get("end_time"),
-                intensity=act.get("intensity"),
-                satisfaction=act.get("satisfaction"),
-                calories_burned=estimate_calories(canonical, duration) if canonical else None,
-                is_screen_time=canonical in SCREEN_TIME_ACTIVITIES if canonical else False,
-                confidence=0.8 if canonical else 0.5,
-                needs_clarification=canonical is None,
-                raw_mention=act.get("raw_mention"),
-            ))
-        
+
+            activities.append(
+                NormalizedActivity(
+                    canonical_name=canonical,
+                    raw_name=raw_name,
+                    category=category,
+                    duration_minutes=duration,
+                    time_of_day=time_of_day,
+                    start_time=act.get("start_time"),
+                    end_time=act.get("end_time"),
+                    intensity=act.get("intensity"),
+                    satisfaction=act.get("satisfaction"),
+                    calories_burned=(
+                        estimate_calories(canonical, duration) if canonical else None
+                    ),
+                    is_screen_time=(
+                        canonical in SCREEN_TIME_ACTIVITIES if canonical else False
+                    ),
+                    confidence=0.8 if canonical else 0.5,
+                    needs_clarification=canonical is None,
+                    raw_mention=act.get("raw_mention"),
+                )
+            )
+
         # Normalize meals/drinks -> consumptions
         consumptions = []
-        
+
         for meal in raw.get("meals", []):
             if not isinstance(meal, dict):
                 continue
-            
+
             time_of_day = None
             tod_str = meal.get("time_of_day")
             if tod_str:
@@ -705,28 +811,30 @@ For ambiguous items, generate a helpful clarification question.
                     time_of_day = TimeOfDay(tod_str.lower())
                 except ValueError:
                     pass
-            
+
             items = meal.get("items", [])
             if isinstance(items, str):
                 items = [items]
-            
+
             for item in items:
-                consumptions.append(NormalizedConsumption(
-                    canonical_name=None,  # Would resolve from food vocabulary
-                    raw_name=item,
-                    consumption_type="meal",
-                    meal_type=meal.get("meal_type"),
-                    time_of_day=time_of_day,
-                    consumption_time=meal.get("meal_time"),
-                    is_healthy=meal.get("is_healthy"),
-                    is_home_cooked=meal.get("is_home_cooked"),
-                    raw_mention=meal.get("raw_mention"),
-                ))
-        
+                consumptions.append(
+                    NormalizedConsumption(
+                        canonical_name=None,  # Would resolve from food vocabulary
+                        raw_name=item,
+                        consumption_type="meal",
+                        meal_type=meal.get("meal_type"),
+                        time_of_day=time_of_day,
+                        consumption_time=meal.get("meal_time"),
+                        is_healthy=meal.get("is_healthy"),
+                        is_home_cooked=meal.get("is_home_cooked"),
+                        raw_mention=meal.get("raw_mention"),
+                    )
+                )
+
         for drink in raw.get("drinks", []):
             if not isinstance(drink, dict):
                 continue
-            
+
             time_of_day = None
             tod_str = drink.get("time_of_day")
             if tod_str:
@@ -734,18 +842,20 @@ For ambiguous items, generate a helpful clarification question.
                     time_of_day = TimeOfDay(tod_str.lower())
                 except ValueError:
                     pass
-            
-            consumptions.append(NormalizedConsumption(
-                canonical_name=None,
-                raw_name=drink.get("drink_name", ""),
-                consumption_type="drink",
-                meal_type=None,
-                time_of_day=time_of_day,
-                quantity=drink.get("quantity", 1),
-                unit=drink.get("unit", "cups"),
-                raw_mention=drink.get("raw_mention"),
-            ))
-        
+
+            consumptions.append(
+                NormalizedConsumption(
+                    canonical_name=None,
+                    raw_name=drink.get("drink_name", ""),
+                    consumption_type="drink",
+                    meal_type=None,
+                    time_of_day=time_of_day,
+                    quantity=drink.get("quantity", 1),
+                    unit=drink.get("unit", "cups"),
+                    raw_mention=drink.get("raw_mention"),
+                )
+            )
+
         # Normalize metrics
         metrics = {}
         for metric_name, metric_data in raw.get("metrics", {}).items():
@@ -760,39 +870,41 @@ For ambiguous items, generate a helpful clarification question.
                     "value": metric_data,
                     "confidence": 0.7,
                 }
-        
+
         # Social interactions
         social = []
         for s in raw.get("social", []):
             if isinstance(s, dict):
                 social.append(s)
-        
+
         # Notes
         notes = []
         for n in raw.get("notes", []):
             if isinstance(n, dict):
                 notes.append(n)
-        
+
         # Sleep
         sleep = raw.get("sleep")
-        
+
         # Detect gaps from ambiguous section
         gaps = []
         for amb in raw.get("ambiguous", []):
             if isinstance(amb, dict):
-                gaps.append(DataGap(
-                    field_category=amb.get("field_category", "other"),
-                    question=amb.get("question", "Can you clarify?"),
-                    context=f"You mentioned: '{amb.get('text', '')}'",
-                    original_mention=amb.get("text", ""),
-                    priority=GapPriority.MEDIUM,
-                    suggested_options=amb.get("suggestions", []),
-                ))
-        
+                gaps.append(
+                    DataGap(
+                        field_category=amb.get("field_category", "other"),
+                        question=amb.get("question", "Can you clarify?"),
+                        context=f"You mentioned: '{amb.get('text', '')}'",
+                        original_mention=amb.get("text", ""),
+                        priority=GapPriority.MEDIUM,
+                        suggested_options=amb.get("suggestions", []),
+                    )
+                )
+
         # Additional gap detection from patterns
         additional_gaps = detect_gaps(journal_text, raw)
         gaps.extend(additional_gaps)
-        
+
         # Remove duplicate gaps
         seen = set()
         unique_gaps = []
@@ -801,7 +913,7 @@ For ambiguous items, generate a helpful clarification question.
             if key not in seen:
                 seen.add(key)
                 unique_gaps.append(gap)
-        
+
         return ExtractionResult(
             metrics=metrics,
             activities=activities,
@@ -817,7 +929,7 @@ For ambiguous items, generate a helpful clarification question.
     def _calculate_quality(self, raw: Dict[str, Any], gaps: List[DataGap]) -> str:
         """Calculate extraction quality score."""
         score = 0
-        
+
         # Points for having data
         if raw.get("sleep"):
             score += 15
@@ -831,7 +943,7 @@ For ambiguous items, generate a helpful clarification question.
             score += 5
         if raw.get("notes"):
             score += 5
-        
+
         # Points for detail
         activities = raw.get("activities", [])
         for act in activities:
@@ -840,10 +952,10 @@ For ambiguous items, generate a helpful clarification question.
                     score += 5
                 if act.get("time_of_day"):
                     score += 3
-        
+
         # Penalty for gaps
         score -= len(gaps) * 5
-        
+
         if score >= 50:
             return "high"
         elif score >= 30:
@@ -854,22 +966,24 @@ For ambiguous items, generate a helpful clarification question.
     def _log_summary(self, result: ExtractionResult) -> None:
         """Log extraction summary."""
         parts = []
-        
+
         if result.sleep:
             hours = result.sleep.get("duration_hours")
             if hours:
                 parts.append(f"sleep:{hours}h")
-        
+
         if result.activities:
             parts.append(f"activities:{len(result.activities)}")
-        
+
         if result.consumptions:
             parts.append(f"consumptions:{len(result.consumptions)}")
-        
+
         if result.gaps:
             parts.append(f"gaps:{len(result.gaps)}")
-        
-        logger.info(f"Extraction: {', '.join(parts) or 'empty'} (quality: {result.quality})")
+
+        logger.info(
+            f"Extraction: {', '.join(parts) or 'empty'} (quality: {result.quality})"
+        )
 
 
 # ============================================================================
@@ -879,10 +993,10 @@ For ambiguous items, generate a helpful clarification question.
 
 class GapResolver:
     """Resolves data gaps with user responses."""
-    
+
     def __init__(self, gemini_client: Optional[ResilientGeminiClient] = None):
         self.gemini_client = gemini_client or ResilientGeminiClient()
-    
+
     async def resolve_gap(
         self,
         gap: DataGap,
@@ -891,54 +1005,58 @@ class GapResolver:
     ) -> ExtractionResult:
         """
         Update extraction with user's clarification.
-        
+
         Args:
             gap: The gap being resolved
             user_response: User's answer to the clarification question
             original_extraction: The extraction result to update
-        
+
         Returns:
             Updated ExtractionResult
         """
         if gap.field_category == "activity":
             canonical, category = normalize_activity_name(user_response)
-            
+
             # Add the resolved activity
-            original_extraction.activities.append(NormalizedActivity(
-                canonical_name=canonical,
-                raw_name=user_response,
-                category=category,
-                duration_minutes=None,  # May need follow-up
-                time_of_day=None,
-                start_time=None,
-                end_time=None,
-                intensity=None,
-                satisfaction=None,
-                calories_burned=None,
-                is_screen_time=canonical in SCREEN_TIME_ACTIVITIES if canonical else False,
-                confidence=0.9,  # High confidence since user confirmed
-                needs_clarification=False,
-                raw_mention=gap.original_mention,
-            ))
-        
+            original_extraction.activities.append(
+                NormalizedActivity(
+                    canonical_name=canonical,
+                    raw_name=user_response,
+                    category=category,
+                    duration_minutes=None,  # May need follow-up
+                    time_of_day=None,
+                    start_time=None,
+                    end_time=None,
+                    intensity=None,
+                    satisfaction=None,
+                    calories_burned=None,
+                    is_screen_time=(
+                        canonical in SCREEN_TIME_ACTIVITIES if canonical else False
+                    ),
+                    confidence=0.9,  # High confidence since user confirmed
+                    needs_clarification=False,
+                    raw_mention=gap.original_mention,
+                )
+            )
+
         # Remove the resolved gap
         original_extraction.gaps = [g for g in original_extraction.gaps if g != gap]
         original_extraction.has_gaps = len(original_extraction.gaps) > 0
-        
+
         return original_extraction
-    
+
     def format_gaps_for_user(self, gaps: List[DataGap]) -> List[Dict[str, Any]]:
         """
         Format gaps as questions for the user.
-        
+
         Args:
             gaps: List of DataGap objects
-        
+
         Returns:
             List of formatted question dictionaries
         """
         questions = []
-        
+
         for gap in sorted(gaps, key=lambda g: g.priority.value):
             q = {
                 "question": gap.question,
@@ -948,9 +1066,9 @@ class GapResolver:
             }
             if gap.suggested_options:
                 q["suggestions"] = gap.suggested_options
-            
+
             questions.append(q)
-        
+
         return questions
 
 
@@ -967,13 +1085,13 @@ async def extract_journal_entry(
 ) -> ExtractionResult:
     """
     Convenience function to extract data from a journal entry.
-    
+
     Args:
         journal_text: The journal entry text
         user_context: Optional user baseline data
         entry_date: Date of the entry
         gemini_client: Optional Gemini client
-    
+
     Returns:
         ExtractionResult with normalized data and gaps
     """
