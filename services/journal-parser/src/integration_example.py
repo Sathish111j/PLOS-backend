@@ -9,14 +9,14 @@ from datetime import datetime
 from uuid import UUID
 
 # Core components
-from services.journal_parser.src.cache_manager import MultiLayerCacheManager
-from services.journal_parser.src.db_pool import (
+from .cache_manager import MultiLayerCacheManager
+from .db_pool import (
     DatabaseConnectionPool,
     initialize_global_pool,
     get_global_pool
 )
-from services.journal_parser.src.orchestrator import JournalParserOrchestrator
-from services.journal_parser.src.worker import JournalProcessingWorker
+from .orchestrator import JournalParserOrchestrator
+from .worker import JournalProcessingWorker
 from shared.kafka.producer import KafkaProducerService
 from shared.kafka.consumer import KafkaConsumerService
 from shared.gemini.client import ResilientGeminiClient
@@ -262,8 +262,8 @@ async def create_fastapi_app():
         }
     
     # Include routers
-    from services.journal_parser.src.api import router as sync_router
-    from services.journal_parser.src.api_async import router as async_router
+    from .api import router as sync_router
+    from .api_async import router as async_router
     
     app_instance.include_router(sync_router)
     app_instance.include_router(async_router)

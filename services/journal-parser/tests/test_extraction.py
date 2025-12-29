@@ -20,7 +20,7 @@ from shared.models import (
 
 def test_spell_correction():
     """Test spell correction in preprocessing"""
-    from services.journal_parser.src.preprocessing import Preprocessor
+    from ..src.preprocessing import Preprocessor
     
     preprocessor = Preprocessor()
     
@@ -35,7 +35,7 @@ def test_spell_correction():
 
 def test_time_normalization():
     """Test time normalization"""
-    from services.journal_parser.src.preprocessing import Preprocessor
+    from ..src.preprocessing import Preprocessor
     
     preprocessor = Preprocessor()
     
@@ -48,7 +48,7 @@ def test_time_normalization():
 
 def test_explicit_sleep_extraction():
     """Test explicit sleep extraction"""
-    from services.journal_parser.src.preprocessing import ExplicitExtractor
+    from ..src.preprocessing import ExplicitExtractor
     
     extractor = ExplicitExtractor()
     
@@ -74,7 +74,7 @@ def test_explicit_sleep_extraction():
 
 def test_energy_inference():
     """Test energy level inference from sleep and mood"""
-    from services.journal_parser.src.inference_engine import InferenceEngine
+    from ..src.inference_engine import InferenceEngine
     
     baseline = UserBaseline(
         sleep_hours=7.5,
@@ -139,7 +139,7 @@ def test_stress_inference():
 
 def test_relationship_transition_harmony_to_conflict():
     """Test state transition from HARMONY to CONFLICT"""
-    from services.journal_parser.src.relationship_state_machine import RelationshipStateMachine
+    from ..src.relationship_state_machine import RelationshipStateMachine
     
     current_state = {
         "state": "HARMONY",
@@ -159,7 +159,7 @@ def test_relationship_transition_harmony_to_conflict():
 
 def test_relationship_impact_on_mood():
     """Test relationship state impact on mood"""
-    from services.journal_parser.src.relationship_state_machine import RelationshipImpactCalculator
+    from ..src.relationship_state_machine import RelationshipImpactCalculator
     
     base_values = {
         "mood_score": FieldMetadata(
@@ -190,7 +190,7 @@ def test_relationship_impact_on_mood():
 
 def test_sleep_debt_alert():
     """Test sleep debt alert generation"""
-    from services.journal_parser.src.health_monitor import HealthMonitor
+    from ..src.health_monitor import HealthMonitor
     
     monitor = HealthMonitor()
     
@@ -214,7 +214,7 @@ def test_sleep_debt_alert():
 
 def test_mood_volatility_detection():
     """Test mood volatility detection"""
-    from services.journal_parser.src.health_monitor import HealthMonitor
+    from ..src.health_monitor import HealthMonitor
     
     baseline = UserBaseline(
         sleep_hours=7.5,
@@ -250,7 +250,7 @@ def test_mood_volatility_detection():
 
 def test_sleep_prediction_with_debt():
     """Test sleep prediction accounts for sleep debt"""
-    from services.journal_parser.src.prediction_engine import PredictionEngine
+    from ..src.prediction_engine import PredictionEngine
     
     baseline = UserBaseline(
         sleep_hours=7.5,
@@ -273,7 +273,7 @@ def test_sleep_prediction_with_debt():
 
 def test_mood_prediction_with_conflict():
     """Test mood prediction with relationship conflict"""
-    from services.journal_parser.src.prediction_engine import PredictionEngine
+    from ..src.prediction_engine import PredictionEngine
     
     baseline = UserBaseline(
         sleep_hours=7.5,
@@ -307,8 +307,8 @@ async def test_full_pipeline_mock():
     # This would require proper mocking of database and Kafka
     # Simplified test showing the flow
     
-    from services.journal_parser.src.preprocessing import Preprocessor
-    from services.journal_parser.src.inference_engine import InferenceEngine
+    from ..src.preprocessing import Preprocessor
+    from ..src.inference_engine import InferenceEngine
     
     # Sample journal entry
     entry_text = """
