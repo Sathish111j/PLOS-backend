@@ -168,18 +168,18 @@ Language: Python (FastAPI)
 
 Key Components:
 
-  a) ParserEngine
+  a) GeminiExtractor (generalized_extraction.py)
      - Integrates with Google Gemini API
      - Structured output schema using Pydantic
-     - Prompt engineering for accuracy
-     - API response caching (reduces costs)
-     - Confidence scoring
+     - Comprehensive multi-field extraction
+     - Controlled vocabulary normalization
+     - Confidence scoring per field
 
-  b) GapDetector
+  b) GapResolver (generalized_extraction.py)
      - Analyzes extracted data for missing fields
-     - Generates suggestions for user
-     - Identifies data gaps
-     - Confidence levels for detections
+     - Generates clarification questions for user
+     - Identifies ambiguous entries
+     - Priority-based gap handling
 
   c) KafkaJournalConsumer
      - Async event listener
@@ -321,21 +321,21 @@ Step 5: KAFKA EVENT PUBLISHED
 Step 6: JOURNAL PARSER CONSUMES
   KafkaJournalConsumer receives message
   Verifies message integrity
-  Passes to ParserEngine
+  Passes to JournalParserOrchestrator
 
 Step 7: GEMINI AI EXTRACTION (Synchronous)
-  ParserEngine calls Gemini API with structured schema
+  GeminiExtractor calls Gemini API with structured schema
   Input: raw_text + user_context
   Output: Structured JSON with confidence score
   Takes ~2-3 seconds per entry
   Result cached in Redis
 
 Step 8: GAP DETECTION
-  GapDetector analyzes extracted fields
-  Identifies missing information
-  Generates suggestions:
-    gaps_detected: ["nutrition", "water_intake"]
-    suggestions: ["Did you track meals?", "How much water?"]
+  GapResolver analyzes extracted fields
+  Identifies ambiguous or missing information
+  Generates clarification questions:
+    gaps_detected: ["activity_type", "meal_details"]
+    questions: ["What sport did you play?", "What did you eat for lunch?"]
 
 Step 9: PARSED ENTRY PUBLISHED
   Journal Parser publishes PARSED_ENTRIES:
@@ -1077,7 +1077,7 @@ Background Processing (Async):
   6. Journal Parser Consumes
      - Kafka consumer receives message
      - Verifies format
-     - Calls ParserEngine
+     - Calls JournalParserOrchestrator
 
   7. Gemini Extraction (2-3 seconds)
      - Generate structured prompt

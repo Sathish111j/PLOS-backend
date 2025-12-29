@@ -1,6 +1,6 @@
 # PLOS Backend Scripts
 
-## 🎯 Quick Start
+## Quick Start
 
 ### Windows (Recommended)
 ```powershell
@@ -39,7 +39,7 @@ chmod +x scripts/*.sh
 
 ---
 
-## 📁 Script Reference
+## Script Reference
 
 ### Windows PowerShell Scripts (Primary)
 
@@ -51,41 +51,30 @@ chmod +x scripts/*.sh
 | `stop.ps1` | Stop all services | End of day, clean state |
 | `stop.ps1 -CleanVolumes` | Stop and delete all data | Fresh start needed |
 | `verify-infrastructure.ps1` | Comprehensive verification (7 tests) | Check system health |
+| `lint.ps1` | Run code linting | Before commits |
+| `lint.ps1 -Fix` | Auto-fix linting issues | Fix formatting |
 
-### Linux/Mac Bash Scripts (Alternative)
+### Linux/Mac Bash Scripts
 
 | Script | Purpose | Notes |
 |--------|---------|-------|
 | `setup.sh` | First-time setup | Creates .env, checks Docker |
 | `dev.sh` | Start development environment | Equivalent to start-all.ps1 |
-| `verify.sh` | Quick service verification | Basic health checks |
+| `verify.sh` | Service verification | Health checks for all services |
 | `clean.sh` | Clean up containers and data | Equivalent to stop.ps1 -CleanVolumes |
-| `test.sh` | Run tests (not implemented yet) | Placeholder for future tests |
-
-### Deprecated (Do Not Use)
-
-| Script | Status | Use Instead |
-|--------|--------|-------------|
-| `verify.ps1` | ❌ Outdated | `verify-infrastructure.ps1` |
+| `test.sh` | Run tests | Runs pytest suite |
 
 ---
 
-## 🔍 Detailed Usage
+## Detailed Usage
 
-### startup-all.ps1
+### start-all.ps1
 Complete system startup with proper sequencing:
 1. Starts infrastructure (postgres, redis, kafka, zookeeper, qdrant)
 2. Waits for health checks (30-60 seconds)
 3. Starts monitoring (prometheus, grafana, kafka-ui)
 4. Builds application services
 5. Starts application services (context-broker, journal-parser, knowledge-system, api-gateway)
-
-**Output:**
-- Shows status at each step
-- Lists all access points
-- Reports any failures
-
----
 
 ### start-infrastructure.ps1
 Starts only the infrastructure layer:
@@ -95,12 +84,9 @@ Starts only the infrastructure layer:
 - Qdrant (vector database)
 - Prometheus + Grafana (monitoring)
 
-**Use when:**
+Use when:
 - You only need databases/tools
 - Debugging infrastructure issues
-- Want manual control over service startup
-
----
 
 ### start-services.ps1
 Starts only application services:
@@ -108,17 +94,14 @@ Starts only application services:
 2. Builds service images (if code changed)
 3. Starts all 4 services
 
-**Use when:**
+Use when:
 - Infrastructure already running
 - After code changes
 - After fixing a service bug
 
----
-
 ### stop.ps1
 Gracefully stops all services.
 
-**Options:**
 ```powershell
 # Stop but keep data
 ./scripts/stop.ps1
@@ -127,12 +110,10 @@ Gracefully stops all services.
 ./scripts/stop.ps1 -CleanVolumes
 ```
 
-**Use `-CleanVolumes` when:**
+Use `-CleanVolumes` when:
 - Need fresh database
 - Corrupted data
 - Testing from scratch
-
----
 
 ### verify-infrastructure.ps1
 Comprehensive 7-step verification:
@@ -145,14 +126,14 @@ Comprehensive 7-step verification:
 6. Prometheus - Health status
 7. Grafana - Dashboard availability
 
-**Output:**
-- "ALL TESTS PASSED" = Everything perfect ✅
-- "PASSED WITH WARNINGS" = Working but needs attention ⚠️
-- "FAILED" = Issues need fixing ❌
+Output:
+- "ALL TESTS PASSED" = Everything working
+- "PASSED WITH WARNINGS" = Working but needs attention
+- "FAILED" = Issues need fixing
 
 ---
 
-## 💡 Common Workflows
+## Common Workflows
 
 ### Morning Startup
 ```powershell
@@ -183,7 +164,7 @@ docker-compose logs postgres
 docker-compose logs kafka
 ```
 
-### Fresh Start (Nuclear Option)
+### Fresh Start
 ```powershell
 ./scripts/stop.ps1 -CleanVolumes
 ./scripts/start-all.ps1
@@ -191,7 +172,7 @@ docker-compose logs kafka
 
 ---
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### "Port already in use"
 ```powershell
@@ -223,18 +204,7 @@ docker-compose logs
 
 ---
 
-## 📚 Related Documentation
-
-- [STARTUP_ARCHITECTURE.md](../docs/STARTUP_ARCHITECTURE.md) - Why we separate infrastructure and services
-- [INFRASTRUCTURE_STABILITY.md](../docs/INFRASTRUCTURE_STABILITY.md) - Infrastructure verification report
-- [DEVELOPER_GUIDE.md](../docs/DEVELOPER_GUIDE.md) - Complete development guide
-- [QUICK_REFERENCE.md](../docs/QUICK_REFERENCE.md) - Developer quick reference
-
----
-
-## 🎓 Understanding the Scripts
-
-### Why Two Sets? (PowerShell + Bash)
+## Why Two Sets? (PowerShell + Bash)
 
 **PowerShell (Windows):**
 - More features (health checks, colors, verifications)
@@ -246,24 +216,9 @@ docker-compose logs
 - Simpler, faster execution
 - Good for CI/CD pipelines
 
-**Both work!** Use what fits your OS.
+Both work - use what fits your OS.
 
 ---
 
-## ✅ Maintenance
-
-These scripts are **production-ready** and **do not need changes** unless:
-- Adding new services to docker-compose.yml
-- Changing port numbers
-- Adding new infrastructure components
-
-The scripts automatically:
-- Detect service health
-- Handle dependencies
-- Restart on failure
-- Preserve data
-
----
-
-**Last Updated:** December 28, 2024  
-**Status:** Production Ready ✅
+**Last Updated:** December 30, 2024
+**Status:** Production Ready
