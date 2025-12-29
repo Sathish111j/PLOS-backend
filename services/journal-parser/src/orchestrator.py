@@ -1,61 +1,49 @@
 """
-PLOS v2.0 - Journal Parser Service Orchestrator
-Main service that coordinates all extraction, inference, and analytics
+PLOS - Journal Parser Orchestrator
+Simplified pipeline using comprehensive Gemini extraction with normalized storage.
 """
 
 import time
-from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
+from datetime import date, datetime
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.gemini.client import ResilientGeminiClient
 from shared.kafka.producer import KafkaProducerService
-from shared.models import (
-    ExtractionType,
-    FieldMetadata,
-    QualityLevel,
-)
 from shared.utils.logger import get_logger
 
-# Import all our components
-from .context_retrieval import ContextRetrievalEngine
-from .gemini_extractor import ContextAwareGeminiExtractor
-from .health_monitor import HealthMonitor
-from .inference_engine import InferenceEngine
-from .prediction_engine import PredictionEngine
-from .preprocessing import Preprocessor
-from .relationship_state_machine import (
-    RelationshipImpactCalculator,
-    RelationshipStateMachine,
+from .generalized_extraction import (
+    GeminiExtractor,
+    GapResolver,
+    ExtractionResult,
 )
-from .storage_service import JournalEventPublisher, JournalStorageService
+from .context_retrieval import ContextRetrievalEngine
+from .storage_service import StorageService
+from .preprocessing import Preprocessor
 
 logger = get_logger(__name__)
 
 
-# ============================================================================
-# MAIN ORCHESTRATOR
-# ============================================================================
-
-
 class JournalParserOrchestrator:
     """
-    Main orchestrator that coordinates the complete journal processing pipeline
-
-    Pipeline:
-    1. Preprocessing (spell correction, time normalization)
-    2. Tier 1: Explicit extraction (regex patterns)
-    3. Context retrieval (baseline, patterns, relationship state, etc.)
-    4. Tier 2: Inferential rules
-    5. Tier 3: Contextual baseline inference
-    6. Tier 4: Gemini AI extraction (fills remaining gaps)
-    7. Relationship state machine
-    8. Health monitoring & anomaly detection
-    9. Predictive analytics
-    10. Storage & event publishing
-    11. Insights generation
+    Journal parsing orchestrator that:
+    1. Preprocesses text
+    2. Retrieves user context
+    3. Uses Gemini for comprehensive extraction
+    4. Normalizes to controlled vocabulary
+    5. Detects gaps for clarification
+    6. Stores in normalized tables
+    7. Generates insights
+    
+    Pipeline stages:
+    1. Preprocessing
+    2. Context Retrieval
+    3. Gemini Extraction
+    4. Normalization + Gap Detection
+    5. Storage
+    6. Response Assembly
     """
 
     def __init__(
@@ -66,380 +54,278 @@ class JournalParserOrchestrator:
     ):
         self.db = db_session
         self.kafka = kafka_producer
+        self.gemini_client = gemini_client or ResilientGeminiClient()
 
         # Initialize components
-        self.context_engine = ContextRetrievalEngine(db_session)
         self.preprocessor = Preprocessor()
-        self.gemini_extractor = ContextAwareGeminiExtractor(gemini_client)
-        self.storage = JournalStorageService(db_session, kafka_producer)
-        self.event_publisher = (
-            JournalEventPublisher(kafka_producer) if kafka_producer else None
-        )
+        self.context_engine = ContextRetrievalEngine(db_session)
+        self.extractor = GeminiExtractor(self.gemini_client)
+        self.gap_resolver = GapResolver(self.gemini_client)
+        self.storage = StorageService(db_session, kafka_producer)
 
     async def process_journal_entry(
         self,
         user_id: UUID,
-        journal_entry_id: UUID,
         entry_text: str,
-        entry_date: datetime,
+        entry_date: Optional[date] = None,
     ) -> Dict[str, Any]:
         """
-        Process a complete journal entry through the intelligent extraction pipeline
-
+        Process a journal entry through the extraction pipeline.
+        
         Args:
             user_id: User UUID
-            journal_entry_id: Journal entry UUID
             entry_text: Raw journal text
-            entry_date: Date of the entry
-
+            entry_date: Date of the entry (defaults to today)
+        
         Returns:
-            Complete extraction results with all metadata
+            Complete extraction results with gaps and metadata
         """
         start_time = time.time()
-        safe_entry_id = str(journal_entry_id).replace("\n", "")
+        entry_date = entry_date or date.today()
+
         safe_user_id = str(user_id).replace("\n", "")
-        logger.info(f"Processing journal entry {safe_entry_id} for user {safe_user_id}")
+        logger.info(f"Processing journal for user {safe_user_id} on {entry_date}")
 
         try:
             # ================================================================
-            # PHASE 1: PREPROCESSING
+            # STAGE 1: PREPROCESSING
             # ================================================================
-            logger.debug("Phase 1: Preprocessing")
-            preprocessed_text, preprocessing_data, explicit_extractions = (
-                self.preprocessor.process(entry_text)
-            )
-
-            logger.info(
-                f"Preprocessing complete: {len(explicit_extractions)} explicit extractions, "
-                f"spell_corrected={preprocessing_data['spell_corrected']}"
+            logger.debug("Stage 1: Preprocessing")
+            preprocessed_text, preprocessing_data, _ = self.preprocessor.process(
+                entry_text
             )
 
             # ================================================================
-            # PHASE 2: CONTEXT RETRIEVAL
+            # STAGE 2: CONTEXT RETRIEVAL
             # ================================================================
-            logger.debug("Phase 2: Context retrieval")
+            logger.debug("Stage 2: Context retrieval")
             user_context = await self.context_engine.get_full_context(
-                user_id=user_id, entry_date=entry_date
+                user_id=user_id,
+                entry_date=datetime.combine(entry_date, datetime.min.time()),
             )
 
             baseline = user_context.get("baseline")
-            relationship_state = user_context.get("relationship_state")
-            sleep_debt = user_context.get("sleep_debt", 0)
-            activity_patterns = user_context.get("activity_patterns", [])
-
             logger.info(
-                f"Context retrieved: baseline={baseline is not None}, sleep_debt={sleep_debt:.1f}hrs"
+                f"Context: baseline={'yes' if baseline else 'no'}, "
+                f"recent_entries={len(user_context.get('recent_entries', []))}"
             )
 
             # ================================================================
-            # PHASE 3: INFERENCE ENGINE (TIER 2 & 3)
+            # STAGE 3: GEMINI EXTRACTION + NORMALIZATION
             # ================================================================
-            logger.debug("Phase 3: Inference engine")
-            inference_engine = InferenceEngine(
-                user_baseline=baseline, context=user_context
-            )
-
-            inferred_extractions = inference_engine.infer_missing_fields(
-                explicit_extractions=explicit_extractions,
-                preprocessed_text=preprocessed_text,
-            )
-
-            logger.info(
-                f"Inference complete: {len(inferred_extractions)} inferred fields"
-            )
-
-            # ================================================================
-            # PHASE 4: GEMINI AI EXTRACTION (fills remaining gaps)
-            # ================================================================
-            logger.debug("Phase 4: Gemini AI extraction")
-            gemini_extractions = await self.gemini_extractor.extract_with_context(
+            logger.debug("Stage 3: Gemini extraction")
+            extraction: ExtractionResult = await self.extractor.extract_all(
                 journal_text=preprocessed_text,
                 user_context=user_context,
-                explicit_extractions=explicit_extractions,
-                inferred_extractions=inferred_extractions,
+                entry_date=entry_date,
             )
 
             logger.info(
-                f"Gemini extraction complete: {len(gemini_extractions)} AI-extracted fields"
+                f"Extraction: {len(extraction.activities)} activities, "
+                f"{len(extraction.consumptions)} consumptions, "
+                f"{len(extraction.gaps)} gaps, quality={extraction.quality}"
             )
 
             # ================================================================
-            # PHASE 5: MERGE ALL EXTRACTIONS (priority: explicit > inferred > gemini)
+            # STAGE 4: STORAGE
             # ================================================================
-            all_extractions = {
-                **gemini_extractions,  # Lowest priority
-                **inferred_extractions,  # Medium priority
-                **explicit_extractions,  # Highest priority
-            }
-
-            logger.info(f"Total extractions: {len(all_extractions)} fields")
-
-            # ================================================================
-            # PHASE 6: RELATIONSHIP STATE MACHINE
-            # ================================================================
-            logger.debug("Phase 6: Relationship state machine")
-            relationship_transition = None
-
-            if relationship_state:
-                state_machine = RelationshipStateMachine(relationship_state)
-
-                # Check for state transition
-                conflict_mentioned = explicit_extractions.get(
-                    "conflict_mentioned",
-                    FieldMetadata(
-                        value=False,
-                        type=ExtractionType.EXPLICIT,
-                        confidence=1.0,
-                        source="explicit",
-                        reasoning="",
-                    ),
-                ).value
-
-                new_state, trigger = state_machine.detect_transition(
-                    entry_text=preprocessed_text, conflict_mentioned=conflict_mentioned
-                )
-
-                if new_state:
-                    relationship_transition = state_machine.transition_to(
-                        new_state, trigger
-                    )
-                    logger.info(
-                        f"Relationship transition: {relationship_transition['from_state']} -> {relationship_transition['to_state']}"
-                    )
-
-                    # Store transition
-                    await self.storage.store_relationship_event(
-                        user_id=user_id,
-                        from_state=state_machine.state,
-                        to_state=new_state,
-                        trigger=trigger,
-                        duration_in_previous_state=relationship_transition[
-                            "days_in_previous_state"
-                        ],
-                    )
-                else:
-                    state_machine.increment_day()
-
-                # Apply relationship impact adjustments
-                impact_calculator = RelationshipImpactCalculator()
-                adjusted_values = impact_calculator.apply_relationship_impact(
-                    base_values=all_extractions,
-                    relationship_state=state_machine.state,
-                    days_in_state=state_machine.days_in_state,
-                )
-
-                all_extractions.update(adjusted_values)
-                logger.debug(
-                    f"Applied relationship impact: {len(adjusted_values)} fields adjusted"
-                )
-
-            # ================================================================
-            # PHASE 7: HEALTH MONITORING
-            # ================================================================
-            logger.debug("Phase 7: Health monitoring")
-            health_monitor = HealthMonitor(
-                user_baseline=baseline,
-                recent_history=user_context.get("recent_entries", []),
-            )
-
-            health_alerts = health_monitor.analyze_health(
-                extracted_data=all_extractions,
-                sleep_debt=sleep_debt,
-                relationship_state=relationship_state,
-            )
-
-            logger.info(f"Health monitoring: {len(health_alerts)} alerts generated")
-
-            # Store alerts
-            if health_alerts:
-                await self.storage.store_health_alerts(user_id, health_alerts)
-
-            # ================================================================
-            # PHASE 8: PREDICTIVE ANALYTICS
-            # ================================================================
-            logger.debug("Phase 8: Predictive analytics")
-            prediction_engine = PredictionEngine(
-                user_baseline=baseline,
-                recent_history=user_context.get("recent_entries", []),
-                activity_patterns=activity_patterns,
-            )
-
-            predictions = prediction_engine.generate_predictions(
-                sleep_debt=sleep_debt,
-                relationship_state=relationship_state,
-                forecast_days=1,
-            )
-
-            logger.info("Predictions generated for next day")
-
-            # Store predictions
-            await self.storage.store_predictions(
-                user_id=user_id,
-                target_date=entry_date + timedelta(days=1),
-                predictions=predictions,
-            )
-
-            # ================================================================
-            # PHASE 9: QUALITY SCORING
-            # ================================================================
-            quality_level = self._calculate_quality_level(all_extractions)
-
-            # ================================================================
-            # PHASE 10: STORAGE
-            # ================================================================
-            logger.debug("Phase 10: Storage")
+            logger.debug("Stage 4: Storage")
             processing_time_ms = int((time.time() - start_time) * 1000)
 
-            metadata = {
-                "quality_level": quality_level.value,
-                "processing_time_ms": processing_time_ms,
-                "extraction_counts": {
-                    "explicit": len(explicit_extractions),
-                    "inferred": len(inferred_extractions),
-                    "ai_extracted": len(gemini_extractions),
-                    "total": len(all_extractions),
-                },
-                "preprocessing_stats": preprocessing_data,
-                "relationship_transition": relationship_transition,
-            }
-
-            extraction_id = await self.storage.store_extraction(
+            entry_id = await self.storage.store_extraction(
                 user_id=user_id,
-                journal_entry_id=journal_entry_id,
-                entry_text=preprocessed_text,
-                extracted_data=all_extractions,
-                metadata=metadata,
-                baseline=baseline.__dict__ if baseline else None,
+                entry_date=entry_date,
+                raw_entry=preprocessed_text,
+                extraction=extraction,
+                extraction_time_ms=processing_time_ms,
             )
 
-            # Commit transaction
-            await self.storage.commit()
-
-            logger.info(f"Extraction {extraction_id} stored successfully")
+            logger.info(f"Stored extraction {entry_id}")
 
             # ================================================================
-            # PHASE 11: EVENT PUBLISHING
+            # STAGE 5: RESPONSE ASSEMBLY
             # ================================================================
-            if self.event_publisher:
-                logger.debug("Phase 11: Event publishing")
+            processing_time_ms = int((time.time() - start_time) * 1000)
 
-                # Mood event
-                if (
-                    "mood_score" in all_extractions
-                    or "mood_score_estimate" in all_extractions
-                ):
-                    mood_key = (
-                        "mood_score"
-                        if "mood_score" in all_extractions
-                        else "mood_score_estimate"
-                    )
-                    await self.event_publisher.publish_mood_event(
-                        user_id=user_id,
-                        mood_score=all_extractions[mood_key].value,
-                        mood_trajectory=predictions.get("mood", {}).get(
-                            "trajectory", "STABLE"
-                        ),
-                        context={"relationship_state": relationship_state},
-                    )
-
-                # Context update
-                await self.event_publisher.publish_context_update(
-                    user_id=user_id,
-                    context_summary={
-                        "sleep_debt": sleep_debt,
-                        "relationship_state": relationship_state,
-                        "quality_level": quality_level.value,
-                    },
+            # Format gaps as questions for user
+            clarification_questions = []
+            if extraction.gaps:
+                clarification_questions = self.gap_resolver.format_gaps_for_user(
+                    extraction.gaps
                 )
 
-                # Predictions
-                await self.event_publisher.publish_prediction_event(
-                    user_id=user_id, predictions=predictions
-                )
-
-            # ================================================================
-            # PHASE 12: INSIGHTS GENERATION
-            # ================================================================
-            logger.debug("Phase 12: Insights generation")
-            insights = await self.gemini_extractor.generate_insights(
-                all_extractions=all_extractions,
-                user_context=user_context,
-                predictions=predictions,
-                health_alerts=health_alerts,
-            )
-
-            # ================================================================
-            # RETURN COMPLETE RESULTS
-            # ================================================================
             result = {
-                "extraction_id": str(extraction_id),
+                "entry_id": str(entry_id),
                 "user_id": str(user_id),
-                "journal_entry_id": str(journal_entry_id),
-                "extracted_data": {k: v.__dict__ for k, v in all_extractions.items()},
-                "metadata": metadata,
-                "health_alerts": health_alerts,
-                "predictions": predictions,
-                "insights": insights,
-                "relationship_transition": relationship_transition,
-                "quality_level": quality_level.value,
+                "entry_date": entry_date.isoformat(),
+                "quality": extraction.quality,
+                
+                # Extraction data
+                "sleep": extraction.sleep,
+                "metrics": extraction.metrics,
+                "activities": [
+                    {
+                        "name": a.canonical_name or a.raw_name,
+                        "category": a.category,
+                        "duration_minutes": a.duration_minutes,
+                        "time_of_day": a.time_of_day.value if a.time_of_day else None,
+                        "intensity": a.intensity,
+                        "calories": a.calories_burned,
+                    }
+                    for a in extraction.activities
+                ],
+                "consumptions": [
+                    {
+                        "name": c.canonical_name or c.raw_name,
+                        "type": c.consumption_type,
+                        "meal_type": c.meal_type,
+                        "time_of_day": c.time_of_day.value if c.time_of_day else None,
+                        "quantity": c.quantity,
+                        "unit": c.unit,
+                    }
+                    for c in extraction.consumptions
+                ],
+                "social": extraction.social,
+                "notes": extraction.notes,
+                
+                # Gaps requiring user clarification
+                "has_gaps": extraction.has_gaps,
+                "clarification_questions": clarification_questions,
+                
+                # Metadata
+                "metadata": {
+                    "processing_time_ms": processing_time_ms,
+                    "preprocessing": preprocessing_data,
+                },
             }
 
             logger.info(
-                f"Journal entry processed successfully in {processing_time_ms}ms "
-                f"(quality: {quality_level.value})"
+                f"Processing complete in {processing_time_ms}ms "
+                f"(quality: {extraction.quality})"
             )
 
             return result
 
         except Exception as e:
-            logger.error(f"Error processing journal entry: {e}", exc_info=True)
-            await self.storage.rollback()
+            logger.error(f"Error processing journal: {e}", exc_info=True)
             raise
 
-    def _calculate_quality_level(
-        self, extractions: Dict[str, FieldMetadata]
-    ) -> QualityLevel:
+    async def resolve_gap(
+        self,
+        user_id: UUID,
+        gap_id: UUID,
+        user_response: str,
+    ) -> Dict[str, Any]:
         """
-        Calculate extraction quality based on field count and confidence
+        Resolve a clarification gap with user's response.
+        
+        Args:
+            user_id: User UUID
+            gap_id: Gap UUID to resolve
+            user_response: User's answer to the clarification question
+        
+        Returns:
+            Updated extraction data
         """
-        if not extractions:
-            return QualityLevel.LOW
+        try:
+            # Update the gap in storage
+            await self.storage.resolve_gap(gap_id, user_response)
+            
+            logger.info(f"Resolved gap {gap_id} for user {user_id}")
+            
+            return {
+                "status": "resolved",
+                "gap_id": str(gap_id),
+                "response": user_response,
+            }
+            
+        except Exception as e:
+            logger.error(f"Error resolving gap: {e}")
+            raise
 
-        # Count by type
-        explicit_count = sum(
-            1 for v in extractions.values() if v.type == ExtractionType.EXPLICIT
+    async def get_pending_gaps(self, user_id: UUID) -> List[Dict[str, Any]]:
+        """
+        Get all pending clarification gaps for a user.
+        
+        Args:
+            user_id: User UUID
+        
+        Returns:
+            List of pending gaps with questions
+        """
+        return await self.storage.get_pending_gaps(user_id)
+
+    async def get_activity_summary(
+        self,
+        user_id: UUID,
+        days: int = 30,
+    ) -> Dict[str, Any]:
+        """
+        Get activity summary for a user.
+        
+        Args:
+            user_id: User UUID
+            days: Number of days to look back
+        
+        Returns:
+            Activity summary by category
+        """
+        return await self.storage.get_activity_summary(user_id, days)
+
+    async def get_user_activities(
+        self,
+        user_id: UUID,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        category: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get user activities with optional filters.
+        
+        Args:
+            user_id: User UUID
+            start_date: Start date filter
+            end_date: End date filter
+            category: Category filter (physical, mental, etc.)
+        
+        Returns:
+            List of activities
+        """
+        return await self.storage.get_user_activities(
+            user_id, start_date, end_date, category
         )
 
-        # Average confidence
-        avg_confidence = sum(v.confidence for v in extractions.values()) / len(
-            extractions
-        )
 
-        # Key fields present
-        key_fields = ["sleep_hours", "mood_score", "energy_level"]
-        key_field_count = sum(
-            1 for f in key_fields if f in extractions or f"{f}_estimate" in extractions
-        )
+# ============================================================================
+# CONVENIENCE FUNCTION
+# ============================================================================
 
-        # Scoring
-        score = 0
 
-        # Field coverage (max 40 points)
-        score += min(len(extractions), 10) * 4
-
-        # Explicit extractions (max 20 points)
-        score += min(explicit_count, 5) * 4
-
-        # Confidence (max 20 points)
-        score += int(avg_confidence * 20)
-
-        # Key fields (max 20 points)
-        score += key_field_count * 7
-
-        # Determine quality
-        if score >= 80:
-            return QualityLevel.HIGH
-        elif score >= 60:
-            return QualityLevel.MEDIUM
-        else:
-            return QualityLevel.LOW
+async def process_journal(
+    db_session: AsyncSession,
+    user_id: UUID,
+    entry_text: str,
+    entry_date: Optional[date] = None,
+    kafka_producer: Optional[KafkaProducerService] = None,
+    gemini_client: Optional[ResilientGeminiClient] = None,
+) -> Dict[str, Any]:
+    """
+    Convenience function to process a journal entry.
+    
+    Args:
+        db_session: Database session
+        user_id: User UUID
+        entry_text: Raw journal text
+        entry_date: Date of the entry
+        kafka_producer: Optional Kafka producer
+        gemini_client: Optional Gemini client
+    
+    Returns:
+        Extraction results
+    """
+    orchestrator = JournalParserOrchestrator(
+        db_session=db_session,
+        kafka_producer=kafka_producer,
+        gemini_client=gemini_client,
+    )
+    return await orchestrator.process_journal_entry(user_id, entry_text, entry_date)

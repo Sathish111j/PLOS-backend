@@ -1,6 +1,6 @@
 """
-PLOS v2.0 - Journal Parser Service
-Production-ready intelligent journal entry processing with 14-stage pipeline
+PLOS - Journal Parser Service
+Intelligent journal entry processing with comprehensive extraction and gap detection.
 """
 
 from contextlib import asynccontextmanager
@@ -13,7 +13,6 @@ from shared.utils.config import get_settings
 from shared.utils.logger import get_logger
 from shared.utils.logging_config import setup_logging
 
-# Import v2.0 components
 from .api import router as journal_router
 from .db_pool import close_global_pool, initialize_global_pool
 from .dependencies import initialize_dependencies, shutdown_dependencies
@@ -27,7 +26,7 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events"""
-    logger.info("Starting PLOS Journal Parser Service v2.0...")
+    logger.info("Starting PLOS Journal Parser Service...")
 
     # Initialize database connection pool
     logger.info("Initializing database connection pool...")
@@ -52,65 +51,49 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="PLOS Journal Parser Service",
     description="""
-    # PLOS Journal Parser v2.0
+    # PLOS Journal Parser
 
     **Intelligent Context-Aware Journal Entry Processing**
 
-    ## 14-Stage Processing Pipeline
+    ## Processing Pipeline
 
-    1. **Context Retrieval** - Load user baseline, patterns, relationship state
-    2. **Preprocessing** - Spell correction, time normalization, tokenization
-    3. **Explicit Extraction** - Direct mentions, calculations
-    4. **Gemini AI Extraction** - Context-aware multi-field extraction
-    5. **4-Tier Inference** - Explicit → Inferred → Baseline → Defaults
-    6. **Temporal Causality** - Link events across days
-    7. **Relationship State Machine** - Track relationship dynamics
-    8. **Health Monitoring** - Sleep debt, mood volatility, alerts
-    9. **Predictive Analytics** - Forecast mood, sleep, energy
-    10. **Quality Scoring** - EXCELLENT to UNRELIABLE ratings
-    11. **Storage** - Normalized data with full metadata
-    12. **Event Publishing** - Kafka events for downstream services
-    13. **Context Updates** - Refresh baselines and patterns
-    14. **User Communication** - Rich, actionable insights
+    1. **Preprocessing** - Text normalization, spell correction
+    2. **Context Retrieval** - Load user baseline, patterns
+    3. **Gemini AI Extraction** - Comprehensive multi-field extraction
+    4. **Normalization** - Controlled vocabulary resolution
+    5. **Gap Detection** - Identify ambiguous entries for clarification
+    6. **Storage** - Normalized data with alias learning
+    7. **Response Assembly** - Rich extraction results with gaps
 
     ## Key Features
 
-    * **Multi-tier Extraction** - Explicit → Inferred → AI → Baseline fallback
-    * **Context-Aware Analysis** - Uses 30-day baseline and 7-day trends
-    * **Relationship State Tracking** - HARMONY → TENSION → CONFLICT → RECOVERY
-    * **Sleep Debt Monitoring** - Cumulative tracking with recovery predictions
-    * **Health Alerts** - CRITICAL, HIGH, MEDIUM, INFO levels
-    * **Predictive Analytics** - Next-day and week-ahead forecasts
-    * **Quality Scoring** - Transparent confidence ratings per field
-    * **Temporal Causality** - "Yesterday's conflict → Today's poor sleep"
+    * **Controlled Vocabulary** - Canonical names for activities, foods
+    * **Gap Detection** - LLM asks clarifying questions for ambiguity
+    * **Time of Day Tracking** - When activities happened
+    * **Alias Learning** - Auto-learns synonyms from user responses
+    * **Fuzzy Matching** - Handles typos and variations
+    * **Quality Scoring** - Confidence ratings for extractions
 
     ## Extracted Data
 
-    - **Sleep**: hours, quality, debt, bedtime/waketime, disruptions
-    - **Mood**: score, trajectory, relationship impact, volatility
-    - **Energy**: level, fatigue tracking, predictions
-    - **Stress**: level, work patterns, conflict impact
-    - **Activities**: duration, satisfaction, mood/sleep/energy impact
-    - **Relationships**: state machine, conflict tracking, resolution forecasts
-    - **Health**: alerts, anomalies, concerns, patterns
-    - **Nutrition**: meals, macros, patterns
-    - **Exercise**: type, duration, intensity, impact
-    - **Work**: hours, productivity, focus
+    - **Sleep**: hours, quality, bedtime/waketime
+    - **Metrics**: mood, energy, stress scores
+    - **Activities**: normalized name, category, duration, time of day
+    - **Consumptions**: food/drink, meal type, quantity
+    - **Social**: interactions, people mentioned
+    - **Notes**: goals, gratitude, free-form
 
     ## API Endpoints
 
-    - `POST /journal/process` - Process journal entry (full 14-stage pipeline)
+    - `POST /journal/process` - Process journal entry
+    - `POST /journal/resolve-gap` - Resolve clarification gap
+    - `GET /journal/pending-gaps/{user_id}` - Get pending gaps
+    - `GET /journal/activities/{user_id}` - Get user activities
+    - `GET /journal/activity-summary/{user_id}` - Activity summary
     - `GET /journal/health` - Service health check
-    - `GET /journal/metrics` - Service metrics (Gemini usage, performance)
-
-    ## Performance
-
-    - **Response Time**: <5 seconds end-to-end
-    - **Quality Score**: Average 0.75-0.85
-    - **Cache Hit Rate**: 75-85%
-    - **Gemini Optimization**: Prompt caching (25-30% cost savings)
+    - `GET /journal/metrics` - Service metrics
     """,
-    version="2.0.0",
+    version="1.0.0",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -141,7 +124,7 @@ async def root():
     """Root endpoint"""
     return {
         "service": "PLOS Journal Parser",
-        "version": "2.0.0",
+        "version": "1.0.0",
         "status": "operational",
         "documentation": "/docs",
     }

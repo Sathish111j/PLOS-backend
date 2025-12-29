@@ -1,46 +1,42 @@
 """
-PLOS v2.0 - Storage Layer
-Handles database persistence and event publishing for journal extractions
+PLOS - Storage Service
+Stores extracted journal data in normalized tables with controlled vocabulary.
+Matches the journal_schema.sql generalized schema.
 """
 
-from datetime import datetime
+from datetime import date
 from typing import Any, Dict, List, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.kafka.producer import KafkaProducerService
-from shared.kafka.topics import KafkaTopic
-from shared.models import (
-    FieldMetadata,
-    RelationshipState,
-    Trajectory,
-)
+from shared.kafka.topics import KafkaTopics
 from shared.utils.logger import get_logger
+from .generalized_extraction import (
+    ExtractionResult,
+    NormalizedActivity,
+    NormalizedConsumption,
+    DataGap,
+)
 
 logger = get_logger(__name__)
 
 
-# Import database models (assuming they exist in shared)
-# from shared.database.models import (
-#     JournalExtraction,
-#     UserPattern,
-#     RelationshipHistory,
-#     ActivityImpact,
-#     SleepDebtLog,
-#     HealthAlert,
-#     Prediction,
-# )
-
-
-# ============================================================================
-# STORAGE SERVICE
-# ============================================================================
-
-
-class JournalStorageService:
+class StorageService:
     """
-    Handles persistence of journal extractions and related data
+    Stores extraction data in normalized tables with controlled vocabulary.
+    
+    Tables used:
+    - journal_entries: Base entry record
+    - extraction_metrics: Numeric scores (mood, energy, stress, etc.)
+    - extraction_activities: Activities linked to activity_types vocabulary
+    - extraction_consumptions: Food/drinks linked to food_items vocabulary
+    - extraction_social: Social interactions
+    - extraction_notes: Goals, gratitude, symptoms, thoughts
+    - extraction_sleep: Sleep data
+    - extraction_gaps: Clarification questions
     """
 
     def __init__(
@@ -51,439 +47,819 @@ class JournalStorageService:
         self.db = db_session
         self.kafka = kafka_producer
 
+    # ========================================================================
+    # MAIN STORAGE METHOD
+    # ========================================================================
+
     async def store_extraction(
         self,
         user_id: UUID,
-        journal_entry_id: UUID,
-        entry_text: str,
-        extracted_data: Dict[str, FieldMetadata],
-        metadata: Dict[str, Any],
-        baseline: Optional[Dict[str, Any]] = None,
+        entry_date: date,
+        raw_entry: str,
+        extraction: ExtractionResult,
+        extraction_time_ms: int = 0,
+        gemini_model: str = "gemini-2.5-flash",
     ) -> UUID:
         """
-        Store complete journal extraction
-
+        Store complete extraction in normalized tables.
+        
         Args:
             user_id: User UUID
-            journal_entry_id: Original journal entry UUID
-            entry_text: Preprocessed entry text
-            extracted_data: All extracted fields with metadata
-            metadata: Extraction metadata (quality, processing time, etc.)
-            baseline: User baseline used for context
-
+            entry_date: Date of the journal entry
+            raw_entry: Original journal text
+            extraction: ExtractionResult from GeminiExtractor
+            extraction_time_ms: Time taken to extract
+            gemini_model: Model used for extraction
+        
         Returns:
-            extraction_id: UUID of created extraction record
+            entry_id: UUID of the journal entry record
         """
-        # Convert extracted_data to storage format
-        extraction_dict = {}
-        for field, field_meta in extracted_data.items():
-            extraction_dict[field] = {
-                "value": field_meta.value,
-                "type": (
-                    field_meta.type.value
-                    if hasattr(field_meta.type, "value")
-                    else field_meta.type
-                ),
-                "confidence": field_meta.confidence,
-                "source": field_meta.source,
-                "reasoning": field_meta.reasoning,
-            }
-
-        # Prepare INSERT statement
-        _extraction_record = {
-            "user_id": user_id,
-            "journal_entry_id": journal_entry_id,
-            "entry_text": entry_text,
-            "extracted_data": extraction_dict,
-            "extraction_metadata": metadata,
-            "user_baseline_snapshot": baseline,
-            "created_at": datetime.utcnow(),
-        }
-
-        # Execute INSERT (pseudo-code - adapt to actual ORM)
-        # result = await self.db.execute(
-        #     insert(JournalExtraction).values(extraction_record).returning(JournalExtraction.id)
-        # )
-        # extraction_id = result.scalar_one()
-
-        # For now, mock the UUID
-        from uuid import uuid4
-
-        extraction_id = uuid4()
-
-        logger.info(f"Stored extraction {extraction_id} for user {user_id}")
-
-        # Publish event
-        if self.kafka:
-            await self._publish_extraction_event(
-                extraction_id=extraction_id,
+        try:
+            # 1. Insert/update base journal entry
+            entry_id = await self._upsert_journal_entry(
                 user_id=user_id,
-                extracted_data=extraction_dict,
-                metadata=metadata,
+                entry_date=entry_date,
+                raw_entry=raw_entry,
+                quality=extraction.quality,
+                has_gaps=extraction.has_gaps,
+                extraction_time_ms=extraction_time_ms,
+                gemini_model=gemini_model,
             )
+            
+            # 2. Store metrics (mood, energy, stress, etc.)
+            await self._store_metrics(entry_id, extraction.metrics)
+            
+            # 3. Store activities with vocabulary resolution
+            await self._store_activities(entry_id, extraction.activities)
+            
+            # 4. Store consumptions (food/drinks)
+            await self._store_consumptions(entry_id, extraction.consumptions)
+            
+            # 5. Store social interactions
+            await self._store_social(entry_id, extraction.social)
+            
+            # 6. Store notes (goals, gratitude, etc.)
+            await self._store_notes(entry_id, extraction.notes)
+            
+            # 7. Store sleep data
+            if extraction.sleep:
+                await self._store_sleep(entry_id, extraction.sleep)
+            
+            # 8. Store gaps for clarification
+            if extraction.gaps:
+                await self._store_gaps(entry_id, extraction.gaps)
+            
+            # 9. Commit transaction
+            await self.db.commit()
+            
+            logger.info(
+                f"Stored extraction for user {user_id}, date {entry_date}: "
+                f"{len(extraction.activities)} activities, "
+                f"{len(extraction.consumptions)} consumptions, "
+                f"{len(extraction.gaps)} gaps"
+            )
+            
+            # 10. Publish events to Kafka
+            if self.kafka:
+                await self._publish_events(entry_id, user_id, entry_date, extraction)
+            
+            return entry_id
+            
+        except Exception as e:
+            await self.db.rollback()
+            logger.error(f"Failed to store extraction: {e}")
+            raise
 
-        return extraction_id
+    # ========================================================================
+    # JOURNAL ENTRY
+    # ========================================================================
 
-    async def update_user_patterns(
+    async def _upsert_journal_entry(
         self,
         user_id: UUID,
-        pattern_type: str,
-        pattern_data: Dict[str, Any],
-        day_of_week: Optional[int] = None,
-    ) -> None:
-        """
-        Update or insert user pattern
-
-        Args:
-            user_id: User UUID
-            pattern_type: Type of pattern (baseline, day_of_week, activity, etc.)
-            pattern_data: Pattern statistics
-            day_of_week: Optional day of week (0=Monday, 6=Sunday)
-        """
-        # Upsert pattern
-        _pattern_record = {
+        entry_date: date,
+        raw_entry: str,
+        quality: str,
+        has_gaps: bool,
+        extraction_time_ms: int,
+        gemini_model: str,
+    ) -> UUID:
+        """Insert or update base journal entry."""
+        entry_id = uuid4()
+        
+        query = text("""
+            INSERT INTO journal_entries 
+                (id, user_id, entry_date, raw_content, extraction_quality,
+                 has_pending_gaps, extraction_time_ms, gemini_model)
+            VALUES 
+                (:id, :user_id, :entry_date, :raw_content, :quality,
+                 :has_gaps, :time_ms, :model)
+            ON CONFLICT (user_id, entry_date) 
+            DO UPDATE SET
+                raw_content = EXCLUDED.raw_content,
+                extraction_quality = EXCLUDED.extraction_quality,
+                has_pending_gaps = EXCLUDED.has_pending_gaps,
+                extraction_time_ms = EXCLUDED.extraction_time_ms,
+                gemini_model = EXCLUDED.gemini_model,
+                updated_at = NOW()
+            RETURNING id
+        """)
+        
+        result = await self.db.execute(query, {
+            "id": entry_id,
             "user_id": user_id,
-            "pattern_type": pattern_type,
-            "day_of_week": day_of_week,
-            "pattern_data": pattern_data,
-            "sample_size": pattern_data.get("sample_size", 0),
-            "last_updated": datetime.utcnow(),
-        }
+            "entry_date": entry_date,
+            "raw_content": raw_entry,
+            "quality": quality,
+            "has_gaps": has_gaps,
+            "time_ms": extraction_time_ms,
+            "model": gemini_model,
+        })
+        
+        row = result.fetchone()
+        return row[0] if row else entry_id
 
-        # Execute UPSERT (pseudo-code)
-        # await self.db.execute(
-        #     insert(UserPattern)
-        #     .values(pattern_record)
-        #     .on_conflict_do_update(
-        #         index_elements=["user_id", "pattern_type", "day_of_week"],
-        #         set_={"pattern_data": pattern_data, "last_updated": datetime.utcnow()}
-        #     )
-        # )
+    # ========================================================================
+    # METRICS
+    # ========================================================================
 
-        logger.debug(f"Updated {pattern_type} pattern for user {user_id}")
-
-    async def store_relationship_event(
-        self,
-        user_id: UUID,
-        from_state: RelationshipState,
-        to_state: RelationshipState,
-        trigger: str,
-        duration_in_previous_state: int,
+    async def _store_metrics(
+        self, 
+        entry_id: UUID, 
+        metrics: Dict[str, Dict[str, Any]]
     ) -> None:
-        """
-        Store relationship state transition
-        """
-        _event_record = {
-            "user_id": user_id,
-            "from_state": from_state.value,
-            "to_state": to_state.value,
-            "transition_trigger": trigger,
-            "duration_in_previous_state": duration_in_previous_state,
-            "occurred_at": datetime.utcnow(),
-        }
-
-        # Execute INSERT
-        # await self.db.execute(
-        #     insert(RelationshipHistory).values(event_record)
-        # )
-
-        logger.info(
-            f"Stored relationship transition: {from_state.value} -> {to_state.value}"
-        )
-
-        # Publish event
-        if self.kafka:
-            event_message = {
-                "user_id": str(user_id),
-                "from_state": from_state.value,
-                "to_state": to_state.value,
-                "trigger": trigger,
-                "duration_in_previous_state": duration_in_previous_state,
-                "timestamp": datetime.utcnow().isoformat(),
-            }
-            # Publish to relationship events topic
-            await self.kafka.publish(
-                topic=KafkaTopic.RELATIONSHIP_EVENTS,
-                message=event_message,
-            )
-            # Also publish to state changed topic for specific tracking
-            await self.kafka.publish(
-                topic=KafkaTopic.RELATIONSHIP_STATE_CHANGED,
-                message=event_message,
-            )
-
-    async def update_activity_impact(
-        self,
-        user_id: UUID,
-        activity_type: str,
-        mood_impact: Optional[float],
-        energy_impact: Optional[float],
-        sleep_impact: Optional[float],
-        occurrence_count: int,
-    ) -> None:
-        """
-        Update activity impact correlation matrix
-        """
-        _impact_record = {
-            "user_id": user_id,
-            "activity_type": activity_type,
-            "avg_mood_impact": mood_impact,
-            "avg_energy_impact": energy_impact,
-            "avg_sleep_impact": sleep_impact,
-            "occurrence_count": occurrence_count,
-            "last_updated": datetime.utcnow(),
-        }
-
-        # Upsert
-        # await self.db.execute(
-        #     insert(ActivityImpact)
-        #     .values(impact_record)
-        #     .on_conflict_do_update(
-        #         index_elements=["user_id", "activity_type"],
-        #         set_={
-        #             "avg_mood_impact": mood_impact,
-        #             "avg_energy_impact": energy_impact,
-        #             "avg_sleep_impact": sleep_impact,
-        #             "occurrence_count": occurrence_count,
-        #             "last_updated": datetime.utcnow(),
-        #         }
-        #     )
-        # )
-
-        logger.debug(f"Updated activity impact for {activity_type}")
-
-    async def log_sleep_debt(
-        self, user_id: UUID, date: datetime, daily_debt: float, cumulative_debt: float
-    ) -> None:
-        """
-        Log daily sleep debt
-        """
-        _debt_record = {
-            "user_id": user_id,
-            "date": date.date(),
-            "daily_debt_hours": daily_debt,
-            "cumulative_debt_hours": cumulative_debt,
-            "logged_at": datetime.utcnow(),
-        }
-
-        # Insert
-        # await self.db.execute(
-        #     insert(SleepDebtLog).values(debt_record)
-        # )
-
-        logger.debug(
-            f"Logged sleep debt: daily={daily_debt:.1f}, cumulative={cumulative_debt:.1f}"
-        )
-
-    async def store_health_alerts(
-        self, user_id: UUID, alerts: List[Dict[str, Any]]
-    ) -> None:
-        """
-        Store health alerts
-        """
-        if not alerts:
+        """Store extraction metrics (mood, energy, stress, etc.)."""
+        if not metrics:
             return
-
-        for alert in alerts:
-            _alert_record = {
-                "user_id": user_id,
-                "alert_type": alert["type"],
-                "level": alert["level"],
-                "message": alert["message"],
-                "data": {
-                    "value": alert.get("value"),
-                    "threshold": alert.get("threshold"),
-                    "recommendation": alert.get("recommendation"),
-                },
-                "created_at": datetime.utcnow(),
-            }
-
-            # Insert
-            # await self.db.execute(
-            #     insert(HealthAlert).values(alert_record)
-            # )
-
-        logger.info(f"Stored {len(alerts)} health alerts")
-
-        # Publish high-priority alerts
-        if self.kafka:
-            critical_alerts = [a for a in alerts if a["level"] in ["CRITICAL", "HIGH"]]
-            for alert in critical_alerts:
-                await self.kafka.publish(
-                    topic=KafkaTopic.HEALTH_ALERTS_TRIGGERED,
-                    message={
-                        "user_id": str(user_id),
-                        "alert_type": alert["type"],
-                        "level": alert["level"],
-                        "message": alert["message"],
-                        "recommendation": alert.get("recommendation"),
-                        "timestamp": datetime.utcnow().isoformat(),
-                    },
-                )
-                # Also publish to general health alerts topic
-                await self.kafka.publish(
-                    topic=KafkaTopic.HEALTH_ALERTS,
-                    message={
-                        "user_id": str(user_id),
-                        "alert_type": alert["type"],
-                        "level": alert["level"],
-                        "message": alert["message"],
-                        "timestamp": datetime.utcnow().isoformat(),
-                    },
-                )
-
-    async def store_predictions(
-        self, user_id: UUID, target_date: datetime, predictions: Dict[str, Any]
-    ) -> None:
-        """
-        Store predictions for target date
-        """
-        _prediction_record = {
-            "user_id": user_id,
-            "target_date": target_date.date(),
-            "prediction_type": "daily_forecast",
-            "predicted_values": predictions,
-            "confidence": predictions.get("mood", {}).get("confidence", 0.5),
-            "created_at": datetime.utcnow(),
-        }
-
-        # Insert
-        # await self.db.execute(
-        #     insert(Prediction).values(prediction_record)
-        # )
-
-        logger.debug(f"Stored predictions for {target_date.date()}")
-
-    async def _publish_extraction_event(
-        self,
-        extraction_id: UUID,
-        user_id: UUID,
-        extracted_data: Dict[str, Any],
-        metadata: Dict[str, Any],
-    ) -> None:
-        """
-        Publish extraction event to Kafka
-        """
-        event = {
-            "extraction_id": str(extraction_id),
-            "user_id": str(user_id),
-            "extracted_fields": list(extracted_data.keys()),
-            "quality_level": metadata.get("quality_level"),
-            "processing_time_ms": metadata.get("processing_time_ms"),
-            "timestamp": datetime.utcnow().isoformat(),
-        }
-
-        # Publish main extraction complete event
-        await self.kafka.publish(
-            topic=KafkaTopic.JOURNAL_EXTRACTION_COMPLETE, message=event
+        
+        # First, clear existing metrics for this entry
+        await self.db.execute(
+            text("DELETE FROM extraction_metrics WHERE entry_id = :entry_id"),
+            {"entry_id": entry_id}
         )
+        
+        for metric_name, metric_data in metrics.items():
+            value = metric_data.get("value")
+            if value is None:
+                continue
+            
+            # Resolve metric type from vocabulary
+            metric_type_id = await self._resolve_metric_type(metric_name)
+            
+            time_of_day = metric_data.get("time_of_day")
+            
+            query = text("""
+                INSERT INTO extraction_metrics
+                    (entry_id, metric_type_id, value, time_of_day, confidence)
+                VALUES
+                    (:entry_id, :metric_type_id, :value, :time_of_day::time_of_day, :confidence)
+            """)
+            
+            await self.db.execute(query, {
+                "entry_id": entry_id,
+                "metric_type_id": metric_type_id,
+                "value": float(value),
+                "time_of_day": time_of_day if time_of_day else None,
+                "confidence": metric_data.get("confidence", 0.7),
+            })
 
-        # Also publish to parsed entries for backward compatibility
-        await self.kafka.publish(topic=KafkaTopic.PARSED_ENTRIES, message=event)
+    async def _resolve_metric_type(self, metric_name: str) -> UUID:
+        """Get or create metric type from vocabulary."""
+        # Try to find existing
+        result = await self.db.execute(
+            text("SELECT id FROM metric_types WHERE canonical_name = :name"),
+            {"name": metric_name}
+        )
+        row = result.fetchone()
+        if row:
+            return row[0]
+        
+        # Create new metric type
+        new_id = uuid4()
+        await self.db.execute(
+            text("""
+                INSERT INTO metric_types (id, canonical_name, display_name, unit, min_value, max_value)
+                VALUES (:id, :name, :display, 'score', 1, 10)
+            """),
+            {"id": new_id, "name": metric_name, "display": metric_name.replace("_", " ").title()}
+        )
+        return new_id
 
-        # Publish specific data extraction events
-        if "sleep_hours" in extracted_data or "sleep_quality" in extracted_data:
-            sleep_event = {
-                "user_id": str(user_id),
-                "extraction_id": str(extraction_id),
-                "sleep_hours": extracted_data.get("sleep_hours", {}).get("value"),
-                "sleep_quality": extracted_data.get("sleep_quality", {}).get("value"),
-                "bedtime": extracted_data.get("bedtime", {}).get("value"),
-                "waketime": extracted_data.get("waketime", {}).get("value"),
-                "timestamp": datetime.utcnow().isoformat(),
+    # ========================================================================
+    # ACTIVITIES
+    # ========================================================================
+
+    async def _store_activities(
+        self, 
+        entry_id: UUID, 
+        activities: List[NormalizedActivity]
+    ) -> None:
+        """Store activities with vocabulary resolution."""
+        if not activities:
+            return
+        
+        # Clear existing activities for this entry
+        await self.db.execute(
+            text("DELETE FROM extraction_activities WHERE entry_id = :entry_id"),
+            {"entry_id": entry_id}
+        )
+        
+        for activity in activities:
+            # Resolve activity type from vocabulary
+            activity_type_id = await self._resolve_activity_type(
+                activity.canonical_name or activity.raw_name,
+                activity.raw_name,
+                activity.category
+            )
+            
+            time_of_day = None
+            if activity.time_of_day:
+                time_of_day = activity.time_of_day.value
+            
+            query = text("""
+                INSERT INTO extraction_activities
+                    (entry_id, activity_type_id, duration_minutes, time_of_day,
+                     start_time, end_time, intensity, satisfaction,
+                     calories_burned, is_screen_time, confidence, raw_mention)
+                VALUES
+                    (:entry_id, :activity_type_id, :duration, :time_of_day::time_of_day,
+                     :start_time, :end_time, :intensity, :satisfaction,
+                     :calories, :is_screen, :confidence, :raw_mention)
+            """)
+            
+            await self.db.execute(query, {
+                "entry_id": entry_id,
+                "activity_type_id": activity_type_id,
+                "duration": activity.duration_minutes,
+                "time_of_day": time_of_day,
+                "start_time": activity.start_time,
+                "end_time": activity.end_time,
+                "intensity": activity.intensity,
+                "satisfaction": activity.satisfaction,
+                "calories": activity.calories_burned,
+                "is_screen": activity.is_screen_time,
+                "confidence": activity.confidence,
+                "raw_mention": activity.raw_mention,
+            })
+
+    async def _resolve_activity_type(
+        self, 
+        name: str, 
+        raw_name: str,
+        category: str
+    ) -> UUID:
+        """Resolve activity name to activity_type using vocabulary and aliases."""
+        name_lower = name.lower()
+        
+        # 1. Try exact match on canonical_name
+        result = await self.db.execute(
+            text("SELECT id FROM activity_types WHERE canonical_name = :name"),
+            {"name": name_lower}
+        )
+        row = result.fetchone()
+        if row:
+            return row[0]
+        
+        # 2. Try alias lookup
+        result = await self.db.execute(
+            text("""
+                SELECT at.id FROM activity_types at
+                JOIN activity_aliases aa ON at.id = aa.activity_type_id
+                WHERE aa.alias = :alias
+            """),
+            {"alias": name_lower}
+        )
+        row = result.fetchone()
+        if row:
+            return row[0]
+        
+        # 3. Try fuzzy match (requires pg_trgm extension)
+        result = await self.db.execute(
+            text("""
+                SELECT id, canonical_name, similarity(canonical_name, :name) as sim
+                FROM activity_types
+                WHERE canonical_name % :name
+                ORDER BY sim DESC
+                LIMIT 1
+            """),
+            {"name": name_lower}
+        )
+        row = result.fetchone()
+        if row and row[2] > 0.3:  # threshold
+            # Learn this alias for future
+            await self._learn_activity_alias(name_lower, row[0])
+            return row[0]
+        
+        # 4. Create new activity type
+        return await self._create_activity_type(name_lower, raw_name, category)
+
+    async def _create_activity_type(
+        self, 
+        canonical_name: str, 
+        display_name: str,
+        category: str
+    ) -> UUID:
+        """Create new activity type in vocabulary."""
+        new_id = uuid4()
+        
+        # Get or create category
+        category_id = await self._get_or_create_category(category, "activities")
+        
+        await self.db.execute(
+            text("""
+                INSERT INTO activity_types 
+                    (id, canonical_name, display_name, category_id)
+                VALUES 
+                    (:id, :canonical, :display, :category_id)
+                ON CONFLICT (canonical_name) DO NOTHING
+            """),
+            {
+                "id": new_id,
+                "canonical": canonical_name,
+                "display": display_name.title(),
+                "category_id": category_id,
             }
-            await self.kafka.publish(
-                topic=KafkaTopic.SLEEP_DATA_EXTRACTED, message=sleep_event
-            )
+        )
+        
+        logger.info(f"Created new activity type: {canonical_name}")
+        return new_id
 
-        if "mood_score" in extracted_data or "mood_score_estimate" in extracted_data:
-            mood_key = (
-                "mood_score"
-                if "mood_score" in extracted_data
-                else "mood_score_estimate"
-            )
-            mood_event = {
-                "user_id": str(user_id),
-                "extraction_id": str(extraction_id),
-                "mood_score": extracted_data.get(mood_key, {}).get("value"),
-                "confidence": extracted_data.get(mood_key, {}).get("confidence"),
-                "timestamp": datetime.utcnow().isoformat(),
+    async def _learn_activity_alias(self, alias: str, activity_type_id: UUID) -> None:
+        """Learn a new alias for an activity type."""
+        await self.db.execute(
+            text("""
+                INSERT INTO activity_aliases (alias, activity_type_id, source)
+                VALUES (:alias, :type_id, 'auto_learned')
+                ON CONFLICT (alias) DO NOTHING
+            """),
+            {"alias": alias, "type_id": activity_type_id}
+        )
+        logger.info(f"Learned activity alias: {alias}")
+
+    async def _get_or_create_category(self, name: str, parent_name: str) -> UUID:
+        """Get or create a category."""
+        # Try to find existing
+        result = await self.db.execute(
+            text("SELECT id FROM categories WHERE name = :name"),
+            {"name": name}
+        )
+        row = result.fetchone()
+        if row:
+            return row[0]
+        
+        # Get parent
+        parent_id = None
+        result = await self.db.execute(
+            text("SELECT id FROM categories WHERE name = :name"),
+            {"name": parent_name}
+        )
+        row = result.fetchone()
+        if row:
+            parent_id = row[0]
+        
+        # Create new category
+        new_id = uuid4()
+        await self.db.execute(
+            text("""
+                INSERT INTO categories (id, name, display_name, parent_id)
+                VALUES (:id, :name, :display, :parent_id)
+                ON CONFLICT (name) DO NOTHING
+            """),
+            {
+                "id": new_id,
+                "name": name,
+                "display": name.title(),
+                "parent_id": parent_id,
             }
-            await self.kafka.publish(
-                topic=KafkaTopic.MOOD_DATA_EXTRACTED, message=mood_event
+        )
+        return new_id
+
+    # ========================================================================
+    # CONSUMPTIONS
+    # ========================================================================
+
+    async def _store_consumptions(
+        self, 
+        entry_id: UUID, 
+        consumptions: List[NormalizedConsumption]
+    ) -> None:
+        """Store food/drink consumptions with vocabulary resolution."""
+        if not consumptions:
+            return
+        
+        # Clear existing
+        await self.db.execute(
+            text("DELETE FROM extraction_consumptions WHERE entry_id = :entry_id"),
+            {"entry_id": entry_id}
+        )
+        
+        for item in consumptions:
+            # Resolve food item from vocabulary
+            food_item_id = await self._resolve_food_item(
+                item.canonical_name or item.raw_name,
+                item.raw_name
             )
+            
+            time_of_day = None
+            if item.time_of_day:
+                time_of_day = item.time_of_day.value
+            
+            query = text("""
+                INSERT INTO extraction_consumptions
+                    (entry_id, food_item_id, consumption_type, meal_type,
+                     time_of_day, consumption_time, quantity, unit,
+                     calories, protein_g, carbs_g, fat_g,
+                     is_healthy, is_home_cooked, confidence, raw_mention)
+                VALUES
+                    (:entry_id, :food_id, :type, :meal_type,
+                     :time_of_day::time_of_day, :time, :quantity, :unit,
+                     :calories, :protein, :carbs, :fat,
+                     :healthy, :home_cooked, :confidence, :raw_mention)
+            """)
+            
+            await self.db.execute(query, {
+                "entry_id": entry_id,
+                "food_id": food_item_id,
+                "type": item.consumption_type,
+                "meal_type": item.meal_type,
+                "time_of_day": time_of_day,
+                "time": item.consumption_time,
+                "quantity": item.quantity,
+                "unit": item.unit,
+                "calories": item.calories,
+                "protein": item.protein_g,
+                "carbs": item.carbs_g,
+                "fat": item.fat_g,
+                "healthy": item.is_healthy,
+                "home_cooked": item.is_home_cooked,
+                "confidence": item.confidence,
+                "raw_mention": item.raw_mention,
+            })
 
-        logger.debug(f"Published extraction event for {extraction_id}")
+    async def _resolve_food_item(self, name: str, raw_name: str) -> UUID:
+        """Resolve food name to food_items vocabulary."""
+        name_lower = name.lower()
+        
+        # 1. Try exact match
+        result = await self.db.execute(
+            text("SELECT id FROM food_items WHERE canonical_name = :name"),
+            {"name": name_lower}
+        )
+        row = result.fetchone()
+        if row:
+            return row[0]
+        
+        # 2. Try alias lookup
+        result = await self.db.execute(
+            text("""
+                SELECT fi.id FROM food_items fi
+                JOIN food_aliases fa ON fi.id = fa.food_item_id
+                WHERE fa.alias = :alias
+            """),
+            {"alias": name_lower}
+        )
+        row = result.fetchone()
+        if row:
+            return row[0]
+        
+        # 3. Create new food item
+        return await self._create_food_item(name_lower, raw_name)
 
-    async def commit(self):
-        """Commit database transaction"""
+    async def _create_food_item(self, canonical_name: str, display_name: str) -> UUID:
+        """Create new food item in vocabulary."""
+        new_id = uuid4()
+        
+        # Get food category
+        category_id = await self._get_or_create_category("food", "consumptions")
+        
+        await self.db.execute(
+            text("""
+                INSERT INTO food_items 
+                    (id, canonical_name, display_name, category_id)
+                VALUES 
+                    (:id, :canonical, :display, :category_id)
+                ON CONFLICT (canonical_name) DO NOTHING
+            """),
+            {
+                "id": new_id,
+                "canonical": canonical_name,
+                "display": display_name.title(),
+                "category_id": category_id,
+            }
+        )
+        
+        logger.info(f"Created new food item: {canonical_name}")
+        return new_id
+
+    # ========================================================================
+    # SOCIAL
+    # ========================================================================
+
+    async def _store_social(
+        self, 
+        entry_id: UUID, 
+        social: List[Dict[str, Any]]
+    ) -> None:
+        """Store social interactions."""
+        if not social:
+            return
+        
+        # Clear existing
+        await self.db.execute(
+            text("DELETE FROM extraction_social WHERE entry_id = :entry_id"),
+            {"entry_id": entry_id}
+        )
+        
+        for interaction in social:
+            time_of_day = interaction.get("time_of_day")
+            
+            query = text("""
+                INSERT INTO extraction_social
+                    (entry_id, person_name, relationship, interaction_type,
+                     duration_minutes, time_of_day, sentiment, topic,
+                     is_quality_time, confidence, raw_mention)
+                VALUES
+                    (:entry_id, :person, :relationship, :type,
+                     :duration, :time_of_day::time_of_day, :sentiment, :topic,
+                     :quality_time, :confidence, :raw_mention)
+            """)
+            
+            await self.db.execute(query, {
+                "entry_id": entry_id,
+                "person": interaction.get("person"),
+                "relationship": interaction.get("relationship"),
+                "type": interaction.get("interaction_type"),
+                "duration": interaction.get("duration_minutes"),
+                "time_of_day": time_of_day if time_of_day else None,
+                "sentiment": interaction.get("sentiment"),
+                "topic": interaction.get("topic"),
+                "quality_time": interaction.get("is_quality_time", False),
+                "confidence": interaction.get("confidence", 0.7),
+                "raw_mention": interaction.get("raw_mention"),
+            })
+
+    # ========================================================================
+    # NOTES
+    # ========================================================================
+
+    async def _store_notes(
+        self, 
+        entry_id: UUID, 
+        notes: List[Dict[str, Any]]
+    ) -> None:
+        """Store notes (goals, gratitude, symptoms, thoughts)."""
+        if not notes:
+            return
+        
+        # Clear existing
+        await self.db.execute(
+            text("DELETE FROM extraction_notes WHERE entry_id = :entry_id"),
+            {"entry_id": entry_id}
+        )
+        
+        for note in notes:
+            query = text("""
+                INSERT INTO extraction_notes
+                    (entry_id, note_type, content, sentiment, confidence, raw_mention)
+                VALUES
+                    (:entry_id, :type, :content, :sentiment, :confidence, :raw_mention)
+            """)
+            
+            await self.db.execute(query, {
+                "entry_id": entry_id,
+                "type": note.get("type", "thought"),
+                "content": note.get("content"),
+                "sentiment": note.get("sentiment"),
+                "confidence": note.get("confidence", 0.7),
+                "raw_mention": note.get("raw_mention"),
+            })
+
+    # ========================================================================
+    # SLEEP
+    # ========================================================================
+
+    async def _store_sleep(self, entry_id: UUID, sleep: Dict[str, Any]) -> None:
+        """Store sleep data."""
+        query = text("""
+            INSERT INTO extraction_sleep
+                (entry_id, duration_hours, quality, bedtime, waketime,
+                 disruptions, nap_minutes, confidence, raw_mention)
+            VALUES
+                (:entry_id, :duration, :quality, :bedtime, :waketime,
+                 :disruptions, :nap, :confidence, :raw_mention)
+            ON CONFLICT (entry_id) DO UPDATE SET
+                duration_hours = EXCLUDED.duration_hours,
+                quality = EXCLUDED.quality,
+                bedtime = EXCLUDED.bedtime,
+                waketime = EXCLUDED.waketime,
+                disruptions = EXCLUDED.disruptions,
+                nap_minutes = EXCLUDED.nap_minutes,
+                confidence = EXCLUDED.confidence,
+                raw_mention = EXCLUDED.raw_mention
+        """)
+        
+        await self.db.execute(query, {
+            "entry_id": entry_id,
+            "duration": sleep.get("duration_hours"),
+            "quality": sleep.get("quality"),
+            "bedtime": sleep.get("bedtime"),
+            "waketime": sleep.get("waketime"),
+            "disruptions": sleep.get("disruptions", 0),
+            "nap": sleep.get("nap_minutes", 0),
+            "confidence": sleep.get("confidence", 0.7),
+            "raw_mention": sleep.get("raw_mention"),
+        })
+
+    # ========================================================================
+    # GAPS
+    # ========================================================================
+
+    async def _store_gaps(self, entry_id: UUID, gaps: List[DataGap]) -> None:
+        """Store extraction gaps for user clarification."""
+        for gap in gaps:
+            query = text("""
+                INSERT INTO extraction_gaps
+                    (entry_id, field_category, question, context,
+                     original_mention, priority, suggested_options, status)
+                VALUES
+                    (:entry_id, :category, :question, :context,
+                     :mention, :priority, :suggestions, 'pending')
+            """)
+            
+            await self.db.execute(query, {
+                "entry_id": entry_id,
+                "category": gap.field_category,
+                "question": gap.question,
+                "context": gap.context,
+                "mention": gap.original_mention,
+                "priority": gap.priority.value,
+                "suggestions": gap.suggested_options,
+            })
+
+    # ========================================================================
+    # GAP RESOLUTION
+    # ========================================================================
+
+    async def resolve_gap(
+        self,
+        gap_id: UUID,
+        user_response: str,
+    ) -> None:
+        """Mark a gap as resolved with user's response."""
+        await self.db.execute(
+            text("""
+                UPDATE extraction_gaps
+                SET status = 'resolved',
+                    user_response = :response,
+                    resolved_at = NOW()
+                WHERE id = :gap_id
+            """),
+            {"gap_id": gap_id, "response": user_response}
+        )
         await self.db.commit()
 
-    async def rollback(self):
-        """Rollback database transaction"""
-        await self.db.rollback()
+    async def get_pending_gaps(self, user_id: UUID) -> List[Dict[str, Any]]:
+        """Get pending gaps for a user."""
+        result = await self.db.execute(
+            text("""
+                SELECT g.id, g.question, g.context, g.suggested_options,
+                       g.priority, je.entry_date
+                FROM extraction_gaps g
+                JOIN journal_entries je ON g.entry_id = je.id
+                WHERE je.user_id = :user_id AND g.status = 'pending'
+                ORDER BY g.priority ASC, je.entry_date DESC
+            """),
+            {"user_id": user_id}
+        )
+        
+        return [
+            {
+                "gap_id": row[0],
+                "question": row[1],
+                "context": row[2],
+                "suggestions": row[3],
+                "priority": row[4],
+                "entry_date": row[5],
+            }
+            for row in result.fetchall()
+        ]
 
+    # ========================================================================
+    # QUERY HELPERS
+    # ========================================================================
 
-# ============================================================================
-# EVENT PUBLISHER (standalone)
-# ============================================================================
-
-
-class JournalEventPublisher:
-    """
-    Publishes various journal-related events to Kafka
-    """
-
-    def __init__(self, kafka_producer: KafkaProducerService):
-        self.kafka = kafka_producer
-
-    async def publish_mood_event(
+    async def get_user_activities(
         self,
         user_id: UUID,
-        mood_score: int,
-        mood_trajectory: Trajectory,
-        context: Dict[str, Any],
-    ) -> None:
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        category: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Get user activities with optional filters."""
+        query = """
+            SELECT 
+                at.canonical_name as activity,
+                at.display_name,
+                c.name as category,
+                ea.duration_minutes,
+                ea.time_of_day,
+                ea.intensity,
+                ea.calories_burned,
+                je.entry_date
+            FROM extraction_activities ea
+            JOIN activity_types at ON ea.activity_type_id = at.id
+            JOIN categories c ON at.category_id = c.id
+            JOIN journal_entries je ON ea.entry_id = je.id
+            WHERE je.user_id = :user_id
         """
-        Publish mood event for real-time tracking
-        """
-        event = {
-            "user_id": str(user_id),
-            "mood_score": mood_score,
-            "trajectory": mood_trajectory.value,
-            "context": context,
-            "timestamp": datetime.utcnow().isoformat(),
+        params: Dict[str, Any] = {"user_id": user_id}
+        
+        if start_date:
+            query += " AND je.entry_date >= :start_date"
+            params["start_date"] = start_date
+        if end_date:
+            query += " AND je.entry_date <= :end_date"
+            params["end_date"] = end_date
+        if category:
+            query += " AND c.name = :category"
+            params["category"] = category
+        
+        query += " ORDER BY je.entry_date DESC, ea.time_of_day"
+        
+        result = await self.db.execute(text(query), params)
+        return [dict(row._mapping) for row in result.fetchall()]
+
+    async def get_activity_summary(
+        self,
+        user_id: UUID,
+        days: int = 30,
+    ) -> Dict[str, Any]:
+        """Get activity summary for the last N days."""
+        result = await self.db.execute(
+            text("""
+                SELECT 
+                    at.canonical_name as activity,
+                    c.name as category,
+                    COUNT(*) as count,
+                    SUM(ea.duration_minutes) as total_minutes,
+                    AVG(ea.duration_minutes) as avg_minutes,
+                    SUM(ea.calories_burned) as total_calories
+                FROM extraction_activities ea
+                JOIN activity_types at ON ea.activity_type_id = at.id
+                JOIN categories c ON at.category_id = c.id
+                JOIN journal_entries je ON ea.entry_id = je.id
+                WHERE je.user_id = :user_id
+                  AND je.entry_date >= CURRENT_DATE - :days
+                GROUP BY at.canonical_name, c.name
+                ORDER BY count DESC
+            """),
+            {"user_id": user_id, "days": days}
+        )
+        
+        activities = [dict(row._mapping) for row in result.fetchall()]
+        
+        # Group by category
+        by_category = {}
+        for act in activities:
+            cat = act["category"]
+            if cat not in by_category:
+                by_category[cat] = []
+            by_category[cat].append(act)
+        
+        return {
+            "activities": activities,
+            "by_category": by_category,
+            "total_activities": len(activities),
         }
 
-        await self.kafka.publish(topic=KafkaTopic.MOOD_EVENTS, message=event)
+    # ========================================================================
+    # EVENTS
+    # ========================================================================
 
-    async def publish_context_update(
-        self, user_id: UUID, context_summary: Dict[str, Any]
+    async def _publish_events(
+        self,
+        entry_id: UUID,
+        user_id: UUID,
+        entry_date: date,
+        extraction: ExtractionResult,
     ) -> None:
-        """
-        Publish context update event
-        """
-        event = {
-            "user_id": str(user_id),
-            "context_summary": context_summary,
-            "timestamp": datetime.utcnow().isoformat(),
-        }
-
-        await self.kafka.publish(topic=KafkaTopic.CONTEXT_UPDATES, message=event)
-
-    async def publish_prediction_event(
-        self, user_id: UUID, predictions: Dict[str, Any]
-    ) -> None:
-        """
-        Publish predictions for downstream services
-        """
-        event = {
-            "user_id": str(user_id),
-            "predictions": predictions,
-            "timestamp": datetime.utcnow().isoformat(),
-        }
-
-        # Publish to main predictions topic
-        await self.kafka.publish(topic=KafkaTopic.PREDICTIONS, message=event)
-        # Also publish to predictions generated topic for event tracking
-        await self.kafka.publish(topic=KafkaTopic.PREDICTIONS_GENERATED, message=event)
+        """Publish extraction events to Kafka."""
+        if not self.kafka:
+            return
+            
+        try:
+            await self.kafka.publish(
+                topic=KafkaTopics.JOURNAL_EXTRACTION_COMPLETE,
+                message={
+                    "entry_id": str(entry_id),
+                    "user_id": str(user_id),
+                    "entry_date": entry_date.isoformat(),
+                    "activity_count": len(extraction.activities),
+                    "consumption_count": len(extraction.consumptions),
+                    "has_gaps": extraction.has_gaps,
+                    "quality": extraction.quality,
+                },
+                key=str(user_id),
+            )
+        except Exception as e:
+            logger.warning(f"Failed to publish extraction event: {e}")
