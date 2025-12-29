@@ -44,11 +44,11 @@ context_engine = ContextEngine(state_manager, cache_manager)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup/shutdown"""
-    logger.info("🚀 Context Broker starting up...")
+    logger.info("Context Broker starting up...")
     await cache_manager.connect()
     await state_manager.connect()
     yield
-    logger.info("👋 Context Broker shutting down...")
+    logger.info("Context Broker shutting down...")
     await cache_manager.close()
     await state_manager.close()
 

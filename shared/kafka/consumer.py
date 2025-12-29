@@ -136,3 +136,110 @@ class KafkaConsumerClient:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
+
+
+class KafkaConsumerService:
+    """
+    Async Kafka consumer service for PLOS
+    Wraps aiokafka for async message consumption
+    """
+
+    def __init__(
+        self,
+        topics: List[str],
+        group_id: str,
+        bootstrap_servers: str,
+    ):
+        """
+        Initialize async Kafka consumer
+
+        Args:
+            topics: List of topics to subscribe to
+            group_id: Consumer group ID
+            bootstrap_servers: Kafka broker addresses
+        """
+        self.topics = topics
+        self.group_id = group_id
+        self.bootstrap_servers = bootstrap_servers
+        self._consumer = None
+        self._started = False
+
+    async def start(self):
+        """Start the async consumer"""
+        if self._started:
+            return
+
+        from aiokafka import AIOKafkaConsumer
+
+        self._consumer = AIOKafkaConsumer(
+            *self.topics,
+            bootstrap_servers=self.bootstrap_servers,
+            group_id=self.group_id,
+            value_deserializer=lambda m: json.loads(m.decode("utf-8")),
+            key_deserializer=lambda k: k.decode("utf-8") if k else None,
+            auto_offset_reset="earliest",
+            enable_auto_commit=True,
+        )
+        await self._consumer.start()
+        self._started = True
+        logger.info(
+            f"Async Kafka consumer started: {self.topics} (group: {self.group_id})"
+        )
+
+    async def stop(self):
+        """Stop the async consumer"""
+        if self._consumer and self._started:
+            await self._consumer.stop()
+            self._started = False
+            logger.info("Async Kafka consumer stopped")
+
+    async def consume(self, callback: Callable[[Dict[str, Any]], Any]) -> None:
+        """
+        Start consuming messages asynchronously
+
+        Args:
+            callback: Async function to call for each message
+        """
+        if not self._started:
+            await self.start()
+
+        try:
+            async for message in self._consumer:
+                try:
+                    logger.debug(
+                        f"Received message from {message.topic} "
+                        f"(partition: {message.partition}, offset: {message.offset})"
+                    )
+                    # Support both sync and async callbacks
+                    import asyncio
+
+                    if asyncio.iscoroutinefunction(callback):
+                        await callback(message.value)
+                    else:
+                        callback(message.value)
+                except Exception as e:
+                    logger.error(f"Error processing message: {e}")
+        except Exception as e:
+            logger.error(f"Consumer error: {e}")
+            raise
+
+    async def get_messages(self, timeout_ms: int = 1000) -> List[Dict[str, Any]]:
+        """
+        Get available messages (non-blocking)
+
+        Args:
+            timeout_ms: Timeout for polling
+
+        Returns:
+            List of message values
+        """
+        if not self._started:
+            await self.start()
+
+        messages = []
+        data = await self._consumer.getmany(timeout_ms=timeout_ms)
+        for tp, records in data.items():
+            for record in records:
+                messages.append(record.value)
+
+        return messages

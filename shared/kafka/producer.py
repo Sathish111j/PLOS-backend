@@ -105,3 +105,72 @@ class KafkaProducerClient:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
+
+
+class KafkaProducerService:
+    """
+    Async Kafka producer service for PLOS
+    Wraps aiokafka for async message publishing
+    """
+
+    def __init__(self, bootstrap_servers: str):
+        """
+        Initialize async Kafka producer
+
+        Args:
+            bootstrap_servers: Kafka broker addresses
+        """
+        self.bootstrap_servers = bootstrap_servers
+        self._producer = None
+        self._started = False
+
+    async def start(self):
+        """Start the async producer"""
+        if self._started:
+            return
+
+        from aiokafka import AIOKafkaProducer
+
+        self._producer = AIOKafkaProducer(
+            bootstrap_servers=self.bootstrap_servers,
+            value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+        )
+        await self._producer.start()
+        self._started = True
+        logger.info(f"Async Kafka producer started: {self.bootstrap_servers}")
+
+    async def stop(self):
+        """Stop the async producer"""
+        if self._producer and self._started:
+            await self._producer.stop()
+            self._started = False
+            logger.info("Async Kafka producer stopped")
+
+    async def publish(self, topic: str, message: dict, key: str = None) -> bool:
+        """
+        Publish message to topic asynchronously
+
+        Args:
+            topic: Kafka topic name
+            message: Message dict (will be JSON serialized)
+            key: Optional partition key
+
+        Returns:
+            True if successful
+        """
+        if not self._started:
+            logger.warning("Producer not started, attempting to start")
+            await self.start()
+
+        try:
+            key_bytes = key.encode("utf-8") if key else None
+            await self._producer.send_and_wait(topic, value=message, key=key_bytes)
+            logger.debug(f"Published message to {topic}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to publish to {topic}: {e}")
+            return False
+
+    async def send(self, topic: str, value: dict, key: str = None) -> bool:
+        """Alias for publish method for compatibility"""
+        return await self.publish(topic, value, key)

@@ -7,16 +7,20 @@ Publishes to: parsed_entries topic
 
 import asyncio
 import json
-from typing import Optional
+from typing import Any, Dict, Optional
+from uuid import UUID
 
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
-from gap_detector import GapDetector
-from parser_engine import JournalParserEngine
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.gemini.client import ResilientGeminiClient
+from shared.kafka.producer import KafkaProducerService
 from shared.kafka.topics import KafkaTopics
-from shared.models.journal import JournalEntry, ParsedJournalEntry
+from shared.models.journal import JournalEntry
 from shared.utils.config import get_settings
 from shared.utils.logger import get_logger
+
+from .orchestrator import JournalParserOrchestrator
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -26,19 +30,26 @@ class KafkaJournalConsumer:
     """
     Kafka consumer for journal entries
 
-    Processes journal entries in real-time using Gemini parser
+    Processes journal entries in real-time using the orchestrator
     """
 
-    def __init__(self, parser_engine: JournalParserEngine, gap_detector: GapDetector):
+    def __init__(
+        self,
+        db_session: AsyncSession,
+        kafka_producer: Optional[KafkaProducerService] = None,
+        gemini_client: Optional[ResilientGeminiClient] = None,
+    ):
         """
         Initialize Kafka consumer
 
         Args:
-            parser_engine: Parser engine instance
-            gap_detector: Gap detector instance
+            db_session: Database session
+            kafka_producer: Kafka producer for events
+            gemini_client: Gemini client for extraction
         """
-        self.parser_engine = parser_engine
-        self.gap_detector = gap_detector
+        self.db_session = db_session
+        self.kafka_producer = kafka_producer
+        self.gemini_client = gemini_client
 
         self.consumer: Optional[AIOKafkaConsumer] = None
         self.producer: Optional[AIOKafkaProducer] = None
@@ -117,7 +128,7 @@ class KafkaJournalConsumer:
             logger.error(f"Error in consumption loop: {str(e)}")
             self.running = False
 
-    async def _process_message(self, message_data: dict):
+    async def _process_message(self, message_data: dict) -> None:
         """
         Process a single journal entry message
 
@@ -130,31 +141,37 @@ class KafkaJournalConsumer:
 
             logger.info(f"Processing journal entry: {entry.id} (user: {entry.user_id})")
 
-            # Parse entry using Gemini
-            parsed_entry = await self.parser_engine.parse_entry(
-                entry_text=entry.content, user_id=entry.user_id
+            # Create orchestrator and process
+            orchestrator = JournalParserOrchestrator(
+                db_session=self.db_session,
+                kafka_producer=self.kafka_producer,
+                gemini_client=self.gemini_client,
             )
 
-            # Detect gaps
-            missing_metrics = await self.gap_detector.detect_gaps(entry.content)
-            completeness_score = self.gap_detector.calculate_completeness_score(
-                missing_metrics
+            result = await orchestrator.process_journal_entry(
+                user_id=(
+                    UUID(entry.user_id)
+                    if isinstance(entry.user_id, str)
+                    else entry.user_id
+                ),
+                entry_text=entry.content,
+                entry_date=(
+                    entry.entry_date.date()
+                    if hasattr(entry.entry_date, "date")
+                    else entry.entry_date
+                ),
             )
-
-            # Add metadata
-            parsed_entry.id = entry.id
-            parsed_entry.entry_date = entry.entry_date
 
             # Prepare output message
             output_message = {
-                "entry_id": str(entry.id),
-                "user_id": entry.user_id,
-                "parsed_data": parsed_entry.model_dump(exclude_none=True),
-                "metadata": {
-                    "missing_metrics": missing_metrics,
-                    "completeness_score": completeness_score,
-                    "parsed_at": parsed_entry.parsed_at.isoformat(),
-                },
+                "entry_id": result["entry_id"],
+                "user_id": result["user_id"],
+                "entry_date": result["entry_date"],
+                "quality": result["quality"],
+                "has_gaps": result["has_gaps"],
+                "activity_count": len(result.get("activities", [])),
+                "consumption_count": len(result.get("consumptions", [])),
+                "processing_time_ms": result["metadata"]["processing_time_ms"],
             }
 
             # Publish to parsed_entries topic
@@ -162,15 +179,15 @@ class KafkaJournalConsumer:
 
             logger.info(
                 f"Successfully processed entry {entry.id} - "
-                f"completeness: {completeness_score:.2f}, "
-                f"missing: {len(missing_metrics)} metrics"
+                f"quality: {result['quality']}, "
+                f"has_gaps: {result['has_gaps']}"
             )
 
         except Exception as e:
             logger.error(f"Error processing journal entry: {str(e)}")
             raise
 
-    async def process_single_entry(self, entry: JournalEntry) -> ParsedJournalEntry:
+    async def process_single_entry(self, entry: JournalEntry) -> Dict[str, Any]:
         """
         Process a single entry (for testing/debugging)
 
@@ -178,13 +195,24 @@ class KafkaJournalConsumer:
             entry: Journal entry to process
 
         Returns:
-            Parsed journal entry
+            Extraction result dict
         """
-        parsed_entry = await self.parser_engine.parse_entry(
-            entry_text=entry.content, user_id=entry.user_id
+        orchestrator = JournalParserOrchestrator(
+            db_session=self.db_session,
+            kafka_producer=self.kafka_producer,
+            gemini_client=self.gemini_client,
         )
 
-        parsed_entry.id = entry.id
-        parsed_entry.entry_date = entry.entry_date
+        result = await orchestrator.process_journal_entry(
+            user_id=(
+                UUID(entry.user_id) if isinstance(entry.user_id, str) else entry.user_id
+            ),
+            entry_text=entry.content,
+            entry_date=(
+                entry.entry_date.date()
+                if hasattr(entry.entry_date, "date")
+                else entry.entry_date
+            ),
+        )
 
-        return parsed_entry
+        return result
