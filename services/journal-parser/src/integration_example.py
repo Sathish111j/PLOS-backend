@@ -106,7 +106,6 @@ class PLOSApplication:
         async with self.db_pool.get_session() as session:
             self.orchestrator = JournalParserOrchestrator(
                 db_session=session,
-                cache_manager=self.cache_manager,
                 gemini_client=self.gemini_client,
                 kafka_producer=self.kafka_producer,
             )

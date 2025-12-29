@@ -95,9 +95,9 @@ async def process_journal_entry(
     Process a journal entry with intelligent extraction
     """
     try:
-        logger.info(
-            f"Processing journal entry {request.journal_entry_id} for user {request.user_id}"
-        )
+        safe_entry_id = str(request.journal_entry_id).replace("\n", "")
+        safe_user_id = str(request.user_id).replace("\n", "")
+        logger.info(f"Processing journal entry {safe_entry_id} for user {safe_user_id}")
 
         # Create orchestrator
         orchestrator = JournalParserOrchestrator(

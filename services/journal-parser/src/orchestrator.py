@@ -96,7 +96,9 @@ class JournalParserOrchestrator:
             Complete extraction results with all metadata
         """
         start_time = time.time()
-        logger.info(f"Processing journal entry {journal_entry_id} for user {user_id}")
+        safe_entry_id = str(journal_entry_id).replace("\n", "")
+        safe_user_id = str(user_id).replace("\n", "")
+        logger.info(f"Processing journal entry {safe_entry_id} for user {safe_user_id}")
 
         try:
             # ================================================================
