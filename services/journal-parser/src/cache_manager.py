@@ -194,7 +194,7 @@ class MultiLayerCacheManager:
             except Exception as e:
                 logger.warning(
                     f"Redis get failed for patterns key '{key}' (user_id={user_id}, pattern_type={pattern_type}): {e}",
-                    exc_info=True
+                    exc_info=True,
                 )
 
         # L3: PostgreSQL
@@ -209,7 +209,9 @@ class MultiLayerCacheManager:
                         await self._redis_set(key, db_data, ttl=3600)
                     return db_data
             except Exception as e:
-                logger.warning(f"Database error fetching patterns for user {user_id}: {e}")
+                logger.warning(
+                    f"Database error fetching patterns for user {user_id}: {e}"
+                )
 
         # L4: Defaults
         return {}
@@ -247,7 +249,9 @@ class MultiLayerCacheManager:
                         await self._redis_set(key, cache_data, ttl=3600)
                     return db_data
             except Exception as e:
-                logger.warning(f"Database error fetching activities for user {user_id}: {e}")
+                logger.warning(
+                    f"Database error fetching activities for user {user_id}: {e}"
+                )
 
         # L4: Empty list
         return []

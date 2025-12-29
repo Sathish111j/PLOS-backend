@@ -374,7 +374,9 @@ class JournalStorageService:
         }
 
         # Publish main extraction complete event
-        await self.kafka.publish(topic=KafkaTopic.JOURNAL_EXTRACTION_COMPLETE, message=event)
+        await self.kafka.publish(
+            topic=KafkaTopic.JOURNAL_EXTRACTION_COMPLETE, message=event
+        )
 
         # Also publish to parsed entries for backward compatibility
         await self.kafka.publish(topic=KafkaTopic.PARSED_ENTRIES, message=event)
@@ -390,10 +392,16 @@ class JournalStorageService:
                 "waketime": extracted_data.get("waketime", {}).get("value"),
                 "timestamp": datetime.utcnow().isoformat(),
             }
-            await self.kafka.publish(topic=KafkaTopic.SLEEP_DATA_EXTRACTED, message=sleep_event)
+            await self.kafka.publish(
+                topic=KafkaTopic.SLEEP_DATA_EXTRACTED, message=sleep_event
+            )
 
         if "mood_score" in extracted_data or "mood_score_estimate" in extracted_data:
-            mood_key = "mood_score" if "mood_score" in extracted_data else "mood_score_estimate"
+            mood_key = (
+                "mood_score"
+                if "mood_score" in extracted_data
+                else "mood_score_estimate"
+            )
             mood_event = {
                 "user_id": str(user_id),
                 "extraction_id": str(extraction_id),
@@ -401,7 +409,9 @@ class JournalStorageService:
                 "confidence": extracted_data.get(mood_key, {}).get("confidence"),
                 "timestamp": datetime.utcnow().isoformat(),
             }
-            await self.kafka.publish(topic=KafkaTopic.MOOD_DATA_EXTRACTED, message=mood_event)
+            await self.kafka.publish(
+                topic=KafkaTopic.MOOD_DATA_EXTRACTED, message=mood_event
+            )
 
         logger.debug(f"Published extraction event for {extraction_id}")
 
