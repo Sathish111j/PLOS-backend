@@ -11,7 +11,7 @@ echo ""
 
 # Check .env
 if [ ! -f .env ]; then
-    echo "❌ .env file not found. Please create one from .env.example"
+    echo "[ERROR] .env file not found. Please create one from .env.example"
     exit 1
 fi
 
@@ -34,7 +34,7 @@ sleep 10
 
 echo ""
 echo "=========================================="
-echo "  ✅ System Started!"
+echo "  System Started!"
 echo "=========================================="
 echo ""
 echo "Infrastructure:"

@@ -9,7 +9,7 @@ echo "  PLOS - Cleanup"
 echo "=========================================="
 echo ""
 
-read -p "⚠️  This will remove ALL data (databases, cache). Continue? (y/N) " -n 1 -r
+read -p "WARNING: This will remove ALL data (databases, cache). Continue? (y/N) " -n 1 -r
 echo ""
 
 if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -18,11 +18,11 @@ if [[ ! $REPLY =~ ^[Yy]$ ]]; then
 fi
 
 echo ""
-echo "🧹 Stopping and removing all containers and volumes..."
+echo "Stopping and removing all containers and volumes..."
 docker-compose down -v
 
 echo ""
-echo "✓ Cleanup complete!"
+echo "[OK] Cleanup complete!"
 echo ""
 echo "To start fresh:"
 echo "  ./scripts/start-all.sh    (if exists)"

@@ -384,3 +384,87 @@ def sanitize_tags(tags: List[str]) -> List[str]:
                 sanitized.append(tag)
 
     return list(dict.fromkeys(sanitized))  # Remove duplicates
+
+
+# ============================================================================
+# DATE RANGE VALIDATION
+# ============================================================================
+
+
+def validate_date_range(
+    start_date: Optional[date] = None, end_date: Optional[date] = None
+) -> tuple[date, date]:
+    """
+    Validate date range
+
+    Args:
+        start_date: Start date (defaults to 30 days ago)
+        end_date: End date (defaults to today)
+
+    Returns:
+        Tuple of (start_date, end_date)
+
+    Raises:
+        ValueError: If end_date is before start_date
+    """
+    from datetime import timedelta
+
+    today = date.today()
+
+    if start_date is None:
+        start_date = today - timedelta(days=30)
+
+    if end_date is None:
+        end_date = today
+
+    if end_date < start_date:
+        raise ValueError("end_date must be after start_date")
+
+    return start_date, end_date
+
+
+def validate_email(email: str) -> str:
+    """
+    Validate email format
+
+    Args:
+        email: Email address to validate
+
+    Returns:
+        Lowercase email
+
+    Raises:
+        ValueError: If invalid email format
+    """
+    pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+    if not re.match(pattern, email):
+        raise ValueError(f"Invalid email format: {email}")
+    return email.lower()
+
+
+def validate_password(password: str) -> bool:
+    """
+    Validate password strength
+
+    Args:
+        password: Password to validate
+
+    Returns:
+        True if valid
+
+    Raises:
+        ValueError: If password doesn't meet requirements
+    """
+    if len(password) < 8:
+        raise ValueError("Password must be at least 8 characters long")
+
+    if not re.search(r"[A-Z]", password):
+        raise ValueError("Password must contain at least one uppercase letter")
+
+    if not re.search(r"[a-z]", password):
+        raise ValueError("Password must contain at least one lowercase letter")
+
+    if not re.search(r"[0-9]", password):
+        raise ValueError("Password must contain at least one digit")
+
+    return True
