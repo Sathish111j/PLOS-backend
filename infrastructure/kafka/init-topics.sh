@@ -17,6 +17,12 @@ kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
   --config retention.ms=604800000
 
 kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
+  --topic journal_entries_raw \
+  --partitions 3 \
+  --replication-factor 1 \
+  --config retention.ms=604800000
+
+kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
   --topic parsed_entries \
   --partitions 3 \
   --replication-factor 1 \
@@ -62,6 +68,27 @@ kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
 # Context & State Updates
 kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
   --topic context_updates \
+  --partitions 3 \
+  --replication-factor 1 \
+  --config retention.ms=86400000
+
+# Relationship Events
+kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
+  --topic relationship_events \
+  --partitions 3 \
+  --replication-factor 1 \
+  --config retention.ms=604800000
+
+# Health Alerts
+kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
+  --topic health_alerts \
+  --partitions 3 \
+  --replication-factor 1 \
+  --config retention.ms=604800000
+
+# Predictions
+kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
+  --topic predictions \
   --partitions 3 \
   --replication-factor 1 \
   --config retention.ms=86400000

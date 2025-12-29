@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing service dependencies...")
     await initialize_dependencies()
 
-    logger.info("✅ Journal Parser Service started successfully")
+    logger.info("Journal Parser Service started successfully")
 
     yield
 

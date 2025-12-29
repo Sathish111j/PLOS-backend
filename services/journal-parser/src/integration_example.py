@@ -118,7 +118,7 @@ class PLOSApplication:
             redis_client=redis_client,
         )
 
-        logger.info("✅ PLOS v2.0 initialization complete")
+        logger.info("PLOS v2.0 initialization complete")
 
     async def start_worker(self) -> None:
         """
@@ -145,7 +145,7 @@ class PLOSApplication:
         if self.db_pool:
             await self.db_pool.close()
 
-        logger.info("✅ Shutdown complete")
+        logger.info("Shutdown complete")
 
     def get_metrics(self) -> dict:
         """Get comprehensive system metrics"""

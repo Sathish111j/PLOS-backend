@@ -27,7 +27,8 @@ CREATE TYPE extraction_type AS ENUM (
     'explicit',
     'inferred',
     'estimated',
-    'default'
+    'default',
+    'ai_extracted'
 );
 
 CREATE TYPE quality_level AS ENUM (

@@ -9,6 +9,7 @@ class KafkaTopics:
 
     # Journal & Parsing
     JOURNAL_ENTRIES = "journal_entries"
+    JOURNAL_ENTRIES_RAW = "journal_entries_raw"
     PARSED_ENTRIES = "parsed_entries"
 
     # Data Extraction
@@ -21,6 +22,15 @@ class KafkaTopics:
 
     # Context & State
     CONTEXT_UPDATES = "context_updates"
+
+    # Relationship State
+    RELATIONSHIP_EVENTS = "relationship_events"
+
+    # Health Alerts
+    HEALTH_ALERTS = "health_alerts"
+
+    # Predictions
+    PREDICTIONS = "predictions"
 
     # Tasks & Goals
     TASK_EVENTS = "task_events"
@@ -47,6 +57,7 @@ class KafkaTopics:
         """Get list of all topic names"""
         return [
             cls.JOURNAL_ENTRIES,
+            cls.JOURNAL_ENTRIES_RAW,
             cls.PARSED_ENTRIES,
             cls.MOOD_EVENTS,
             cls.HEALTH_EVENTS,
@@ -55,6 +66,9 @@ class KafkaTopics:
             cls.WORK_EVENTS,
             cls.HABIT_EVENTS,
             cls.CONTEXT_UPDATES,
+            cls.RELATIONSHIP_EVENTS,
+            cls.HEALTH_ALERTS,
+            cls.PREDICTIONS,
             cls.TASK_EVENTS,
             cls.GOAL_EVENTS,
             cls.CALENDAR_EVENTS,
@@ -64,3 +78,7 @@ class KafkaTopics:
             cls.SCHEDULING_REQUESTS,
             cls.EVENT_STREAM,
         ]
+
+
+# Alias for backwards compatibility and consistent naming
+KafkaTopic = KafkaTopics

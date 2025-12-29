@@ -3,8 +3,15 @@ PLOS Shared Kafka Module
 Kafka producer and consumer wrappers
 """
 
-from .consumer import KafkaConsumerClient
-from .producer import KafkaProducerClient
-from .topics import KafkaTopics
+from .consumer import KafkaConsumerClient, KafkaConsumerService
+from .producer import KafkaProducerClient, KafkaProducerService
+from .topics import KafkaTopic, KafkaTopics
 
-__all__ = ["KafkaProducerClient", "KafkaConsumerClient", "KafkaTopics"]
+__all__ = [
+    "KafkaProducerClient",
+    "KafkaProducerService",
+    "KafkaConsumerClient",
+    "KafkaConsumerService",
+    "KafkaTopics",
+    "KafkaTopic",
+]

@@ -36,6 +36,7 @@ class ExtractionType(str, Enum):
     INFERRED = "inferred"
     ESTIMATED = "estimated"
     DEFAULT = "default"
+    AI_EXTRACTED = "ai_extracted"
 
 
 class QualityLevel(str, Enum):
@@ -45,6 +46,9 @@ class QualityLevel(str, Enum):
     ACCEPTABLE = "ACCEPTABLE"  # 0.60-0.69
     POOR = "POOR"  # 0.50-0.59
     UNRELIABLE = "UNRELIABLE"  # <0.50
+    HIGH = "HIGH"  # Alias for EXCELLENT/VERY_GOOD
+    MEDIUM = "MEDIUM"  # Alias for GOOD/ACCEPTABLE
+    LOW = "LOW"  # Alias for POOR/UNRELIABLE
 
 
 class Trajectory(str, Enum):
