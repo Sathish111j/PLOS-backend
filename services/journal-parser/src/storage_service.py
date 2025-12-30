@@ -4,7 +4,7 @@ Stores extracted journal data in normalized tables with controlled vocabulary.
 Matches the journal_schema.sql generalized schema.
 """
 
-from datetime import date
+from datetime import date, time as time_type
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -46,6 +46,19 @@ class StorageService:
     ):
         self.db = db_session
         self.kafka = kafka_producer
+
+    def _parse_time_string(self, time_str: Optional[str]) -> Optional[time_type]:
+        """Parse a time string like '12:00' or '09:30' to a datetime.time object."""
+        if not time_str:
+            return None
+        try:
+            # Handle HH:MM format
+            parts = time_str.split(":")
+            if len(parts) >= 2:
+                return time_type(int(parts[0]), int(parts[1]))
+            return None
+        except (ValueError, TypeError):
+            return None
 
     # ========================================================================
     # MAIN STORAGE METHOD
@@ -105,11 +118,19 @@ class StorageService:
             if extraction.sleep:
                 await self._store_sleep(extraction_id, extraction.sleep)
 
-            # 8. Store gaps for clarification
+            # 8. Store locations
+            if hasattr(extraction, 'locations') and extraction.locations:
+                await self._store_locations(extraction_id, extraction.locations)
+
+            # 9. Store health symptoms
+            if hasattr(extraction, 'health') and extraction.health:
+                await self._store_health(extraction_id, extraction.health)
+
+            # 10. Store gaps for clarification
             if extraction.gaps:
                 await self._store_gaps(extraction_id, extraction.gaps)
 
-            # 9. Commit transaction
+            # 11. Commit transaction
             await self.db.commit()
 
             logger.info(
@@ -153,7 +174,7 @@ class StorageService:
                 (user_id, entry_date, raw_entry, overall_quality,
                  has_gaps, extraction_time_ms, gemini_model)
             VALUES
-                (:user_id, :entry_date, :raw_entry, :quality::extraction_quality,
+                (:user_id, :entry_date, :raw_entry, CAST(:quality AS extraction_quality),
                  :has_gaps, :time_ms, :model)
             ON CONFLICT (user_id, entry_date)
             DO UPDATE SET
@@ -217,7 +238,7 @@ class StorageService:
                 INSERT INTO extraction_metrics
                     (extraction_id, metric_type_id, value, time_of_day, confidence)
                 VALUES
-                    (:extraction_id, :metric_type_id, :value, :time_of_day::time_of_day, :confidence)
+                    (:extraction_id, :metric_type_id, :value, CAST(:time_of_day AS time_of_day), :confidence)
             """
             )
 
@@ -296,7 +317,7 @@ class StorageService:
                      calories_burned, confidence, raw_mention, needs_clarification)
                 VALUES
                     (:extraction_id, :activity_type_id, :activity_raw, :duration,
-                     :time_of_day::time_of_day, :start_time, :end_time, :intensity,
+                     CAST(:time_of_day AS time_of_day), :start_time, :end_time, :intensity,
                      :satisfaction, :calories, :confidence, :raw_mention, :needs_clarification)
             """
             )
@@ -309,8 +330,8 @@ class StorageService:
                     "activity_raw": activity.raw_name if not activity_type_id else None,
                     "duration": activity.duration_minutes,
                     "time_of_day": time_of_day,
-                    "start_time": activity.start_time,
-                    "end_time": activity.end_time,
+                    "start_time": self._parse_time_string(activity.start_time),
+                    "end_time": self._parse_time_string(activity.end_time),
                     "intensity": activity.intensity,
                     "satisfaction": activity.satisfaction,
                     "calories": activity.calories_burned,
@@ -473,10 +494,19 @@ class StorageService:
         )
 
         for item in consumptions:
-            # Resolve food item from vocabulary (returns int, not UUID)
+            # Resolve food item from vocabulary (for canonical name tracking)
             food_item_id = await self._resolve_food_item(
                 item.canonical_name or item.raw_name, item.raw_name
             )
+            
+            # Use nutrition from Gemini extraction directly
+            calories = item.calories
+            protein = item.protein_g
+            carbs = item.carbs_g
+            fat = item.fat_g
+            fiber = item.fiber_g
+            sugar = item.sugar_g
+            sodium = item.sodium_mg
 
             time_of_day = None
             if item.time_of_day:
@@ -487,12 +517,12 @@ class StorageService:
                 INSERT INTO extraction_consumptions
                     (extraction_id, food_item_id, item_raw, consumption_type, meal_type,
                      time_of_day, consumption_time, quantity, unit,
-                     calories, protein_g, carbs_g, fat_g,
+                     calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, sodium_mg,
                      is_healthy, is_home_cooked, confidence, raw_mention)
                 VALUES
                     (:extraction_id, :food_id, :item_raw, :type, :meal_type,
-                     :time_of_day::time_of_day, :time, :quantity, :unit,
-                     :calories, :protein, :carbs, :fat,
+                     CAST(:time_of_day AS time_of_day), :time, :quantity, :unit,
+                     :calories, :protein, :carbs, :fat, :fiber, :sugar, :sodium,
                      :healthy, :home_cooked, :confidence, :raw_mention)
             """
             )
@@ -506,13 +536,16 @@ class StorageService:
                     "type": item.consumption_type,
                     "meal_type": item.meal_type,
                     "time_of_day": time_of_day,
-                    "time": item.consumption_time,
+                    "time": self._parse_time_string(item.consumption_time),
                     "quantity": item.quantity,
                     "unit": item.unit,
-                    "calories": item.calories,
-                    "protein": item.protein_g,
-                    "carbs": item.carbs_g,
-                    "fat": item.fat_g,
+                    "calories": calories,
+                    "protein": protein,
+                    "carbs": carbs,
+                    "fat": fat,
+                    "fiber": fiber,
+                    "sugar": sugar,
+                    "sodium": sodium,
                     "healthy": item.is_healthy,
                     "home_cooked": item.is_home_cooked,
                     "confidence": item.confidence,
@@ -521,7 +554,7 @@ class StorageService:
             )
 
     async def _resolve_food_item(self, name: str, raw_name: str) -> Optional[int]:
-        """Resolve food name to food_items vocabulary."""
+        """Resolve food name to food_items vocabulary (for tracking, not nutrition)."""
         name_lower = name.lower()
 
         # 1. Try exact match
@@ -549,7 +582,8 @@ class StorageService:
             return row[0]
 
         # 3. Create new food item
-        return await self._create_food_item(name_lower, raw_name)
+        food_id = await self._create_food_item(name_lower, raw_name)
+        return food_id
 
     async def _create_food_item(self, canonical_name: str, display_name: str) -> int:
         """Create new food item in vocabulary."""
@@ -603,7 +637,7 @@ class StorageService:
                      confidence, raw_mention)
                 VALUES
                     (:extraction_id, :person, :relationship, :type,
-                     :duration, :time_of_day::time_of_day, :sentiment, :notes,
+                     :duration, CAST(:time_of_day AS time_of_day), :sentiment, :notes,
                      :confidence, :raw_mention)
             """
             )
@@ -692,8 +726,8 @@ class StorageService:
                 "extraction_id": extraction_id,
                 "duration": sleep.get("duration_hours"),
                 "quality": sleep.get("quality"),
-                "bedtime": sleep.get("bedtime"),
-                "waketime": sleep.get("waketime"),
+                "bedtime": self._parse_time_string(sleep.get("bedtime")),
+                "waketime": self._parse_time_string(sleep.get("waketime")),
                 "disruptions": sleep.get("disruptions", 0),
                 "nap": sleep.get("nap_minutes", 0),
                 "confidence": sleep.get("confidence", 0.7),
@@ -728,6 +762,98 @@ class StorageService:
                     "context": gap.context,
                     "mention": gap.original_mention,
                     "priority": gap.priority.value,
+                },
+            )
+
+    # ========================================================================
+    # LOCATIONS
+    # ========================================================================
+
+    async def _store_locations(
+        self, extraction_id: UUID, locations: List[Dict[str, Any]]
+    ) -> None:
+        """Store location data."""
+        if not locations:
+            return
+
+        # Clear existing
+        await self.db.execute(
+            text("DELETE FROM extraction_locations WHERE extraction_id = :extraction_id"),
+            {"extraction_id": extraction_id},
+        )
+
+        for loc in locations:
+            time_of_day = loc.get("time_of_day")
+
+            query = text(
+                """
+                INSERT INTO extraction_locations
+                    (extraction_id, location_name, location_type, time_of_day,
+                     duration_minutes, activity_context, raw_mention)
+                VALUES
+                    (:extraction_id, :name, :type, :time_of_day,
+                     :duration, :context, :raw_mention)
+            """
+            )
+
+            await self.db.execute(
+                query,
+                {
+                    "extraction_id": extraction_id,
+                    "name": loc.get("location_name"),
+                    "type": loc.get("location_type"),
+                    "time_of_day": time_of_day if time_of_day else None,
+                    "duration": loc.get("duration_minutes"),
+                    "context": loc.get("activity_context"),
+                    "raw_mention": loc.get("raw_mention"),
+                },
+            )
+
+    # ========================================================================
+    # HEALTH SYMPTOMS
+    # ========================================================================
+
+    async def _store_health(
+        self, extraction_id: UUID, health: List[Dict[str, Any]]
+    ) -> None:
+        """Store health symptom data."""
+        if not health:
+            return
+
+        # Clear existing
+        await self.db.execute(
+            text("DELETE FROM extraction_health WHERE extraction_id = :extraction_id"),
+            {"extraction_id": extraction_id},
+        )
+
+        for symptom in health:
+            time_of_day = symptom.get("time_of_day")
+
+            query = text(
+                """
+                INSERT INTO extraction_health
+                    (extraction_id, symptom_type, body_part, severity,
+                     duration_minutes, time_of_day, possible_cause,
+                     medication_taken, raw_mention)
+                VALUES
+                    (:extraction_id, :symptom, :body_part, :severity,
+                     :duration, :time_of_day, :cause,
+                     :medication, :raw_mention)
+            """
+            )
+
+            await self.db.execute(
+                query,
+                {
+                    "extraction_id": extraction_id,
+                    "symptom": symptom.get("symptom_type"),
+                    "body_part": symptom.get("body_part"),
+                    "severity": symptom.get("severity"),
+                    "duration": symptom.get("duration_minutes"),
+                    "time_of_day": time_of_day if time_of_day else None,
+                    "cause": symptom.get("possible_cause"),
+                    "medication": symptom.get("medication_taken"),
+                    "raw_mention": symptom.get("raw_mention"),
                 },
             )
 

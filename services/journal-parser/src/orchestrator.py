@@ -67,6 +67,7 @@ class JournalParserOrchestrator:
         user_id: UUID,
         entry_text: str,
         entry_date: Optional[date] = None,
+        require_complete: bool = False,
     ) -> Dict[str, Any]:
         """
         Process a journal entry through the extraction pipeline.
@@ -75,6 +76,7 @@ class JournalParserOrchestrator:
             user_id: User UUID
             entry_text: Raw journal text
             entry_date: Date of the entry (defaults to today)
+            require_complete: If True, do not store data until all gaps are resolved
 
         Returns:
             Complete extraction results with gaps and metadata
@@ -89,15 +91,24 @@ class JournalParserOrchestrator:
             # ================================================================
             # STAGE 1: PREPROCESSING
             # ================================================================
-            logger.debug("Stage 1: Preprocessing")
+            logger.info("=" * 60)
+            logger.info("STAGE 1: PREPROCESSING")
+            logger.info("=" * 60)
+            logger.info(f"Input text ({len(entry_text)} chars): {entry_text[:200]}...")
+            
             preprocessed_text, preprocessing_data, _ = self.preprocessor.process(
                 entry_text
             )
+            
+            logger.info(f"Preprocessed text: {preprocessed_text[:200]}...")
+            logger.info(f"Preprocessing stats: {preprocessing_data}")
 
             # ================================================================
             # STAGE 2: CONTEXT RETRIEVAL
             # ================================================================
-            logger.debug("Stage 2: Context retrieval")
+            logger.info("=" * 60)
+            logger.info("STAGE 2: CONTEXT RETRIEVAL")
+            logger.info("=" * 60)
             # Pass date directly - context_retrieval.py now handles date type consistently
             user_context = await self.context_engine.get_full_context(
                 user_id=user_id,
@@ -106,45 +117,71 @@ class JournalParserOrchestrator:
 
             baseline = user_context.get("baseline")
             logger.info(
-                f"Context: baseline={'yes' if baseline else 'no'}, "
-                f"recent_entries={len(user_context.get('recent_entries', []))}"
+                f"Context retrieved: baseline={'yes' if baseline else 'no'}, "
+                f"recent_entries={len(user_context.get('recent_entries', []))}, "
+                f"known_aliases={len(user_context.get('known_aliases', {}))}"
             )
 
             # ================================================================
             # STAGE 3: GEMINI EXTRACTION + NORMALIZATION
             # ================================================================
-            logger.debug("Stage 3: Gemini extraction")
+            logger.info("=" * 60)
+            logger.info("STAGE 3: GEMINI EXTRACTION + NORMALIZATION")
+            logger.info("=" * 60)
+            logger.info("Calling Gemini AI for extraction...")
+            
             extraction: ExtractionResult = await self.extractor.extract_all(
                 journal_text=preprocessed_text,
                 user_context=user_context,
                 entry_date=entry_date,
             )
 
-            logger.info(
-                f"Extraction: {len(extraction.activities)} activities, "
-                f"{len(extraction.consumptions)} consumptions, "
-                f"{len(extraction.gaps)} gaps, quality={extraction.quality}"
-            )
+            logger.info(f"Extraction complete!")
+            logger.info(f"  - Quality: {extraction.quality}")
+            logger.info(f"  - Sleep: {extraction.sleep}")
+            logger.info(f"  - Metrics: {extraction.metrics}")
+            logger.info(f"  - Activities ({len(extraction.activities)}):")
+            for i, a in enumerate(extraction.activities):
+                logger.info(f"      [{i+1}] {a.raw_name} -> {a.canonical_name} ({a.category}, {a.duration_minutes}min)")
+            logger.info(f"  - Consumptions ({len(extraction.consumptions)}):")
+            for i, c in enumerate(extraction.consumptions):
+                logger.info(f"      [{i+1}] {c.raw_name} -> {c.canonical_name} ({c.consumption_type}, {c.meal_type})")
+            logger.info(f"  - Gaps requiring clarification: {len(extraction.gaps)}")
+            for i, g in enumerate(extraction.gaps):
+                logger.info(f"      [{i+1}] {g.field_category}: {g.question}")
 
             # ================================================================
-            # STAGE 4: STORAGE
+            # STAGE 4: STORAGE (skip if require_complete and has gaps)
             # ================================================================
-            logger.debug("Stage 4: Storage")
+            logger.info("=" * 60)
+            logger.info("STAGE 4: STORAGE")
+            logger.info("=" * 60)
             processing_time_ms = int((time.time() - start_time) * 1000)
 
-            entry_id = await self.storage.store_extraction(
-                user_id=user_id,
-                entry_date=entry_date,
-                raw_entry=preprocessed_text,
-                extraction=extraction,
-                extraction_time_ms=processing_time_ms,
-            )
-
-            logger.info(f"Stored extraction {entry_id}")
+            entry_id = None
+            stored = False
+            
+            if require_complete and extraction.has_gaps:
+                logger.info("SKIPPING STORAGE: require_complete=True and gaps exist")
+                logger.info("User must answer clarification questions before data is stored")
+            else:
+                entry_id = await self.storage.store_extraction(
+                    user_id=user_id,
+                    entry_date=entry_date,
+                    raw_entry=preprocessed_text,
+                    extraction=extraction,
+                    extraction_time_ms=processing_time_ms,
+                )
+                stored = True
+                logger.info(f"Stored extraction with entry_id: {entry_id}")
+                logger.info(f"Data saved to database tables: journal_entries, activities, consumptions")
 
             # ================================================================
             # STAGE 5: RESPONSE ASSEMBLY
             # ================================================================
+            logger.info("=" * 60)
+            logger.info("STAGE 5: RESPONSE ASSEMBLY")
+            logger.info("=" * 60)
             processing_time_ms = int((time.time() - start_time) * 1000)
 
             # Format gaps as questions for user
@@ -153,12 +190,14 @@ class JournalParserOrchestrator:
                 clarification_questions = self.gap_resolver.format_gaps_for_user(
                     extraction.gaps
                 )
+                logger.info(f"Generated {len(clarification_questions)} clarification questions")
 
             result = {
-                "entry_id": str(entry_id),
+                "entry_id": str(entry_id) if entry_id else None,
                 "user_id": str(user_id),
                 "entry_date": entry_date.isoformat(),
                 "quality": extraction.quality,
+                "stored": stored,  # Indicates if data was saved to database
                 # Extraction data
                 "sleep": extraction.sleep,
                 "metrics": extraction.metrics,
@@ -181,11 +220,40 @@ class JournalParserOrchestrator:
                         "time_of_day": c.time_of_day.value if c.time_of_day else None,
                         "quantity": c.quantity,
                         "unit": c.unit,
+                        "calories": c.calories,
+                        "protein_g": c.protein_g,
+                        "carbs_g": c.carbs_g,
+                        "fat_g": c.fat_g,
                     }
                     for c in extraction.consumptions
                 ],
-                "social": extraction.social,
-                "notes": extraction.notes,
+                # social and notes are lists in ExtractionResult, convert to dict for API response
+                "social": {"interactions": extraction.social} if extraction.social else None,
+                "notes": {"items": extraction.notes} if extraction.notes else None,
+                # Locations
+                "locations": [
+                    {
+                        "location_name": loc.get("location_name"),
+                        "location_type": loc.get("location_type"),
+                        "time_of_day": loc.get("time_of_day"),
+                        "duration_minutes": loc.get("duration_minutes"),
+                        "activity_context": loc.get("activity_context"),
+                    }
+                    for loc in extraction.locations
+                ] if extraction.locations else [],
+                # Health symptoms
+                "health": [
+                    {
+                        "symptom_type": h.get("symptom_type"),
+                        "body_part": h.get("body_part"),
+                        "severity": h.get("severity"),
+                        "duration_minutes": h.get("duration_minutes"),
+                        "time_of_day": h.get("time_of_day"),
+                        "possible_cause": h.get("possible_cause"),
+                        "medication_taken": h.get("medication_taken"),
+                    }
+                    for h in extraction.health
+                ] if extraction.health else [],
                 # Gaps requiring user clarification
                 "has_gaps": extraction.has_gaps,
                 "clarification_questions": clarification_questions,
@@ -193,12 +261,17 @@ class JournalParserOrchestrator:
                 "metadata": {
                     "processing_time_ms": processing_time_ms,
                     "preprocessing": preprocessing_data,
+                    "require_complete": require_complete,
                 },
             }
 
+            logger.info("=" * 60)
+            logger.info("PROCESSING COMPLETE")
+            logger.info("=" * 60)
             logger.info(
-                f"Processing complete in {processing_time_ms}ms "
-                f"(quality: {extraction.quality})"
+                f"Total processing time: {processing_time_ms}ms, "
+                f"Quality: {extraction.quality}, "
+                f"Has gaps: {extraction.has_gaps}"
             )
 
             return result

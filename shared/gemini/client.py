@@ -224,13 +224,13 @@ class ResilientGeminiClient:
 
                 if attempt < self.max_retries - 1:
                     wait_time = 2**attempt
-                    logger.info(
-                        f"Retrying after {wait_time}s due to error: {type(error).__name__}"
+                    logger.warning(
+                        f"Retrying after {wait_time}s due to error: {type(error).__name__}: {error}"
                     )
                     await asyncio.sleep(wait_time)
                     continue
 
-        logger.error(f"Gemini API call failed after {self.max_retries} attempts")
+        logger.error(f"Gemini API call failed after {self.max_retries} attempts. Last error: {last_error}")
         raise GeminiAPICallError(
             message=f"Failed to generate content after {self.max_retries} retries",
             original_error=last_error,

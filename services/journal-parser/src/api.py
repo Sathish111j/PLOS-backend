@@ -37,6 +37,11 @@ class ProcessJournalRequest(BaseModel):
     entry_date: Optional[date] = Field(
         default=None, description="Entry date (defaults to today)"
     )
+    require_complete: bool = Field(
+        default=False,
+        description="If True, requires all clarification questions to be answered before storing. "
+                    "Returns gaps without storing data until resolved."
+    )
 
 
 class ActivityResponse(BaseModel):
@@ -59,6 +64,10 @@ class ConsumptionResponse(BaseModel):
     time_of_day: Optional[str] = None
     quantity: Optional[float] = None
     unit: Optional[str] = None
+    calories: Optional[int] = None
+    protein_g: Optional[float] = None
+    carbs_g: Optional[float] = None
+    fat_g: Optional[float] = None
 
 
 class ClarificationQuestion(BaseModel):
@@ -71,13 +80,36 @@ class ClarificationQuestion(BaseModel):
     suggestions: Optional[List[str]] = None
 
 
+class LocationResponse(BaseModel):
+    """Location in extraction response"""
+
+    location_name: str
+    location_type: Optional[str] = None
+    time_of_day: Optional[str] = None
+    duration_minutes: Optional[int] = None
+    activity_context: Optional[str] = None
+
+
+class HealthResponse(BaseModel):
+    """Health symptom in extraction response"""
+
+    symptom_type: str
+    body_part: Optional[str] = None
+    severity: Optional[int] = None
+    duration_minutes: Optional[int] = None
+    time_of_day: Optional[str] = None
+    possible_cause: Optional[str] = None
+    medication_taken: Optional[str] = None
+
+
 class ExtractionResponse(BaseModel):
     """Response model for extraction results"""
 
-    entry_id: str
+    entry_id: Optional[str] = None  # None if not stored (require_complete mode)
     user_id: str
     entry_date: str
     quality: str
+    stored: bool = True  # False if require_complete=True and has_gaps=True
 
     # Extracted data
     sleep: Optional[Dict[str, Any]] = None
@@ -86,6 +118,8 @@ class ExtractionResponse(BaseModel):
     consumptions: List[ConsumptionResponse] = []
     social: Optional[Dict[str, Any]] = None
     notes: Optional[Dict[str, Any]] = None
+    locations: List[LocationResponse] = []
+    health: List[HealthResponse] = []
 
     # Gaps requiring clarification
     has_gaps: bool = False
@@ -202,6 +236,7 @@ async def process_journal_entry(
             user_id=request.user_id,
             entry_text=request.entry_text,
             entry_date=request.entry_date,
+            require_complete=request.require_complete,
         )
 
         # Build response
@@ -210,6 +245,7 @@ async def process_journal_entry(
             user_id=result["user_id"],
             entry_date=result["entry_date"],
             quality=result["quality"],
+            stored=result.get("stored", True),
             sleep=result.get("sleep"),
             metrics=result.get("metrics"),
             activities=[ActivityResponse(**a) for a in result.get("activities", [])],

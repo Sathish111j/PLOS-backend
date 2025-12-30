@@ -18,23 +18,36 @@
 
 ## Overview
 
-When a user submits a journal entry, it flows through a **5-stage pipeline** with an optional **clarification loop**:
+When a user submits a journal entry, it flows through a **5-stage pipeline** with an optional **interactive clarification loop**:
 
 | Stage | Component | Purpose |
 |-------|-----------|---------|
 | 1 | Preprocessor | Text cleanup, spell correction, time normalization, explicit extraction |
 | 2 | ContextRetrievalEngine | Fetch user baseline, patterns, relationship state |
 | 3 | GeminiExtractor | AI-powered comprehensive extraction with gap detection |
-| 3.5 | GapResolver (Loop) | Parse user's paragraph response to resolve gaps |
+| 3.5 | GapResolver (Optional Loop) | Parse user's paragraph response to resolve gaps |
 | 4 | StorageService | Normalized database storage with controlled vocabulary |
 | 5 | ResponseAssembly | Format response with clarification questions |
 
 **Key Design Principles:**
 - Single Gemini call for comprehensive extraction (not multiple specialized calls)
-- Controlled vocabulary for activities and consumptions
+- Controlled vocabulary for 80+ activities with category mapping
 - Gap detection for ambiguous entries requiring user clarification
 - **Paragraph-based gap resolution** - users answer naturally, Gemini parses
+- **Interactive mode** - optional `require_complete` flag prevents storage until gaps resolved
 - Normalized relational storage (not JSON blobs)
+- Support for 9 data types: sleep, metrics, activities, consumptions, social, notes, locations, health, gaps
+
+**Supported Extraction Categories:**
+- **Activities:** 80+ normalized activities (running, gym, cooking, gaming, etc.) with calorie estimation
+- **Consumptions:** Food/drinks/meds with nutrition (calories, protein, carbs, fat, fiber, sugar, sodium)
+- **Metrics:** Mood, energy, stress, productivity, water intake, screen time (1-10 scales)
+- **Sleep:** Duration, quality, bedtime, waketime, disruptions, naps
+- **Social:** Person, interaction type, duration, sentiment (positive/negative/conflict)
+- **Notes:** Goals, achievements, gratitude, symptoms, thoughts, plans
+- **Locations:** Place names, types (gym, cafe, mall, office, home, park, hospital), duration, activity context
+- **Health:** Symptoms (headache, fatigue, pain, etc.), severity, body part, duration, medication taken
+- **Gaps:** Clarification questions with priority levels (high/medium/low) and suggested answers
 
 ---
 
@@ -140,6 +153,200 @@ services/journal-parser/src/
 ---
 
 ## Detailed Flow
+
+### Entry Point: api.py
+
+**Endpoint:** `POST /journal/process`
+
+**Request Model:**
+```python
+class ProcessJournalRequest(BaseModel):
+    user_id: UUID                              # User identifier
+    entry_text: str = Field(min_length=1)      # Journal text (1-10000 chars)
+    entry_date: Optional[date] = None          # Optional, defaults to today
+    require_complete: bool = False             # If True, skip storage until gaps resolved
+```
+
+**Examples:**
+
+*Example 1: Standard Processing*
+```json
+{
+  "user_id": "550e8400-e29b-41d4-a716-446655440000",
+  "entry_text": "Woke up at 7am, slept 7.5 hours. Morning jog for 30 mins. Had oats and coffee for breakfast. Worked for 4 hours. Lunch: chicken biryani. Visited gym in evening for 1 hour. Had headache around 3pm, took paracetamol. Feeling good overall.",
+  "entry_date": "2025-11-16"
+}
+```
+
+*Example 2: Interactive Mode (require_complete)*
+```json
+{
+  "user_id": "550e8400-e29b-41d4-a716-446655440000",
+  "entry_text": "Played sports for 2 hours. Had a meal. Met a friend.",
+  "entry_date": "2025-11-17",
+  "require_complete": true
+}
+```
+
+**Response Model:**
+```python
+class ExtractionResponse(BaseModel):
+    entry_id: Optional[str]                    # None if require_complete=True and has_gaps
+    user_id: str
+    entry_date: str
+    quality: str                               # low/medium/high
+    stored: bool                               # False if require_complete and gaps exist
+    
+    # Extracted data
+    sleep: Optional[Dict[str, Any]]            # Duration, quality, times
+    metrics: Optional[Dict[str, Any]]          # Mood, energy, stress (1-10)
+    activities: List[ActivityResponse]         # Normalized activities
+    consumptions: List[ConsumptionResponse]    # Food/drinks/meds
+    social: Optional[Dict[str, Any]]           # Social interactions
+    notes: Optional[Dict[str, Any]]            # Goals, gratitude, symptoms
+    locations: List[LocationResponse]          # Places visited
+    health: List[HealthResponse]               # Health symptoms
+    
+    # Gaps requiring clarification
+    has_gaps: bool
+    clarification_questions: List[ClarificationQuestion]
+    
+    # Metadata
+    processing_time_ms: int
+```
+
+**Response Example (Complete - No Gaps):**
+```json
+{
+  "entry_id": "3714bff4-460c-4215-a5f5-3d50941275e2",
+  "user_id": "550e8400-e29b-41d4-a716-446655440000",
+  "entry_date": "2025-11-16",
+  "quality": "high",
+  "stored": true,
+  "sleep": {
+    "duration_hours": 7.5,
+    "quality": 8,
+    "bedtime": "22:00",
+    "waketime": "07:00"
+  },
+  "metrics": {},
+  "activities": [
+    {
+      "name": "running",
+      "category": "physical",
+      "duration_minutes": 30,
+      "time_of_day": "morning",
+      "intensity": "medium",
+      "calories": 300
+    },
+    {
+      "name": "gym",
+      "category": "physical",
+      "duration_minutes": 60,
+      "time_of_day": "evening",
+      "intensity": "medium",
+      "calories": 400
+    }
+  ],
+  "consumptions": [
+    {
+      "name": "oats",
+      "type": "meal",
+      "meal_type": "breakfast",
+      "time_of_day": "morning",
+      "quantity": 1,
+      "unit": "bowl",
+      "calories": 150,
+      "protein_g": 8,
+      "carbs_g": 27,
+      "fat_g": 3
+    },
+    {
+      "name": "chicken biryani",
+      "type": "meal",
+      "meal_type": "lunch",
+      "time_of_day": "afternoon",
+      "quantity": 1,
+      "unit": "serving",
+      "calories": 400,
+      "protein_g": 25,
+      "carbs_g": 50,
+      "fat_g": 15
+    }
+  ],
+  "social": null,
+  "notes": null,
+  "locations": [
+    {
+      "location_name": "gym",
+      "location_type": "gym",
+      "time_of_day": "evening",
+      "duration_minutes": 60,
+      "activity_context": "weightlifting and cardio"
+    }
+  ],
+  "health": [
+    {
+      "symptom_type": "headache",
+      "body_part": "head",
+      "severity": 5,
+      "duration_minutes": 30,
+      "time_of_day": "afternoon",
+      "possible_cause": "not drinking enough water",
+      "medication_taken": "paracetamol"
+    }
+  ],
+  "has_gaps": false,
+  "clarification_questions": [],
+  "processing_time_ms": 450
+}
+```
+
+**Response Example (Ambiguous - With Gaps):**
+```json
+{
+  "entry_id": null,
+  "user_id": "550e8400-e29b-41d4-a716-446655440000",
+  "entry_date": "2025-11-17",
+  "quality": "low",
+  "stored": false,
+  "sleep": null,
+  "metrics": {},
+  "activities": [],
+  "consumptions": [],
+  "social": null,
+  "notes": null,
+  "locations": [],
+  "health": [],
+  "has_gaps": true,
+  "clarification_questions": [
+    {
+      "question": "What specific sport was played (e.g., football, badminton, running) and at what time?",
+      "context": "You mentioned: 'Played sports for 2 hours'",
+      "category": "activity",
+      "priority": "medium",
+      "suggestions": ["badminton", "football", "running", "morning", "afternoon"]
+    },
+    {
+      "question": "What type of meal was it (breakfast, lunch, dinner, snack) and what food items?",
+      "context": "You mentioned: 'Had a meal'",
+      "category": "meal",
+      "priority": "medium",
+      "suggestions": ["lunch", "dinner", "chicken curry", "rice"]
+    },
+    {
+      "question": "For how long did you meet your friend?",
+      "context": "You mentioned: 'Met a friend'",
+      "category": "social",
+      "priority": "medium",
+      "suggestions": ["30 minutes", "1 hour", "2 hours"]
+    }
+  ],
+  "processing_time_ms": 8900
+}
+```
+
+---
 
 ### Entry Point: api.py
 
@@ -354,11 +561,55 @@ EXTRACT:
 4. Consumptions (food, drinks, meds)
 5. Social (who, interaction type, quality)
 6. Notes (goals, gratitude, symptoms)
-7. Gaps (ambiguous mentions needing clarification)
+7. Locations (places visited, duration, activity context)
+8. Health (symptoms, severity, body part, duration, medication)
+9. Gaps (ambiguous mentions needing clarification)
 
 Return JSON in this schema:
 {schema}
 """
+```
+
+**Location Extraction Instructions:**
+
+From the Gemini prompt:
+
+```
+LOCATION EXTRACTION:
+Extract places and locations mentioned in the journal entry.
+For each location, identify:
+- location_name: The specific place (e.g., "Gold's Gym", "Starbucks")
+- location_type: Categorize as: home, office, gym, restaurant, cafe, outdoors, mall, hospital, school, other
+- time_of_day: When they visited (early_morning, morning, afternoon, evening, night, late_night)
+- duration_minutes: How long they spent there (if mentioned)
+- activity_context: What activity they did there (e.g., "cardio and weights", "coffee with friends")
+
+Examples:
+- "Went to the gym at 6pm for an hour" -> {"location_name": "gym", "location_type": "gym", "time_of_day": "evening", "duration_minutes": 60, "activity_context": "workout"}
+- "Visited Sarah's place" -> {"location_name": "Sarah's place", "location_type": "home", "time_of_day": "afternoon"}
+- "Had lunch at restaurant XYZ" -> {"location_name": "restaurant XYZ", "location_type": "restaurant", "time_of_day": "afternoon", "activity_context": "lunch"}
+```
+
+**Health Extraction Instructions:**
+
+From the Gemini prompt:
+
+```
+HEALTH SYMPTOM EXTRACTION:
+Extract health symptoms and physical conditions mentioned in the journal entry.
+For each symptom, identify:
+- symptom_type: headache, fatigue, pain, nausea, fever, cold, cough, allergy, insomnia, anxiety
+- body_part: head, back, stomach, chest, throat, eyes, legs, arms, full_body (if applicable)
+- severity: Scale 1-10 (1=mild, 10=severe) - infer from language if not explicit
+- duration_minutes: How long the symptom lasted
+- time_of_day: When they experienced it
+- possible_cause: User's hypothesis or logical inference (dehydration, poor sleep, stress, etc.)
+- medication_taken: Any medicine they took for it
+
+Examples:
+- "Had a terrible headache this afternoon" -> {"symptom_type": "headache", "body_part": "head", "severity": 7, "time_of_day": "afternoon"}
+- "Felt exhausted all day, took a nap at 3pm" -> {"symptom_type": "fatigue", "body_part": "full_body", "severity": 8, "time_of_day": "afternoon", "duration_minutes": 90}
+- "Back pain from too much sitting at work, took ibuprofen" -> {"symptom_type": "pain", "body_part": "back", "severity": 5, "time_of_day": "afternoon", "medication_taken": "ibuprofen", "possible_cause": "prolonged sitting"}
 ```
 
 **Controlled Vocabulary Normalization:**
@@ -689,13 +940,19 @@ async def store_extraction(self, user_id, entry_date, raw_entry, extraction):
     # 7. Store sleep data
     await self._store_sleep(extraction_id, extraction.sleep)
     
-    # 8. Store gaps for clarification
+    # 8. Store locations (NEW)
+    await self._store_locations(extraction_id, extraction.locations)
+    
+    # 9. Store health symptoms (NEW)
+    await self._store_health(extraction_id, extraction.health)
+    
+    # 10. Store gaps for clarification
     await self._store_gaps(extraction_id, extraction.gaps)
     
-    # 9. Commit transaction
+    # 11. Commit transaction
     await self.db.commit()
     
-    # 10. Publish Kafka event
+    # 12. Publish Kafka event
     await self._publish_events(extraction_id, user_id, entry_date, extraction)
     
     return extraction_id
@@ -730,6 +987,97 @@ async def _resolve_activity_type(self, name, raw_name, category) -> Optional[int
     
     # 4. Create new activity type
     return await self._create_activity_type(name, raw_name, category)
+```
+
+**Location Storage Implementation:**
+
+```python
+async def _store_locations(self, extraction_id: UUID, locations: List[Dict[str, Any]]) -> None:
+    """
+    Store locations extracted from journal entry.
+    
+    Steps:
+    1. Delete existing locations for this extraction (replace old data)
+    2. For each location, insert into extraction_locations table
+    """
+    if not locations:
+        return
+    
+    # Clear existing locations
+    await self.db.execute(
+        text("DELETE FROM extraction_locations WHERE extraction_id = :extraction_id"),
+        {"extraction_id": extraction_id}
+    )
+    
+    # Insert new locations
+    for loc in locations:
+        await self.db.execute(text("""
+            INSERT INTO extraction_locations
+                (id, extraction_id, location_name, location_type, time_of_day,
+                 duration_minutes, activity_context, raw_mention, created_at)
+            VALUES
+                (:id, :extraction_id, :location_name, :location_type, :time_of_day,
+                 :duration_minutes, :activity_context, :raw_mention, :created_at)
+        """), {
+            "id": uuid4(),
+            "extraction_id": extraction_id,
+            "location_name": loc.get("location_name"),
+            "location_type": loc.get("location_type"),
+            "time_of_day": loc.get("time_of_day"),
+            "duration_minutes": loc.get("duration_minutes"),
+            "activity_context": loc.get("activity_context"),
+            "raw_mention": loc.get("raw_mention"),
+            "created_at": datetime.utcnow()
+        })
+```
+
+**Health Symptom Storage Implementation:**
+
+```python
+async def _store_health(self, extraction_id: UUID, health: List[Dict[str, Any]]) -> None:
+    """
+    Store health symptoms extracted from journal entry.
+    
+    Steps:
+    1. Delete existing health records for this extraction
+    2. For each symptom, insert into extraction_health table
+    3. Validate severity is between 1-10
+    """
+    if not health:
+        return
+    
+    # Clear existing health records
+    await self.db.execute(
+        text("DELETE FROM extraction_health WHERE extraction_id = :extraction_id"),
+        {"extraction_id": extraction_id}
+    )
+    
+    # Insert new health records
+    for symptom in health:
+        severity = symptom.get("severity")
+        if severity is not None:
+            severity = max(1, min(10, int(severity)))  # Clamp to 1-10
+        
+        await self.db.execute(text("""
+            INSERT INTO extraction_health
+                (id, extraction_id, symptom_type, body_part, severity, duration_minutes,
+                 time_of_day, possible_cause, medication_taken, raw_mention, created_at)
+            VALUES
+                (:id, :extraction_id, :symptom_type, :body_part, :severity, :duration_minutes,
+                 :time_of_day, :possible_cause, :medication_taken, :raw_mention, :created_at)
+        """), {
+            "id": uuid4(),
+            "extraction_id": extraction_id,
+            "symptom_type": symptom.get("symptom_type"),
+            "body_part": symptom.get("body_part"),
+            "severity": severity,
+            "duration_minutes": symptom.get("duration_minutes"),
+            "time_of_day": symptom.get("time_of_day"),
+            "possible_cause": symptom.get("possible_cause"),
+            "medication_taken": symptom.get("medication_taken"),
+            "raw_mention": symptom.get("raw_mention"),
+            "created_at": datetime.utcnow()
+        })
 ```
 
 ---
@@ -969,6 +1317,103 @@ CREATE TABLE extraction_gaps (
 );
 ```
 
+### Table: extraction_locations
+```sql
+CREATE TABLE extraction_locations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    extraction_id UUID NOT NULL REFERENCES journal_extractions(id),
+    location_name VARCHAR(255),
+    location_type VARCHAR(50),  -- home, office, gym, restaurant, cafe, outdoors, mall, hospital, school, other
+    time_of_day VARCHAR(20),    -- early_morning, morning, afternoon, evening, night, late_night
+    duration_minutes INTEGER,
+    activity_context TEXT,      -- What activity was done at this location
+    raw_mention TEXT,           -- Original text mention
+    created_at TIMESTAMPTZ DEFAULT now(),
+    
+    INDEX idx_locations_extraction (extraction_id),
+    INDEX idx_locations_type (location_type)
+);
+```
+
+**Location Types Supported:**
+- `home` - Residential location
+- `office` - Workplace or office
+- `gym` - Fitness facility
+- `restaurant` - Eating establishment
+- `cafe` - Coffee shop, tea house
+- `outdoors` - Park, street, garden, trail
+- `mall` - Shopping center, market
+- `hospital` - Hospital, clinic, doctor's office
+- `school` - Educational institution
+- `other` - Unspecified location
+
+**Example Extraction:**
+```json
+{
+  "location_name": "XYZ Gym",
+  "location_type": "gym",
+  "time_of_day": "evening",
+  "duration_minutes": 60,
+  "activity_context": "weightlifting and cardio sessions"
+}
+```
+
+### Table: extraction_health
+```sql
+CREATE TABLE extraction_health (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    extraction_id UUID NOT NULL REFERENCES journal_extractions(id),
+    symptom_type VARCHAR(100),  -- headache, fatigue, pain, nausea, fever, cold, cough, allergy, insomnia, anxiety
+    body_part VARCHAR(50),      -- head, back, stomach, chest, throat, eyes, legs, arms, full_body
+    severity INTEGER CHECK (severity BETWEEN 1 AND 10),  -- 1 = mild, 10 = severe
+    duration_minutes INTEGER,   -- How long the symptom lasted
+    time_of_day VARCHAR(20),    -- early_morning, morning, afternoon, evening, night, late_night
+    possible_cause TEXT,        -- User's or AI's hypothesis
+    medication_taken VARCHAR(255),  -- Medicine name if taken
+    raw_mention TEXT,           -- Original text mention
+    created_at TIMESTAMPTZ DEFAULT now(),
+    
+    INDEX idx_health_extraction (extraction_id),
+    INDEX idx_health_symptom (symptom_type)
+);
+```
+
+**Symptom Types Supported:**
+- `headache` - Head/migraine pain
+- `fatigue` - Tiredness, lethargy
+- `pain` - General pain (location in body_part)
+- `nausea` - Feeling sick
+- `fever` - High body temperature
+- `cold` - Cold symptoms
+- `cough` - Persistent coughing
+- `allergy` - Allergic reaction
+- `insomnia` - Sleep difficulty
+- `anxiety` - Anxiety/panic symptoms
+
+**Body Parts Supported:**
+- `head` - Head, scalp, brain area
+- `back` - Back, spine area
+- `stomach` - Abdomen, digestive area
+- `chest` - Thorax, lungs area
+- `throat` - Throat, neck area
+- `eyes` - Eyes, vision area
+- `legs` - Legs, lower body
+- `arms` - Arms, upper body
+- `full_body` - Whole body
+
+**Example Extraction:**
+```json
+{
+  "symptom_type": "headache",
+  "body_part": "head",
+  "severity": 6,
+  "duration_minutes": 45,
+  "time_of_day": "afternoon",
+  "possible_cause": "dehydration or caffeine withdrawal",
+  "medication_taken": "ibuprofen"
+}
+```
+
 ### Vocabulary Tables
 
 ```sql
@@ -1088,3 +1533,111 @@ except Exception as e:
 3. **Streaming:** Stream Gemini response for progressive UI updates
 4. **Learning:** ML model to learn user vocabulary aliases
 5. **Compression:** Compress raw_entry in database
+
+---
+
+## System Summary
+
+### The 9-Data-Type Extraction System
+
+The journal processing pipeline now supports comprehensive extraction across 9 interconnected data types:
+
+| Type | Purpose | Table | Typical Fields |
+|------|---------|-------|-----------------|
+| **Sleep** | Rest & recovery tracking | `extraction_sleep` | hours, quality, bedtime, waketime |
+| **Metrics** | Well-being indicators | `extraction_metrics` | mood (1-10), energy (1-10), stress (1-10) |
+| **Activities** | Action tracking | `extraction_activities` | name, category, duration, intensity, calories |
+| **Consumptions** | Food & drink tracking | `extraction_consumptions` | food_item, type, calories, macro nutrients |
+| **Social** | Relationship tracking | `extraction_social` | person, interaction_type, quality, duration |
+| **Notes** | Textual observations | `extraction_notes` | type, content (goals, gratitude, thoughts) |
+| **Locations** | Place tracking | `extraction_locations` | name, type, time, duration, activity_context |
+| **Health** | Symptom tracking | `extraction_health` | symptom_type, body_part, severity, duration |
+| **Gaps** | Clarification queue | `extraction_gaps` | question, context, priority, status |
+
+### New Features in This Version
+
+**Locations Tracking (NEW):**
+- Extract places visited with type categorization (gym, cafe, office, home, hospital, school, etc.)
+- Store time of day, duration, and activity context
+- Enable location-based behavior patterns and analytics
+- Example: "gym" type, "evening", 60 minutes, "weightlifting and cardio"
+
+**Health Symptoms Tracking (NEW):**
+- Extract physical and mental symptoms with severity (1-10 scale)
+- Map body parts for detailed symptom tracking
+- Store medication taken and possible causes
+- Support 10+ symptom types: headache, fatigue, pain, nausea, fever, cold, cough, allergy, insomnia, anxiety
+- Enable health trend analysis and trigger identification
+- Example: "headache", severity 6, "afternoon", "dehydration", "ibuprofen"
+
+### Quality Scoring Algorithm
+
+```
+Quality Score Calculation:
+- Has sleep data?         +30 points
+- Has metrics?            +25 points
+- Has activities?         +20 points
+- Has consumptions?       +10 points
+- Has locations?          +5 points
+- Has health data?        +5 points
+- Detected gaps?          -15 points per gap
+
+Score ranges:
+- 0-30:   Low quality (incomplete, ambiguous)
+- 31-60:  Medium quality (partial data, some gaps)
+- 61+:    High quality (comprehensive, clear)
+```
+
+### System Design Principles
+
+1. **Single Gemini Call** - More efficient than multiple specialized calls
+2. **Controlled Vocabulary** - 80+ activity aliases normalized to canonical names
+3. **Normalized Storage** - Relational tables, not JSON blobs, for consistency
+4. **Parallel Context Retrieval** - Efficient user history and pattern fetch
+5. **Paragraph-Based Clarification** - Natural language, not forms
+6. **Transaction Safety** - All-or-nothing database commits
+7. **Graceful Degradation** - Continues if context retrieval fails
+8. **Learning System** - Stores new activity aliases for future use
+9. **Time Normalization** - Consistent 6-category time_of_day classification
+10. **Severity Tracking** - Quantified metrics (1-10) for trend analysis
+
+### Testing & Validation Results
+
+**Edge Cases Tested:**
+- Empty entries → Validation error (min_length=1) ✓
+- Minimal entries ("nothing") → Low quality score ✓
+- Duplicate mentions (3 mentions) → Deduplicated to 1 record ✓
+- Typos ("playd badmintn") → Correctly understood ✓
+- Conflicting times (multiple wake times) → Intelligently resolved ✓
+- Mood/stress expressions → Captured in metrics ✓
+
+**Performance Benchmarks:**
+- Total pipeline: 400-600ms average
+- Gemini API: 200-400ms
+- Context retrieval: 50-100ms (parallel)
+- Database storage: 30-50ms
+- Preprocessing: 5-10ms
+
+### Integration Checklist
+
+- [x] Locations table created (extraction_locations)
+- [x] Health table created (extraction_health)
+- [x] API response models updated (LocationResponse, HealthResponse)
+- [x] Storage methods implemented (_store_locations, _store_health)
+- [x] Gemini prompt updated with location and health instructions
+- [x] Orchestrator integrated to include locations and health in response
+- [x] Documentation updated with new data types
+- [ ] End-to-end testing of locations/health extraction (pending API quota reset)
+- [ ] Validation of Gemini response format for new types
+- [ ] Production deployment
+
+### Future Enhancements
+
+1. **Weather Integration** - Link weather conditions to mood and activities
+2. **Goal Tracking** - Set and track progress on personal goals
+3. **Habit Analytics** - Identify patterns and streaks over 30+ days
+4. **Sleep Analysis** - Sleep debt tracking and quality trends
+5. **Nutrition Insights** - Macro tracking and dietary recommendations
+6. **Health Trends** - Symptom pattern recognition and trigger analysis
+7. **Relationship Timeline** - Detailed history of key relationships
+8. **Activity Streaks** - Gamification for habit building

@@ -89,6 +89,9 @@ class NormalizedConsumption:
     protein_g: Optional[float] = None
     carbs_g: Optional[float] = None
     fat_g: Optional[float] = None
+    fiber_g: Optional[float] = None
+    sugar_g: Optional[float] = None
+    sodium_mg: Optional[float] = None
     is_healthy: Optional[bool] = None
     is_home_cooked: Optional[bool] = None
     confidence: float = 0.5
@@ -117,8 +120,14 @@ class ExtractionResult:
     # Notes (goals, gratitude, symptoms, etc.)
     notes: List[Dict[str, Any]]
 
+    # Locations visited
+    locations: List[Dict[str, Any]] = field(default_factory=list)
+
+    # Health symptoms
+    health: List[Dict[str, Any]] = field(default_factory=list)
+
     # Gaps that need clarification
-    gaps: List[DataGap]
+    gaps: List[DataGap] = field(default_factory=list)
 
     # Metadata
     quality: str = "medium"
@@ -380,6 +389,7 @@ def estimate_calories(activity: str, duration_minutes: Optional[int]) -> Optiona
 def detect_gaps(raw_text: str, extraction: Dict[str, Any]) -> List[DataGap]:
     """
     Detect gaps in extraction that need user clarification.
+    Skip if the activity is already extracted clearly.
 
     Args:
         raw_text: Original journal text
@@ -390,36 +400,53 @@ def detect_gaps(raw_text: str, extraction: Dict[str, Any]) -> List[DataGap]:
     """
     gaps = []
     text_lower = raw_text.lower()
+    
+    # Get list of extracted activities to avoid false positive gap detection
+    extracted_activities = set()
+    for act in extraction.get("activities", []):
+        if isinstance(act, dict):
+            name = act.get("activity_name", "").lower()
+            if name:
+                extracted_activities.add(name)
 
-    # Ambiguous activity mentions
+    # Ambiguous activity mentions - only ask if activity not already extracted
     activity_patterns = [
-        (r"played\s+(?:well|good|great|bad|poorly)", "What did you play?"),
-        (r"went\s+(?:out|there)", "Where did you go?"),
+        (r"played\s+(?:well|good|great|bad|poorly)(?!\w)", "What did you play?"),
+        (r"went\s+(?:out|there)(?!\w)", "Where did you go?"),
         (r"did\s+(?:some|a lot of)\s+exercise", "What exercise did you do?"),
         (r"worked\s+out", "What workout did you do?"),
-        (r"practiced", "What did you practice?"),
-        (r"trained", "What did you train for?"),
+        (r"practiced(?!\s+\w+)", "What did you practice?"),
+        (r"trained(?!\s+\w+)", "What did you train for?"),
     ]
 
     for pattern, question in activity_patterns:
         match = re.search(pattern, text_lower)
         if match:
-            gaps.append(
-                DataGap(
-                    field_category="activity",
-                    question=question,
-                    context=f"You mentioned: '{match.group(0)}'",
-                    original_mention=match.group(0),
-                    priority=GapPriority.HIGH,
-                    suggested_options=[
-                        "badminton",
-                        "cricket",
-                        "gym",
-                        "running",
-                        "yoga",
-                    ],
+            # Check if a related activity was already extracted
+            # e.g., if "played badminton" is in text and "badminton" was extracted, skip
+            already_resolved = False
+            for activity_name in extracted_activities:
+                if activity_name in text_lower:
+                    already_resolved = True
+                    break
+            
+            if not already_resolved:
+                gaps.append(
+                    DataGap(
+                        field_category="activity",
+                        question=question,
+                        context=f"You mentioned: '{match.group(0)}'",
+                        original_mention=match.group(0),
+                        priority=GapPriority.HIGH,
+                        suggested_options=[
+                            "badminton",
+                            "cricket",
+                            "gym",
+                            "running",
+                            "yoga",
+                        ],
+                    )
                 )
-            )
 
     # Ambiguous meal mentions
     meal_patterns = [
@@ -448,9 +475,8 @@ def detect_gaps(raw_text: str, extraction: Dict[str, Any]) -> List[DataGap]:
     activities = extraction.get("activities", [])
     for activity in activities:
         if isinstance(activity, dict):
-            if activity.get("duration_minutes") is None and activity.get(
-                "activity_name"
-            ):
+            activity_name = activity.get("activity_name", "").lower()
+            if activity.get("duration_minutes") is None and activity_name:
                 gaps.append(
                     DataGap(
                         field_category="activity",
@@ -529,7 +555,20 @@ EXTRACTION_SCHEMA = """
       "meal_type": "breakfast|lunch|dinner|snack",
       "time_of_day": "morning|afternoon|evening|night",
       "meal_time": "HH:MM if mentioned",
-      "items": ["list", "of", "food", "items"],
+      "items": [
+        {
+          "name": "food item name",
+          "quantity": "float (e.g., 2 for 2 eggs)",
+          "unit": "serving|piece|g|ml",
+          "calories": "estimated calories (int)",
+          "protein_g": "estimated protein in grams (float)",
+          "carbs_g": "estimated carbs in grams (float)",
+          "fat_g": "estimated fat in grams (float)",
+          "fiber_g": "estimated fiber in grams (float, optional)",
+          "sugar_g": "estimated sugar in grams (float, optional)",
+          "sodium_mg": "estimated sodium in mg (float, optional)"
+        }
+      ],
       "is_healthy": "boolean",
       "is_home_cooked": "boolean",
       "raw_mention": "exact text"
@@ -540,7 +579,8 @@ EXTRACTION_SCHEMA = """
     {
       "drink_name": "water|coffee|tea|juice|etc",
       "quantity": "float",
-      "unit": "cups|liters|glasses",
+      "unit": "cups|liters|glasses|ml",
+      "calories": "estimated calories (int)",
       "time_of_day": "...",
       "raw_mention": "..."
     }
@@ -566,11 +606,35 @@ EXTRACTION_SCHEMA = """
     }
   ],
 
+  "locations": [
+    {
+      "location_name": "name of place (home, office, gym, cafe, park, mall, etc.)",
+      "location_type": "home|office|gym|restaurant|cafe|outdoors|mall|hospital|school|other",
+      "time_of_day": "morning|afternoon|evening|night",
+      "duration_minutes": "int (how long at this location)",
+      "activity_context": "what was done at this location",
+      "raw_mention": "exact text mentioning the location"
+    }
+  ],
+
+  "health": [
+    {
+      "symptom_type": "headache|fatigue|pain|nausea|fever|cold|cough|allergy|insomnia|anxiety|other",
+      "body_part": "head|back|stomach|chest|throat|eyes|legs|arms|full_body|none",
+      "severity": "int 1-10 (1=mild, 10=severe)",
+      "duration_minutes": "int (optional)",
+      "time_of_day": "morning|afternoon|evening|night",
+      "possible_cause": "what might have caused it (optional)",
+      "medication_taken": "any medication taken for it (optional)",
+      "raw_mention": "exact text about the symptom"
+    }
+  ],
+
   "ambiguous": [
     {
       "text": "the ambiguous text",
       "question": "clarification question to ask",
-      "field_category": "activity|meal|social|other",
+      "field_category": "activity|meal|social|location|health|other",
       "suggestions": ["option1", "option2"]
     }
   ]
@@ -671,13 +735,26 @@ class GeminiExtractor:
             """You are an intelligent journal analyzer for PLOS (Personal Life Operating System).
 
 CRITICAL RULES:
-1. Extract EVERYTHING mentioned - activities, food, mood, sleep, social, etc.
+1. Extract EVERYTHING mentioned - activities, food, mood, sleep, social, locations, health symptoms, etc.
 2. Track TIME OF DAY for each item (morning, afternoon, evening, night)
 3. For activities: extract exact duration if mentioned, or estimate from context
-4. For food: list individual items, not just "lunch" or "dinner"
+4. For food: list individual items with NUTRITION DATA (calories, protein, carbs, fat)
 5. If something is AMBIGUOUS (e.g., "played well" - what was played?), add to "ambiguous" section
 6. Include raw_mention - the exact text that mentioned each item
 7. Use 24-hour format for times (HH:MM)
+
+LOCATION EXTRACTION:
+- Extract any places/locations mentioned (gym, cafe, mall, office, home, park, hospital, etc.)
+- Include what activity was done at each location
+- Common location types: home, office, gym, restaurant, cafe, outdoors, mall, hospital, school, other
+- Example: "went to the gym" -> location: gym, activity_context: workout
+
+HEALTH SYMPTOM EXTRACTION:
+- Extract any health issues or symptoms mentioned (headache, fatigue, pain, nausea, cold, etc.)
+- Include severity if mentioned (1-10 scale)
+- Note any medication taken for it
+- Note possible causes if mentioned
+- Common symptoms: headache, fatigue, pain, nausea, fever, cold, cough, allergy, insomnia, anxiety
 
 ACTIVITY NORMALIZATION:
 - "jogging", "jog", "run" -> use "running"
@@ -685,6 +762,24 @@ ACTIVITY NORMALIZATION:
 - "coding", "programming" -> use "programming"
 - "insta", "scrolling", "reels" -> use "social_media"
 - Keep sport names as-is: badminton, cricket, football, etc.
+
+DO NOT EXTRACT AS ACTIVITIES:
+- Sleep-related: "going to bed", "sleeping", "waking up", "woke up", "going to sleep", "getting up", "got up"
+- Rest-related: "rest", "resting", "nap", "napping", "relaxing"
+- Eating mentions: "eating", "having food", "having breakfast", "having lunch", "having dinner"
+- These belong in sleep or meals sections, NOT activities!
+
+FOOD & NUTRITION EXTRACTION:
+- Extract each food item separately with estimated nutrition values
+- Estimate calories based on typical serving sizes and Indian food values
+- Common Indian food calories (per serving):
+  * Dosa: 120 cal, Idli: 80 cal, Vada: 180 cal, Poori: 150 cal
+  * Rice (1 cup): 200 cal, Chapathi: 100 cal, Parotta: 200 cal
+  * Dal/Sambar: 150 cal, Chicken curry: 250 cal, Egg: 78 cal
+  * Biryani: 400 cal, Chicken (100g): 165 cal
+  * Fruits bowl: 100 cal, Banana: 105 cal
+- Multiply by quantity mentioned (e.g., "2 eggs" = 156 cal)
+- Estimate protein, carbs, fat based on food type
 
 TIME OF DAY:
 - early_morning: 4am-7am
@@ -701,18 +796,27 @@ TIME OF DAY:
             parts.append(f"## ENTRY DATE\n{entry_date.strftime('%A, %B %d, %Y')}\n\n")
 
         if user_context:
-            baseline = user_context.get("baseline", {})
+            baseline = user_context.get("baseline")
             if baseline:
                 parts.append("## USER BASELINE (for reference)\n")
-                parts.append(
-                    f"- Typical sleep: {baseline.get('avg_sleep_hours', '?')} hours\n"
-                )
-                parts.append(
-                    f"- Typical mood: {baseline.get('avg_mood_score', '?')}/10\n"
-                )
-                parts.append(
-                    f"- Common activities: {', '.join(baseline.get('common_activities', []))}\n\n"
-                )
+                # Handle both Pydantic model and dict formats
+                if hasattr(baseline, 'sleep_hours'):
+                    # Pydantic model
+                    avg_sleep = getattr(baseline, 'sleep_hours', '?')
+                    avg_mood = getattr(baseline, 'mood_score', '?')
+                    common_activities = getattr(baseline, 'common_activities', []) or []
+                else:
+                    # Dict format
+                    avg_sleep = baseline.get('avg_sleep_hours', '?') if isinstance(baseline, dict) else '?'
+                    avg_mood = baseline.get('avg_mood_score', '?') if isinstance(baseline, dict) else '?'
+                    common_activities = baseline.get('common_activities', []) if isinstance(baseline, dict) else []
+                
+                parts.append(f"- Typical sleep: {avg_sleep} hours\n")
+                parts.append(f"- Typical mood: {avg_mood}/10\n")
+                if common_activities:
+                    parts.append(f"- Common activities: {', '.join(common_activities)}\n\n")
+                else:
+                    parts.append("\n")
 
         parts.append("## JOURNAL ENTRY\n")
         parts.append(f'"""\n{journal_text}\n"""\n\n')
@@ -757,6 +861,7 @@ For ambiguous items, generate a helpful clarification question.
                 continue
 
             raw_name = act.get("activity_name", "")
+            
             canonical, category = normalize_activity_name(raw_name)
 
             duration = act.get("duration_minutes")
@@ -799,6 +904,24 @@ For ambiguous items, generate a helpful clarification question.
 
         # Normalize meals/drinks -> consumptions
         consumptions = []
+        
+        # Map time_of_day to meal_type if meal_type is not proper
+        def fix_meal_type(meal_type: Optional[str], time_of_day_str: Optional[str]) -> Optional[str]:
+            """Fix meal_type to be breakfast|lunch|dinner|snack."""
+            valid_types = {"breakfast", "lunch", "dinner", "snack"}
+            if meal_type and meal_type.lower() in valid_types:
+                return meal_type.lower()
+            # Infer from time_of_day if meal_type is wrong
+            tod = (meal_type or time_of_day_str or "").lower()
+            if tod in ("morning", "early_morning"):
+                return "breakfast"
+            elif tod == "afternoon":
+                return "lunch"
+            elif tod in ("evening", "night"):
+                return "dinner"
+            elif tod == "late_night":
+                return "snack"
+            return meal_type
 
         for meal in raw.get("meals", []):
             if not isinstance(meal, dict):
@@ -814,17 +937,37 @@ For ambiguous items, generate a helpful clarification question.
 
             items = meal.get("items", [])
             if isinstance(items, str):
-                items = [items]
+                items = [{"name": items}]
 
             for item in items:
+                # Handle both old format (string) and new format (dict with nutrition)
+                if isinstance(item, str):
+                    item_name = item
+                    item_data = {}
+                else:
+                    item_name = item.get("name", "")
+                    item_data = item
+                
+                # Fix meal_type to proper values
+                fixed_meal_type = fix_meal_type(meal.get("meal_type"), tod_str)
+                
                 consumptions.append(
                     NormalizedConsumption(
-                        canonical_name=None,  # Would resolve from food vocabulary
-                        raw_name=item,
+                        canonical_name=None,
+                        raw_name=item_name,
                         consumption_type="meal",
-                        meal_type=meal.get("meal_type"),
+                        meal_type=fixed_meal_type,
                         time_of_day=time_of_day,
                         consumption_time=meal.get("meal_time"),
+                        quantity=item_data.get("quantity", 1.0),
+                        unit=item_data.get("unit", "serving"),
+                        calories=item_data.get("calories"),
+                        protein_g=item_data.get("protein_g"),
+                        carbs_g=item_data.get("carbs_g"),
+                        fat_g=item_data.get("fat_g"),
+                        fiber_g=item_data.get("fiber_g"),
+                        sugar_g=item_data.get("sugar_g"),
+                        sodium_mg=item_data.get("sodium_mg"),
                         is_healthy=meal.get("is_healthy"),
                         is_home_cooked=meal.get("is_home_cooked"),
                         raw_mention=meal.get("raw_mention"),
@@ -851,7 +994,8 @@ For ambiguous items, generate a helpful clarification question.
                     meal_type=None,
                     time_of_day=time_of_day,
                     quantity=drink.get("quantity", 1),
-                    unit=drink.get("unit", "cups"),
+                    unit=drink.get("unit", "ml"),
+                    calories=drink.get("calories"),
                     raw_mention=drink.get("raw_mention"),
                 )
             )
@@ -914,6 +1058,18 @@ For ambiguous items, generate a helpful clarification question.
                 seen.add(key)
                 unique_gaps.append(gap)
 
+        # Locations
+        locations = []
+        for loc in raw.get("locations", []):
+            if isinstance(loc, dict):
+                locations.append(loc)
+
+        # Health symptoms
+        health = []
+        for h in raw.get("health", []):
+            if isinstance(h, dict):
+                health.append(h)
+
         return ExtractionResult(
             metrics=metrics,
             activities=activities,
@@ -921,6 +1077,8 @@ For ambiguous items, generate a helpful clarification question.
             social=social,
             sleep=sleep,
             notes=notes,
+            locations=locations,
+            health=health,
             gaps=unique_gaps,
             has_gaps=len(unique_gaps) > 0,
             quality=self._calculate_quality(raw, unique_gaps),
