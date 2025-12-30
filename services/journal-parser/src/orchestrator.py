@@ -8,20 +8,19 @@ from datetime import date
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from shared.gemini.client import ResilientGeminiClient
-from shared.kafka.producer import KafkaProducerService
-from shared.utils.logger import get_logger
-
-from .context_retrieval import ContextRetrievalEngine
-from .generalized_extraction import (
+from context_retrieval import ContextRetrievalEngine
+from generalized_extraction import (
     ExtractionResult,
     GapResolver,
     GeminiExtractor,
 )
-from .preprocessing import Preprocessor
-from .storage_service import StorageService
+from preprocessing import Preprocessor
+from sqlalchemy.ext.asyncio import AsyncSession
+from storage_service import StorageService
+
+from shared.gemini.client import ResilientGeminiClient
+from shared.kafka.producer import KafkaProducerService
+from shared.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -277,7 +276,7 @@ class JournalParserOrchestrator:
                 }
 
             # Convert to DataGap objects
-            from .generalized_extraction import DataGap, GapPriority
+            from generalized_extraction import DataGap, GapPriority
 
             gaps = []
             for g in pending_gaps:

@@ -9,11 +9,12 @@ Technical documentation for the PLOS Gemini API key rotation system.
 1. [Overview](#1-overview)
 2. [Architecture](#2-architecture)
 3. [Configuration](#3-configuration)
-4. [Usage Examples](#4-usage-examples)
-5. [API Reference](#5-api-reference)
-6. [Error Handling](#6-error-handling)
-7. [Metrics and Monitoring](#7-metrics-and-monitoring)
-8. [Production Considerations](#8-production-considerations)
+4. [Centralized Configuration](#centralized-configuration)
+5. [Usage Examples](#4-usage-examples)
+6. [API Reference](#5-api-reference)
+7. [Error Handling](#6-error-handling)
+8. [Metrics and Monitoring](#7-metrics-and-monitoring)
+9. [Production Considerations](#8-production-considerations)
 
 ---
 
@@ -31,40 +32,44 @@ The Gemini API Key Rotation System is a production-ready solution for managing m
 - Thread-safe operations
 - Comprehensive error handling
 - Human-readable status summaries
+- Centralized configuration per service and task type
+- Task-specific model and parameter selection
 
 ---
 
 ## 2. Architecture
 
-The system consists of three main components:
+The system consists of four main components:
 
 ```
 +-----------------------------------------------------------+
 |       ResilientGeminiClient (Public API)                  |
 |  - generate_content()                                     |
+|  - generate_for_task()                                    |
 |  - embed_content()                                        |
-|  - get_key_metrics()                                      |
-|  - get_status_summary()                                   |
+|  - get_model_for_service()                                |
+|  - get_model_for_task()                                   |
+|  - raw_client (for advanced operations)                   |
 +--------------------------+--------------------------------+
                            |
-                           | Uses
-                           v
-                 +--------------------+
-                 |  GeminiKeyManager  |
-                 |  - get_active_key()|
-                 |  - mark_quota_exceeded()
-                 |  - track_metrics() |
-                 +--------------------+
-                           |
-                           | Uses
-                           v
-                 +--------------------+
-                 | ApiKeyConfig       |
-                 | - value            |
-                 | - name             |
-                 | - metrics          |
-                 | - status           |
-                 +--------------------+
+            +--------------+--------------+
+            |                             |
+            v                             v
+  +--------------------+       +--------------------+
+  |  GeminiKeyManager  |       |   GeminiConfig     |
+  |  - get_active_key()|       |  - model settings  |
+  |  - mark_quota_exc()|       |  - task configs    |
+  |  - track_metrics() |       |  - per-service     |
+  +--------------------+       +--------------------+
+            |
+            v
+  +--------------------+
+  | ApiKeyConfig       |
+  | - value            |
+  | - name             |
+  | - metrics          |
+  | - status           |
+  +--------------------+
 ```
 
 **Data Flow on Quota Error:**
@@ -88,13 +93,87 @@ The system consists of three main components:
 | `GEMINI_API_KEY_ROTATION_BACKOFF_SECONDS` | `60` | Seconds to wait before retrying exhausted key |
 | `GEMINI_API_KEY_ROTATION_MAX_RETRIES` | `3` | Maximum retries per request |
 | `GEMINI_DEFAULT_MODEL` | `gemini-2.5-flash` | Default model for content generation |
-| `GEMINI_EMBEDDING_MODEL` | `gemini-embedding-001` | Model for embedding generation |
+| `GEMINI_EMBEDDING_MODEL` | `text-embedding-004` | Model for embedding generation |
+| `GEMINI_JOURNAL_PARSER_MODEL` | (optional) | Override model for journal-parser service |
+| `GEMINI_KNOWLEDGE_SYSTEM_MODEL` | (optional) | Override model for knowledge-system service |
+| `GEMINI_CONTEXT_BROKER_MODEL` | (optional) | Override model for context-broker service |
 
 **Example Key Format:**
 
 ```
 GEMINI_API_KEYS=AIzaSy...key1|primary,AIzaSy...key2|backup-1,AIzaSy...key3|backup-2
 ```
+
+---
+
+## Centralized Configuration
+
+The system provides centralized configuration through `shared/gemini/config.py`:
+
+### TaskType Enum
+
+Define task types for optimized model/parameter selection:
+
+```python
+from shared.gemini import TaskType
+
+# Available task types:
+TaskType.JOURNAL_EXTRACTION      # Journal parsing
+TaskType.GAP_DETECTION          # Gap analysis
+TaskType.KNOWLEDGE_EXTRACTION   # Knowledge system extractions
+TaskType.TEXT_EMBEDDING         # Vector embeddings
+TaskType.CONTEXT_GENERATION     # Context broker
+TaskType.QUICK_ANALYSIS         # Fast, simple analysis
+TaskType.DEEP_ANALYSIS          # Complex reasoning
+TaskType.CODE_GENERATION        # Code tasks
+```
+
+### Using Task-Based Generation
+
+```python
+from shared.gemini import ResilientGeminiClient, TaskType
+
+client = ResilientGeminiClient()
+
+# Use task-specific configuration (model, temperature, max_tokens)
+result = await client.generate_for_task(
+    task=TaskType.JOURNAL_EXTRACTION,
+    prompt="Extract entities from: Today I had a meeting with John..."
+)
+
+# Get the configured model for a task
+model = client.get_model_for_task(TaskType.KNOWLEDGE_EXTRACTION)
+```
+
+### Per-Service Model Configuration
+
+Override models per service using environment variables:
+
+```bash
+# .env
+GEMINI_JOURNAL_PARSER_MODEL=gemini-2.5-flash
+GEMINI_KNOWLEDGE_SYSTEM_MODEL=gemini-2.5-pro
+GEMINI_CONTEXT_BROKER_MODEL=gemini-2.5-flash
+```
+
+Or retrieve programmatically:
+
+```python
+model = client.get_model_for_service("journal-parser")
+```
+
+### Task Configurations
+
+Default task configurations (`TASK_CONFIGS`):
+
+| Task | Model | Temperature | Max Tokens |
+|------|-------|-------------|------------|
+| JOURNAL_EXTRACTION | gemini-2.5-flash | 0.3 | 4096 |
+| GAP_DETECTION | gemini-2.5-flash | 0.4 | 2048 |
+| KNOWLEDGE_EXTRACTION | gemini-2.5-pro | 0.4 | 8192 |
+| TEXT_EMBEDDING | text-embedding-004 | - | - |
+| QUICK_ANALYSIS | gemini-2.5-flash | 0.5 | 2048 |
+| DEEP_ANALYSIS | gemini-2.5-pro | 0.7 | 16384 |
 
 ---
 

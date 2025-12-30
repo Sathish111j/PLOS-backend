@@ -6,12 +6,13 @@ fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
 pydantic>=2.5.0
 pydantic-settings>=2.1.0
+email-validator>=2.0.0
 
 # Vector Database
 qdrant-client>=1.7.0
 
-# Google Generative AI (Gemini)
-google-genai>=0.3.0
+# Google Generative AI (Gemini) - New SDK
+google-genai>=1.0.0
 
 # Database
 asyncpg>=0.29.0
@@ -20,6 +21,7 @@ alembic>=1.13.0
 
 # Kafka Integration
 aiokafka>=0.10.0
+kafka-python>=2.0.0
 
 # HTTP Client
 httpx>=0.26.0

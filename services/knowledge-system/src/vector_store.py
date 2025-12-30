@@ -8,7 +8,6 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import structlog
-from google import genai
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     Distance,
@@ -20,6 +19,8 @@ from qdrant_client.models import (
     VectorParams,
 )
 
+from shared.gemini import ResilientGeminiClient
+
 logger = structlog.get_logger(__name__)
 
 
@@ -30,8 +31,8 @@ class VectorStore:
         self,
         qdrant_url: str,
         qdrant_api_key: str,
-        gemini_api_key: str,
         collection_name: str = "knowledge_items",
+        gemini_client: Optional[ResilientGeminiClient] = None,
     ):
         """
         Initialize Vector Store
@@ -39,8 +40,8 @@ class VectorStore:
         Args:
             qdrant_url: Qdrant server URL (e.g., http://localhost:6333)
             qdrant_api_key: API key for Qdrant authentication
-            gemini_api_key: Google Gemini API key for embeddings
             collection_name: Name of the Qdrant collection
+            gemini_client: Optional pre-configured ResilientGeminiClient instance
         """
         self.qdrant_url = qdrant_url
         self.collection_name = collection_name
@@ -57,13 +58,9 @@ class VectorStore:
             logger.error("qdrant_client_init_failed", error=str(e))
             raise
 
-        # Initialize Gemini client
-        try:
-            self.gemini_client = genai.Client(api_key=gemini_api_key)
-            logger.info("gemini_client_initialized")
-        except Exception as e:
-            logger.error("gemini_client_init_failed", error=str(e))
-            raise
+        # Use centralized Gemini client with API key rotation
+        self.gemini_client = gemini_client or ResilientGeminiClient()
+        logger.info("gemini_client_initialized", client_type="ResilientGeminiClient")
 
         # Ensure collection exists
         self._ensure_collection_exists()
@@ -99,9 +96,9 @@ class VectorStore:
             )
             raise
 
-    def generate_embedding(self, text: str) -> List[float]:
+    async def generate_embedding(self, text: str) -> List[float]:
         """
-        Generate embedding vector using Gemini
+        Generate embedding vector using Gemini with automatic API key rotation
 
         Args:
             text: Text to embed
@@ -110,13 +107,11 @@ class VectorStore:
             List of floats representing the embedding vector
         """
         try:
-            response = self.gemini_client.models.embed_content(
+            embedding = await self.gemini_client.embed_content(
+                content=text,
                 model=self.embedding_model,
-                contents=text,
-                config={"output_dimensionality": self.vector_size},
             )
 
-            embedding = response.embeddings[0].values
             logger.debug(
                 "embedding_generated",
                 text_length=len(text),
@@ -130,7 +125,7 @@ class VectorStore:
             )
             raise
 
-    def add_knowledge_item(
+    async def add_knowledge_item(
         self,
         knowledge_id: str,
         title: str,
@@ -159,7 +154,7 @@ class VectorStore:
         """
         try:
             # Generate embedding from content
-            embedding = self.generate_embedding(content)
+            embedding = await self.generate_embedding(content)
 
             # Prepare payload (metadata stored with vector)
             payload = {
@@ -201,7 +196,7 @@ class VectorStore:
             )
             raise
 
-    def batch_add_knowledge_items(self, items: List[Dict[str, Any]]) -> List[str]:
+    async def batch_add_knowledge_items(self, items: List[Dict[str, Any]]) -> List[str]:
         """
         Add multiple knowledge items in batch for efficiency
 
@@ -218,7 +213,7 @@ class VectorStore:
 
             for item in items:
                 # Generate embedding
-                embedding = self.generate_embedding(item["content"])
+                embedding = await self.generate_embedding(item["content"])
 
                 # Prepare payload
                 payload = {
@@ -253,7 +248,7 @@ class VectorStore:
             logger.error("batch_add_failed", error=str(e))
             raise
 
-    def semantic_search(
+    async def semantic_search(
         self,
         query: str,
         top_k: int = 5,
@@ -278,7 +273,7 @@ class VectorStore:
         """
         try:
             # Generate query embedding
-            query_embedding = self.generate_embedding(query)
+            query_embedding = await self.generate_embedding(query)
 
             # Build filter conditions
             filter_conditions = []

@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     # PostgreSQL
     postgres_url: str = "postgresql://postgres:postgres@localhost:5432/plos"
 
+    @property
+    def postgres_async_url(self) -> str:
+        """Get async-compatible PostgreSQL URL for SQLAlchemy async"""
+        return self.postgres_url.replace("postgresql://", "postgresql+asyncpg://")
+
     # Redis
     redis_url: str = "redis://:redis@localhost:6379/0"
 

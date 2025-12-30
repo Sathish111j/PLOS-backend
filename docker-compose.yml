@@ -175,8 +175,9 @@ services:
       KAFKA_BROKERS: kafka:9092
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
-      GEMINI_DEFAULT_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-2.0-flash-exp}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
+      GEMINI_DEFAULT_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-2.5-flash}
     ports:
       - "${CONTEXT_BROKER_PORT:-8001}:8001"
     volumes:
@@ -210,8 +211,12 @@ services:
       POSTGRES_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-plos_db_secure_2025}@postgres:5432/${POSTGRES_DB:-plos}
       KAFKA_BROKERS: kafka:9092
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
       GEMINI_DEFAULT_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-2.5-flash}
+      GEMINI_API_KEY_ROTATION_ENABLED: ${GEMINI_API_KEY_ROTATION_ENABLED:-true}
+      GEMINI_API_KEY_ROTATION_MAX_RETRIES: ${GEMINI_API_KEY_ROTATION_MAX_RETRIES:-3}
+      GEMINI_API_KEY_ROTATION_BACKOFF_SECONDS: ${GEMINI_API_KEY_ROTATION_BACKOFF_SECONDS:-60}
       USE_GEMINI_CACHING: ${USE_GEMINI_CACHING:-true}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
@@ -222,7 +227,7 @@ services:
     networks:
       - plos-network
     healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8002/health')"]
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8002/journal/health')"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -249,9 +254,10 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       QDRANT_URL: http://qdrant:6333
       QDRANT_API_KEY: ${QDRANT_API_KEY:-qdrant_secure_key_2025}
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
       GEMINI_DEFAULT_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-2.5-flash}
-      GEMINI_EMBEDDING_MODEL: ${GEMINI_EMBEDDING_MODEL:-gemini-embedding-001}
+      GEMINI_EMBEDDING_MODEL: ${GEMINI_EMBEDDING_MODEL:-text-embedding-004}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
       - "${KNOWLEDGE_SYSTEM_PORT:-8003}:8003"
@@ -292,6 +298,39 @@ services:
   # ==========================================================================
   # MONITORING & OBSERVABILITY
   # ==========================================================================
+
+  # pgAdmin - PostgreSQL/TimescaleDB Web UI (like Supabase Studio)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: plos-pgadmin
+    depends_on:
+      - postgres
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@plos.local}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin123}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - plos-network
+    restart: unless-stopped
+
+  # Redis Commander - Redis Web UI
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: plos-redis-commander
+    depends_on:
+      - redis
+    environment:
+      REDIS_HOSTS: local:redis:6379:0:${REDIS_PASSWORD:-plos_redis_secure_2025}
+    ports:
+      - "${REDIS_COMMANDER_PORT:-8081}:8081"
+    networks:
+      - plos-network
+    restart: unless-stopped
 
   # Prometheus - Metrics collection
   prometheus:
@@ -355,4 +394,6 @@ volumes:
   grafana_data:
     driver: local
   qdrant_data:
+    driver: local
+  pgadmin_data:
     driver: local

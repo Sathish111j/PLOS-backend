@@ -1,15 +1,18 @@
 """
 Resilient Gemini API Client
 Wrapper around Google's Generative AI API with automatic key rotation and error handling
+Uses the new google-genai SDK (not the deprecated google-generativeai)
 """
 
 import asyncio
 import logging
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Union
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
+from shared.gemini.config import TaskType, get_gemini_config, get_task_config
 from shared.gemini.exceptions import GeminiAPICallError
 from shared.gemini.key_manager import GeminiKeyManager
 
@@ -49,6 +52,24 @@ class ResilientGeminiClient:
             max_retries=self.max_retries,
         )
         self.current_api_key: Optional[str] = None
+        self._client: Optional[genai.Client] = None
+
+    @property
+    async def raw_client(self) -> genai.Client:
+        """
+        Get the underlying genai.Client for advanced operations.
+
+        Use this for operations not directly supported by ResilientGeminiClient,
+        such as file uploads, multimodal content, etc.
+
+        Note: This ensures API key is configured before returning the client.
+
+        Returns:
+            genai.Client instance configured with active API key
+        """
+        api_key = await self.key_manager.get_active_key()
+        self._configure_api_key(api_key)
+        return self._client
 
     def _load_config(
         self,
@@ -56,27 +77,25 @@ class ResilientGeminiClient:
         backoff_seconds: Optional[int],
         max_retries: Optional[int],
     ) -> None:
-        """Load configuration from environment variables"""
-        if rotation_enabled is not None:
-            self.rotation_enabled = rotation_enabled
-        else:
-            self.rotation_enabled = (
-                os.getenv("GEMINI_API_KEY_ROTATION_ENABLED", "true").lower() == "true"
-            )
+        """Load configuration from centralized Gemini config"""
+        config = get_gemini_config()
 
-        if backoff_seconds is not None:
-            self.backoff_seconds = backoff_seconds
-        else:
-            self.backoff_seconds = int(
-                os.getenv("GEMINI_API_KEY_ROTATION_BACKOFF_SECONDS", "60")
-            )
+        self.rotation_enabled = (
+            rotation_enabled
+            if rotation_enabled is not None
+            else config.rotation_enabled
+        )
+        self.backoff_seconds = (
+            backoff_seconds
+            if backoff_seconds is not None
+            else config.rotation_backoff_seconds
+        )
+        self.max_retries = (
+            max_retries if max_retries is not None else config.rotation_max_retries
+        )
 
-        if max_retries is not None:
-            self.max_retries = max_retries
-        else:
-            self.max_retries = int(
-                os.getenv("GEMINI_API_KEY_ROTATION_MAX_RETRIES", "3")
-            )
+        # Store config reference for model selection
+        self._config = config
 
         logger.info(
             f"ResilientGeminiClient configured: "
@@ -86,9 +105,10 @@ class ResilientGeminiClient:
         )
 
     def _configure_api_key(self, api_key: str) -> None:
-        """Configure the Gemini API with the given key"""
-        genai.configure(api_key=api_key)
-        self.current_api_key = api_key
+        """Configure the Gemini API client with the given key"""
+        if self.current_api_key != api_key:
+            self._client = genai.Client(api_key=api_key)
+            self.current_api_key = api_key
 
     def _is_quota_error(self, error: Exception) -> bool:
         """
@@ -116,16 +136,22 @@ class ResilientGeminiClient:
 
     async def generate_content(
         self,
-        prompt: str,
+        prompt: Union[str, List[types.Part]],
         model: Optional[str] = None,
+        system_instruction: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_output_tokens: Optional[int] = None,
         **kwargs,
     ) -> str:
         """
         Generate content using Gemini API with automatic key rotation.
 
         Args:
-            prompt: The prompt to send to Gemini
+            prompt: The prompt to send to Gemini (string or list of Parts)
             model: Model name (defaults to GEMINI_DEFAULT_MODEL)
+            system_instruction: Optional system instruction for the model
+            temperature: Optional temperature for generation (0.0 to 2.0)
+            max_output_tokens: Optional maximum tokens to generate
             **kwargs: Additional arguments to pass to generate_content
 
         Returns:
@@ -148,9 +174,27 @@ class ResilientGeminiClient:
                     f"with model={model}, key={self.key_manager.keys[self.key_manager.current_key_index].name}"
                 )
 
-                genai_model = genai.GenerativeModel(model)
+                # Build generation config if parameters provided
+                config_kwargs = {}
+                if temperature is not None:
+                    config_kwargs["temperature"] = temperature
+                if max_output_tokens is not None:
+                    config_kwargs["max_output_tokens"] = max_output_tokens
+                if system_instruction:
+                    config_kwargs["system_instruction"] = system_instruction
+
+                config = (
+                    types.GenerateContentConfig(**config_kwargs)
+                    if config_kwargs
+                    else None
+                )
+
+                # Use async generate_content from new SDK
                 response = await asyncio.to_thread(
-                    genai_model.generate_content, prompt, **kwargs
+                    self._client.models.generate_content,
+                    model=model,
+                    contents=prompt,
+                    config=config,
                 )
 
                 await self.key_manager.mark_key_request_success(api_key)
@@ -195,15 +239,15 @@ class ResilientGeminiClient:
 
     async def embed_content(
         self,
-        content: str,
+        content: Union[str, List[str]],
         model: Optional[str] = None,
         **kwargs,
-    ) -> list:
+    ) -> List[float]:
         """
         Generate embeddings using Gemini API with automatic key rotation.
 
         Args:
-            content: The content to embed
+            content: The content to embed (string or list of strings)
             model: Model name (defaults to GEMINI_EMBEDDING_MODEL)
             **kwargs: Additional arguments
 
@@ -214,7 +258,7 @@ class ResilientGeminiClient:
             AllKeysExhaustedError: If all API keys are exhausted
             GeminiAPICallError: If the API call fails after retries
         """
-        model = model or os.getenv("GEMINI_EMBEDDING_MODEL", "models/embedding-001")
+        model = model or os.getenv("GEMINI_EMBEDDING_MODEL", "text-embedding-004")
         last_error: Optional[Exception] = None
 
         for attempt in range(self.max_retries):
@@ -227,14 +271,20 @@ class ResilientGeminiClient:
                     f"with model={model}"
                 )
 
+                # Use new SDK embed_content
                 result = await asyncio.to_thread(
-                    genai.embed_content, model=model, content=content, **kwargs
+                    self._client.models.embed_content,
+                    model=model,
+                    contents=content,
                 )
 
                 await self.key_manager.mark_key_request_success(api_key)
                 logger.debug("Embedding call successful")
 
-                return result["embedding"]
+                # New SDK returns embeddings in a different structure
+                if hasattr(result, "embeddings") and result.embeddings:
+                    return result.embeddings[0].values
+                return result.embedding.values
 
             except Exception as error:
                 last_error = error
@@ -284,3 +334,68 @@ class ResilientGeminiClient:
     def log_status(self) -> None:
         """Log the current status of all keys"""
         logger.info(f"\n{self.get_status_summary()}")
+
+    async def generate_for_task(
+        self,
+        task: TaskType,
+        prompt: str,
+        **kwargs,
+    ) -> str:
+        """
+        Generate content using task-specific configuration.
+
+        This method uses the centralized config to select the appropriate
+        model and parameters for the given task type.
+
+        Args:
+            task: The type of task (from TaskType enum)
+            prompt: The prompt to send
+            **kwargs: Override any task-specific settings
+
+        Returns:
+            str: Generated text response
+        """
+        task_config = get_task_config(task)
+
+        # Use task config as defaults, allow kwargs to override
+        model = kwargs.pop("model", task_config.model)
+        temperature = kwargs.pop("temperature", task_config.temperature)
+        max_output_tokens = kwargs.pop(
+            "max_output_tokens", task_config.max_output_tokens
+        )
+        system_instruction = kwargs.pop(
+            "system_instruction", task_config.system_instruction
+        )
+
+        return await self.generate_content(
+            prompt=prompt,
+            model=model,
+            temperature=temperature,
+            max_output_tokens=max_output_tokens,
+            system_instruction=system_instruction,
+            **kwargs,
+        )
+
+    def get_model_for_service(self, service_name: str) -> str:
+        """
+        Get the configured model for a specific service.
+
+        Args:
+            service_name: Name of the service (journal-parser, knowledge-system, etc.)
+
+        Returns:
+            str: Model name to use
+        """
+        return self._config.get_model_for_service(service_name)
+
+    def get_model_for_task(self, task: TaskType) -> str:
+        """
+        Get the configured model for a specific task type.
+
+        Args:
+            task: TaskType enum value
+
+        Returns:
+            str: Model name to use
+        """
+        return self._config.get_model_for_task(task)

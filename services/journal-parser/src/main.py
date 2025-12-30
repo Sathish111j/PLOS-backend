@@ -6,16 +6,15 @@ Intelligent journal entry processing with comprehensive extraction and gap detec
 from contextlib import asynccontextmanager
 
 import uvicorn
+from api import router as journal_router
+from db_pool import close_global_pool, initialize_global_pool
+from dependencies import initialize_dependencies, shutdown_dependencies
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from shared.utils.config import get_settings
 from shared.utils.logger import get_logger
 from shared.utils.logging_config import setup_logging
-
-from .api import router as journal_router
-from .db_pool import close_global_pool, initialize_global_pool
-from .dependencies import initialize_dependencies, shutdown_dependencies
 
 # Setup structured logging
 setup_logging("journal-parser", log_level="INFO", json_logs=True)
@@ -30,7 +29,7 @@ async def lifespan(app: FastAPI):
 
     # Initialize database connection pool
     logger.info("Initializing database connection pool...")
-    await initialize_global_pool(settings.postgres_url)
+    await initialize_global_pool(settings.postgres_async_url)
 
     # Initialize dependencies (Gemini, Kafka producer)
     logger.info("Initializing service dependencies...")
@@ -127,6 +126,16 @@ async def root():
         "version": "1.0.0",
         "status": "operational",
         "documentation": "/docs",
+    }
+
+
+@app.get("/health", tags=["health"])
+async def health():
+    """Health check endpoint at root level"""
+    return {
+        "status": "healthy",
+        "service": "journal-parser",
+        "version": "1.0.0",
     }
 
 

@@ -5,14 +5,13 @@ Production-ready FastAPI dependencies
 
 from typing import AsyncGenerator
 
+from db_pool import get_global_pool
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.gemini.client import ResilientGeminiClient
 from shared.kafka.producer import KafkaProducerService
 from shared.utils.config import get_settings
 from shared.utils.logger import get_logger
-
-from .db_pool import get_global_pool
 
 logger = get_logger(__name__)
 settings = get_settings()

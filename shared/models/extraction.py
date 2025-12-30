@@ -163,6 +163,8 @@ class RelationshipData(BaseModel):
 class ExtractionMetadata(BaseModel):
     """Metadata about the extraction process"""
 
+    model_config = {"protected_namespaces": ()}
+
     quality_score: float = Field(ge=0, le=1)
     quality_level: QualityLevel
     overall_confidence: float = Field(ge=0, le=1)

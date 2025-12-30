@@ -8,19 +8,18 @@ from datetime import date
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
+from generalized_extraction import (
+    DataGap,
+    ExtractionResult,
+    NormalizedActivity,
+    NormalizedConsumption,
+)
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.kafka.producer import KafkaProducerService
 from shared.kafka.topics import KafkaTopics
 from shared.utils.logger import get_logger
-
-from .generalized_extraction import (
-    DataGap,
-    ExtractionResult,
-    NormalizedActivity,
-    NormalizedConsumption,
-)
 
 logger = get_logger(__name__)
 
@@ -924,7 +923,7 @@ class StorageService:
         Reconstruct ExtractionResult from database for an entry.
         Used when resolving gaps to update existing extraction.
         """
-        from .generalized_extraction import (
+        from generalized_extraction import (
             ExtractionResult,
             NormalizedActivity,
             NormalizedConsumption,

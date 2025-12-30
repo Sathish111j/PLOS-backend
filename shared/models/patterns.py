@@ -225,6 +225,8 @@ class HealthAlertCreate(BaseModel):
 class Prediction(BaseModel):
     """Prediction model"""
 
+    model_config = {"protected_namespaces": (), "from_attributes": True}
+
     id: Optional[UUID] = None
     user_id: UUID
     prediction_date: date
@@ -249,9 +251,6 @@ class Prediction(BaseModel):
 
     created_at: Optional[datetime] = None
     valid_until: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
 
 
 class PredictionCreate(BaseModel):

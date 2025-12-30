@@ -105,9 +105,11 @@ class DatabaseConnectionPool:
             # Register event listeners
             self._register_events()
 
-            # Test connection
-            async with self.get_session() as session:
-                await session.execute("SELECT 1")
+            # Test connection directly without using get_session (avoid initialization check)
+            async with self.session_factory() as session:
+                from sqlalchemy import text
+
+                await session.execute(text("SELECT 1"))
 
             self._is_initialized = True
             logger.info(

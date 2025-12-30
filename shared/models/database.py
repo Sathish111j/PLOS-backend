@@ -90,7 +90,7 @@ class UserPatternDB(Base):
     sample_count = Column(Integer, default=0)
     confidence = Column(Float, default=0.5)
 
-    metadata = Column(JSONB, default=dict)
+    extra_data = Column(JSONB, default=dict)
 
     last_updated = Column(Date, server_default=func.now())
     created_at = Column(Date, server_default=func.now())
@@ -129,7 +129,7 @@ class RelationshipHistoryDB(Base):
     what_worked = Column(Text)
 
     notes = Column(Text)
-    metadata = Column(JSONB, default=dict)
+    extra_data = Column(JSONB, default=dict)
 
     created_at = Column(Date, server_default=func.now())
 
@@ -159,7 +159,7 @@ class SleepDebtLogDB(Base):
     debt_cumulative = Column(Float)
     recovery_sleep_needed = Column(Float)
 
-    metadata = Column(JSONB, default=dict)
+    extra_data = Column(JSONB, default=dict)
     created_at = Column(Date, server_default=func.now())
 
     __table_args__ = (
@@ -197,7 +197,7 @@ class ActivityImpactDB(Base):
     confidence = Column(Float, default=0.5)
     last_occurred = Column(Date)
 
-    metadata = Column(JSONB, default=dict)
+    extra_data = Column(JSONB, default=dict)
     last_updated = Column(Date, server_default=func.now())
     created_at = Column(Date, server_default=func.now())
 
@@ -243,7 +243,7 @@ class HealthAlertDB(Base):
     resolved_date = Column(Date)
     resolution_notes = Column(Text)
 
-    metadata = Column(JSONB, default=dict)
+    extra_data = Column(JSONB, default=dict)
     created_at = Column(Date, server_default=func.now())
 
 

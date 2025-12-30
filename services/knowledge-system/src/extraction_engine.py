@@ -3,6 +3,7 @@ Knowledge Extraction Engine for PLOS
 Extracts content from URLs, PDFs, and images using Gemini AI
 """
 
+import asyncio
 import json
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -10,9 +11,10 @@ from typing import Any, Dict, List, Optional
 import httpx
 import structlog
 from bs4 import BeautifulSoup
-from google import genai
 from google.genai import types
 from src.vector_store import VectorStore
+
+from shared.gemini import ResilientGeminiClient, TaskType
 
 logger = structlog.get_logger(__name__)
 
@@ -23,23 +25,29 @@ class KnowledgeExtractor:
     def __init__(
         self,
         vector_store: VectorStore,
-        gemini_api_key: str,
-        model: str = "gemini-2.0-flash-exp",
+        model: Optional[str] = None,
+        gemini_client: Optional[ResilientGeminiClient] = None,
     ):
         """
         Initialize Knowledge Extractor
 
         Args:
             vector_store: VectorStore instance for storing embeddings
-            gemini_api_key: Google Gemini API key
-            model: Gemini model to use for extraction
+            model: Gemini model to use for extraction (optional, uses config default)
+            gemini_client: Optional pre-configured ResilientGeminiClient instance
         """
         self.vector_store = vector_store
-        self.gemini_client = genai.Client(api_key=gemini_api_key)
-        self.model = model
+        self.gemini_client = gemini_client or ResilientGeminiClient()
+        self.model = model or self.gemini_client.get_model_for_task(
+            TaskType.KNOWLEDGE_EXTRACTION
+        )
         self.http_client = httpx.AsyncClient(timeout=30.0)
 
-        logger.info("knowledge_extractor_initialized", model=model)
+        logger.info(
+            "knowledge_extractor_initialized",
+            model=self.model,
+            client_type="ResilientGeminiClient",
+        )
 
     async def extract_from_url(
         self, url: str, user_id: str, tags: Optional[List[str]] = None
@@ -86,45 +94,44 @@ URL: {url}
 Content:
 {text_content[:4000]}
 
-Extract:
-1. Title - The main title or headline
-2. Summary - A concise summary (2-3 sentences)
-3. Key Points - Main takeaways (bullet points)
-4. Category - Primary category (e.g., technology, health, productivity)
-5. Tags - Relevant tags/keywords (max 5)
-
-Return as JSON.
+Extract and return as valid JSON:
+1. "title" - The main title or headline
+2. "summary" - A concise summary (2-3 sentences)
+3. "key_points" - Main takeaways as array of strings
+4. "category" - Primary category (e.g., technology, health, productivity)
+5. "tags" - Relevant tags/keywords as array (max 5)
 """
 
-            response = self.gemini_client.models.generate_content(
+            # Use centralized client for content generation
+            response_text = await self.gemini_client.generate_for_task(
+                task=TaskType.KNOWLEDGE_EXTRACTION,
+                prompt=extraction_prompt,
                 model=self.model,
-                contents=[extraction_prompt],
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema={
-                        "type": "object",
-                        "properties": {
-                            "title": {"type": "string"},
-                            "summary": {"type": "string"},
-                            "key_points": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                            },
-                            "category": {"type": "string"},
-                            "tags": {"type": "array", "items": {"type": "string"}},
-                        },
-                        "required": ["title", "summary"],
-                    },
-                ),
             )
 
-            extracted_data = json.loads(response.text)
+            # Parse JSON from response
+            try:
+                # Clean response if needed (remove markdown code blocks)
+                clean_response = response_text.strip()
+                if clean_response.startswith("```"):
+                    lines = clean_response.split("\n")
+                    clean_response = "\n".join(lines[1:-1])
+                extracted_data = json.loads(clean_response)
+            except json.JSONDecodeError:
+                logger.warning("json_parse_failed, using fallback extraction")
+                extracted_data = {
+                    "title": url.split("/")[-1] or "Untitled",
+                    "summary": text_content[:200],
+                    "key_points": [],
+                    "category": "uncategorized",
+                    "tags": [],
+                }
 
             # Generate unique knowledge ID
             knowledge_id = f"url_{hash(url)}_{user_id}"
 
             # Combine summary and key points for content
-            content_parts = [extracted_data["summary"]]
+            content_parts = [extracted_data.get("summary", "")]
             if "key_points" in extracted_data:
                 content_parts.extend(extracted_data["key_points"])
             full_content = "\n\n".join(content_parts)
@@ -132,10 +139,10 @@ Return as JSON.
             # Merge user tags with extracted tags
             all_tags = list(set((tags or []) + extracted_data.get("tags", [])))
 
-            # Store in vector database
-            self.vector_store.add_knowledge_item(
+            # Store in vector database (now async)
+            await self.vector_store.add_knowledge_item(
                 knowledge_id=knowledge_id,
-                title=extracted_data["title"],
+                title=extracted_data.get("title", "Untitled"),
                 content=full_content,
                 source_url=url,
                 item_type="article",
@@ -150,7 +157,7 @@ Return as JSON.
             logger.info(
                 "url_extraction_completed",
                 knowledge_id=knowledge_id,
-                title=extracted_data["title"],
+                title=extracted_data.get("title"),
                 url=url,
             )
 
@@ -190,62 +197,56 @@ Return as JSON.
         try:
             logger.info("extracting_from_pdf", file_path=file_path, user_id=user_id)
 
+            # Get raw client for file operations
+            raw_client = await self.gemini_client.raw_client
+
             # Upload PDF to Gemini Files API
-            pdf_file = self.gemini_client.files.upload(
+            pdf_file = raw_client.files.upload(
                 file=file_path,
                 config=types.UploadFileConfig(mime_type="application/pdf"),
             )
 
             # Wait for file to be processed
-            import time
-
             while pdf_file.state == "PROCESSING":
-                time.sleep(2)
-                pdf_file = self.gemini_client.files.get(pdf_file.name)
+                await asyncio.sleep(2)
+                pdf_file = raw_client.files.get(pdf_file.name)
 
             if pdf_file.state == "FAILED":
                 raise Exception("PDF processing failed")
 
-            # Extract content using Gemini
+            # Extract content using Gemini (need to use raw client for multimodal)
             extraction_prompt = """
-Analyze this PDF document and extract:
-1. Title - Document title or main subject
-2. Summary - Comprehensive summary (3-5 sentences)
-3. Key Concepts - Main concepts and topics covered
-4. Key Points - Important takeaways (bullet points)
-5. Category - Primary category
-6. Tags - Relevant keywords (max 5)
-
-Return as JSON.
+Analyze this PDF document and extract as valid JSON:
+1. "title" - Document title or main subject
+2. "summary" - Comprehensive summary (3-5 sentences)
+3. "key_concepts" - Main concepts and topics covered (array of strings)
+4. "key_points" - Important takeaways (array of strings)
+5. "category" - Primary category
+6. "tags" - Relevant keywords (max 5, array of strings)
 """
 
-            response = self.gemini_client.models.generate_content(
+            response = raw_client.models.generate_content(
                 model=self.model,
                 contents=[pdf_file, extraction_prompt],
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema={
-                        "type": "object",
-                        "properties": {
-                            "title": {"type": "string"},
-                            "summary": {"type": "string"},
-                            "key_concepts": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                            },
-                            "key_points": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                            },
-                            "category": {"type": "string"},
-                            "tags": {"type": "array", "items": {"type": "string"}},
-                        },
-                        "required": ["title", "summary"],
-                    },
-                ),
             )
 
-            extracted_data = json.loads(response.text)
+            # Parse JSON from response
+            try:
+                clean_response = response.text.strip()
+                if clean_response.startswith("```"):
+                    lines = clean_response.split("\n")
+                    clean_response = "\n".join(lines[1:-1])
+                extracted_data = json.loads(clean_response)
+            except json.JSONDecodeError:
+                logger.warning("json_parse_failed_pdf, using fallback extraction")
+                extracted_data = {
+                    "title": original_filename or file_path.split("/")[-1],
+                    "summary": "PDF content extraction failed",
+                    "key_concepts": [],
+                    "key_points": [],
+                    "category": "uncategorized",
+                    "tags": [],
+                }
 
             # Generate unique knowledge ID
             filename = original_filename or file_path.split("/")[-1]
@@ -253,7 +254,7 @@ Return as JSON.
 
             # Combine all extracted content
             content_parts = [
-                extracted_data["summary"],
+                extracted_data.get("summary", ""),
                 "\n\nKey Concepts:\n"
                 + "\n".join(extracted_data.get("key_concepts", [])),
                 "\n\nKey Points:\n" + "\n".join(extracted_data.get("key_points", [])),
@@ -263,10 +264,10 @@ Return as JSON.
             # Merge tags
             all_tags = list(set((tags or []) + extracted_data.get("tags", [])))
 
-            # Store in vector database
-            self.vector_store.add_knowledge_item(
+            # Store in vector database (now async)
+            await self.vector_store.add_knowledge_item(
                 knowledge_id=knowledge_id,
-                title=extracted_data["title"],
+                title=extracted_data.get("title", filename),
                 content=full_content,
                 source_url=f"file://{filename}",
                 item_type="pdf",
@@ -280,7 +281,7 @@ Return as JSON.
             )
 
             # Clean up uploaded file
-            self.gemini_client.files.delete(pdf_file.name)
+            raw_client.files.delete(pdf_file.name)
 
             logger.info(
                 "pdf_extraction_completed",
@@ -325,8 +326,11 @@ Return as JSON.
         try:
             logger.info("extracting_from_image", file_path=file_path, user_id=user_id)
 
+            # Get raw client for file operations
+            raw_client = await self.gemini_client.raw_client
+
             # Upload image to Gemini Files API
-            image_file = self.gemini_client.files.upload(
+            image_file = raw_client.files.upload(
                 file=file_path,
                 config=types.UploadFileConfig(
                     mime_type="image/jpeg"  # Adjust based on actual file type
@@ -335,39 +339,35 @@ Return as JSON.
 
             # Extract content using Gemini Vision
             extraction_prompt = """
-Analyze this image and extract any useful knowledge:
-1. Title - What is this image about?
-2. Description - Detailed description
-3. Text Content - Any text visible in the image
-4. Key Points - Main information or insights
-5. Tags - Relevant keywords
-
-Return as JSON.
+Analyze this image and extract any useful knowledge as valid JSON:
+1. "title" - What is this image about?
+2. "description" - Detailed description
+3. "text_content" - Any text visible in the image
+4. "key_points" - Main information or insights (array of strings)
+5. "tags" - Relevant keywords (array of strings)
 """
 
-            response = self.gemini_client.models.generate_content(
+            response = raw_client.models.generate_content(
                 model=self.model,
                 contents=[image_file, extraction_prompt],
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema={
-                        "type": "object",
-                        "properties": {
-                            "title": {"type": "string"},
-                            "description": {"type": "string"},
-                            "text_content": {"type": "string"},
-                            "key_points": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                            },
-                            "tags": {"type": "array", "items": {"type": "string"}},
-                        },
-                        "required": ["title", "description"],
-                    },
-                ),
             )
 
-            extracted_data = json.loads(response.text)
+            # Parse JSON from response
+            try:
+                clean_response = response.text.strip()
+                if clean_response.startswith("```"):
+                    lines = clean_response.split("\n")
+                    clean_response = "\n".join(lines[1:-1])
+                extracted_data = json.loads(clean_response)
+            except json.JSONDecodeError:
+                logger.warning("json_parse_failed_image, using fallback extraction")
+                extracted_data = {
+                    "title": original_filename or "Image",
+                    "description": "Image content extraction failed",
+                    "text_content": "",
+                    "key_points": [],
+                    "tags": [],
+                }
 
             # Generate unique knowledge ID
             filename = original_filename or file_path.split("/")[-1]
@@ -375,7 +375,7 @@ Return as JSON.
 
             # Combine extracted content
             content_parts = [
-                extracted_data["description"],
+                extracted_data.get("description", ""),
                 f"\n\nExtracted Text:\n{extracted_data.get('text_content', '')}",
                 "\n\nKey Points:\n" + "\n".join(extracted_data.get("key_points", [])),
             ]
@@ -384,10 +384,10 @@ Return as JSON.
             # Merge tags
             all_tags = list(set((tags or []) + extracted_data.get("tags", [])))
 
-            # Store in vector database
-            self.vector_store.add_knowledge_item(
+            # Store in vector database (now async)
+            await self.vector_store.add_knowledge_item(
                 knowledge_id=knowledge_id,
-                title=extracted_data["title"],
+                title=extracted_data.get("title", filename),
                 content=full_content,
                 source_url=f"file://{filename}",
                 item_type="image",
@@ -400,20 +400,20 @@ Return as JSON.
             )
 
             # Clean up uploaded file
-            self.gemini_client.files.delete(image_file.name)
+            raw_client.files.delete(image_file.name)
 
             logger.info(
                 "image_extraction_completed",
                 knowledge_id=knowledge_id,
-                title=extracted_data["title"],
+                title=extracted_data.get("title"),
                 filename=filename,
             )
 
             return {
                 "success": True,
                 "knowledge_id": knowledge_id,
-                "title": extracted_data["title"],
-                "description": extracted_data["description"],
+                "title": extracted_data.get("title"),
+                "description": extracted_data.get("description"),
                 "filename": filename,
                 "tags": all_tags,
             }
@@ -446,19 +446,17 @@ Return as JSON.
 
             # If no title provided, use Gemini to generate one
             if not title:
-                title_response = self.gemini_client.models.generate_content(
-                    model=self.model,
-                    contents=[
-                        f"Generate a concise title (max 10 words) for this text:\n\n{text[:500]}"
-                    ],
+                title = await self.gemini_client.generate_for_task(
+                    task=TaskType.KNOWLEDGE_EXTRACTION,
+                    prompt=f"Generate a concise title (max 10 words) for this text:\n\n{text[:500]}",
                 )
-                title = title_response.text.strip()
+                title = title.strip()
 
             # Generate knowledge ID
             knowledge_id = f"text_{hash(text[:100])}_{user_id}"
 
-            # Store in vector database
-            self.vector_store.add_knowledge_item(
+            # Store in vector database (now async)
+            await self.vector_store.add_knowledge_item(
                 knowledge_id=knowledge_id,
                 title=title,
                 content=text,

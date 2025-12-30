@@ -4,8 +4,8 @@ pydantic==2.5.3
 pydantic-settings==2.1.0
 email-validator==2.1.0
 
-# Gemini AI
-google-genai==0.3.0
+# Gemini AI - New SDK
+google-genai>=1.0.0
 
 # Database
 sqlalchemy==2.0.25

@@ -7,16 +7,15 @@ from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
+from dependencies import get_db_session, get_gemini_client, get_kafka_producer
 from fastapi import APIRouter, Depends, HTTPException, status
+from orchestrator import JournalParserOrchestrator
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.gemini.client import ResilientGeminiClient
 from shared.kafka.producer import KafkaProducerService
 from shared.utils.logger import get_logger
-
-from .dependencies import get_db_session, get_gemini_client, get_kafka_producer
-from .orchestrator import JournalParserOrchestrator
 
 logger = get_logger(__name__)
 

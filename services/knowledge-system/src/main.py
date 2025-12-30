@@ -13,6 +13,8 @@ from pydantic import BaseModel, Field
 from src.extraction_engine import KnowledgeExtractor
 from src.vector_store import VectorStore
 
+from shared.gemini import ResilientGeminiClient
+
 # Configure structured logging
 structlog.configure(
     processors=[
@@ -29,6 +31,7 @@ logger = structlog.get_logger(__name__)
 
 vector_store: Optional[VectorStore] = None
 extractor: Optional[KnowledgeExtractor] = None
+gemini_client: Optional[ResilientGeminiClient] = None
 
 
 # ============================================================================
@@ -39,28 +42,40 @@ extractor: Optional[KnowledgeExtractor] = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan context manager"""
-    global vector_store, extractor
+    global vector_store, extractor, gemini_client
 
     logger.info("knowledge_system_starting")
 
-    # Initialize Vector Store
+    # Initialize centralized Gemini client with API key rotation
+    try:
+        gemini_client = ResilientGeminiClient()
+        logger.info(
+            "gemini_client_initialized",
+            client_type="ResilientGeminiClient",
+            rotation_enabled=gemini_client.rotation_enabled,
+        )
+    except Exception as e:
+        logger.error("gemini_client_init_failed", error=str(e))
+        raise
+
+    # Initialize Vector Store with shared Gemini client
     try:
         vector_store = VectorStore(
             qdrant_url=os.getenv("QDRANT_URL", "http://qdrant:6333"),
             qdrant_api_key=os.getenv("QDRANT_API_KEY", ""),
-            gemini_api_key=os.getenv("GEMINI_API_KEY", ""),
+            gemini_client=gemini_client,
         )
         logger.info("vector_store_initialized")
     except Exception as e:
         logger.error("vector_store_init_failed", error=str(e))
         raise
 
-    # Initialize Knowledge Extractor
+    # Initialize Knowledge Extractor with shared Gemini client
     try:
         extractor = KnowledgeExtractor(
             vector_store=vector_store,
-            gemini_api_key=os.getenv("GEMINI_API_KEY", ""),
-            model=os.getenv("GEMINI_DEFAULT_MODEL", "gemini-2.0-flash-exp"),
+            gemini_client=gemini_client,
+            model=os.getenv("GEMINI_DEFAULT_MODEL"),  # Uses config default if None
         )
         logger.info("knowledge_extractor_initialized")
     except Exception as e:
@@ -191,7 +206,7 @@ async def add_knowledge_item(item: KnowledgeItemCreate):
     For URL/PDF extraction, use dedicated endpoints.
     """
     try:
-        knowledge_id = vector_store.add_knowledge_item(
+        knowledge_id = await vector_store.add_knowledge_item(
             knowledge_id=f"manual_{hash(item.title)}_{item.user_id}",
             title=item.title,
             content=item.content,
@@ -382,7 +397,7 @@ async def search_knowledge(request: SearchRequest):
     - "Productivity tips"
     """
     try:
-        results = vector_store.semantic_search(
+        results = await vector_store.semantic_search(
             query=request.query,
             top_k=request.top_k,
             user_id=request.user_id,
