@@ -45,7 +45,9 @@ class JournalExtractionDB(Base):
     preprocessed_entry = Column(Text)
 
     # Quality
-    overall_quality = Column(String(10))  # 'high', 'medium', 'low' (extraction_quality enum)
+    overall_quality = Column(
+        String(10)
+    )  # 'high', 'medium', 'low' (extraction_quality enum)
     extraction_time_ms = Column(Integer)
     gemini_model = Column(String(50))
 
@@ -55,7 +57,9 @@ class JournalExtractionDB(Base):
 
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
     __table_args__ = (
         UniqueConstraint("user_id", "entry_date", name="uq_user_entry_date"),
@@ -83,7 +87,9 @@ class ExtractionMetricsDB(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
-        UniqueConstraint("user_id", "entry_date", "metric_type_id", name="uq_user_metric"),
+        UniqueConstraint(
+            "user_id", "entry_date", "metric_type_id", name="uq_user_metric"
+        ),
     )
 
 
@@ -109,9 +115,7 @@ class ExtractionSleepDB(Base):
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    __table_args__ = (
-        UniqueConstraint("user_id", "entry_date", name="uq_user_sleep"),
-    )
+    __table_args__ = (UniqueConstraint("user_id", "entry_date", name="uq_user_sleep"),)
 
 
 # ============================================================================

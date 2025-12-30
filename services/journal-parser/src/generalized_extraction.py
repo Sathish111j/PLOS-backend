@@ -400,7 +400,7 @@ def detect_gaps(raw_text: str, extraction: Dict[str, Any]) -> List[DataGap]:
     """
     gaps = []
     text_lower = raw_text.lower()
-    
+
     # Get list of extracted activities to avoid false positive gap detection
     extracted_activities = set()
     for act in extraction.get("activities", []):
@@ -429,7 +429,7 @@ def detect_gaps(raw_text: str, extraction: Dict[str, Any]) -> List[DataGap]:
                 if activity_name in text_lower:
                     already_resolved = True
                     break
-            
+
             if not already_resolved:
                 gaps.append(
                     DataGap(
@@ -800,21 +800,35 @@ TIME OF DAY:
             if baseline:
                 parts.append("## USER BASELINE (for reference)\n")
                 # Handle both Pydantic model and dict formats
-                if hasattr(baseline, 'sleep_hours'):
+                if hasattr(baseline, "sleep_hours"):
                     # Pydantic model
-                    avg_sleep = getattr(baseline, 'sleep_hours', '?')
-                    avg_mood = getattr(baseline, 'mood_score', '?')
-                    common_activities = getattr(baseline, 'common_activities', []) or []
+                    avg_sleep = getattr(baseline, "sleep_hours", "?")
+                    avg_mood = getattr(baseline, "mood_score", "?")
+                    common_activities = getattr(baseline, "common_activities", []) or []
                 else:
                     # Dict format
-                    avg_sleep = baseline.get('avg_sleep_hours', '?') if isinstance(baseline, dict) else '?'
-                    avg_mood = baseline.get('avg_mood_score', '?') if isinstance(baseline, dict) else '?'
-                    common_activities = baseline.get('common_activities', []) if isinstance(baseline, dict) else []
-                
+                    avg_sleep = (
+                        baseline.get("avg_sleep_hours", "?")
+                        if isinstance(baseline, dict)
+                        else "?"
+                    )
+                    avg_mood = (
+                        baseline.get("avg_mood_score", "?")
+                        if isinstance(baseline, dict)
+                        else "?"
+                    )
+                    common_activities = (
+                        baseline.get("common_activities", [])
+                        if isinstance(baseline, dict)
+                        else []
+                    )
+
                 parts.append(f"- Typical sleep: {avg_sleep} hours\n")
                 parts.append(f"- Typical mood: {avg_mood}/10\n")
                 if common_activities:
-                    parts.append(f"- Common activities: {', '.join(common_activities)}\n\n")
+                    parts.append(
+                        f"- Common activities: {', '.join(common_activities)}\n\n"
+                    )
                 else:
                     parts.append("\n")
 
@@ -861,7 +875,7 @@ For ambiguous items, generate a helpful clarification question.
                 continue
 
             raw_name = act.get("activity_name", "")
-            
+
             canonical, category = normalize_activity_name(raw_name)
 
             duration = act.get("duration_minutes")
@@ -904,9 +918,11 @@ For ambiguous items, generate a helpful clarification question.
 
         # Normalize meals/drinks -> consumptions
         consumptions = []
-        
+
         # Map time_of_day to meal_type if meal_type is not proper
-        def fix_meal_type(meal_type: Optional[str], time_of_day_str: Optional[str]) -> Optional[str]:
+        def fix_meal_type(
+            meal_type: Optional[str], time_of_day_str: Optional[str]
+        ) -> Optional[str]:
             """Fix meal_type to be breakfast|lunch|dinner|snack."""
             valid_types = {"breakfast", "lunch", "dinner", "snack"}
             if meal_type and meal_type.lower() in valid_types:
@@ -947,10 +963,10 @@ For ambiguous items, generate a helpful clarification question.
                 else:
                     item_name = item.get("name", "")
                     item_data = item
-                
+
                 # Fix meal_type to proper values
                 fixed_meal_type = fix_meal_type(meal.get("meal_type"), tod_str)
-                
+
                 consumptions.append(
                     NormalizedConsumption(
                         canonical_name=None,

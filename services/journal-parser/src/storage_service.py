@@ -4,7 +4,8 @@ Stores extracted journal data in normalized tables with controlled vocabulary.
 Matches the journal_schema.sql generalized schema.
 """
 
-from datetime import date, time as time_type
+from datetime import date
+from datetime import time as time_type
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -119,11 +120,11 @@ class StorageService:
                 await self._store_sleep(extraction_id, extraction.sleep)
 
             # 8. Store locations
-            if hasattr(extraction, 'locations') and extraction.locations:
+            if hasattr(extraction, "locations") and extraction.locations:
                 await self._store_locations(extraction_id, extraction.locations)
 
             # 9. Store health symptoms
-            if hasattr(extraction, 'health') and extraction.health:
+            if hasattr(extraction, "health") and extraction.health:
                 await self._store_health(extraction_id, extraction.health)
 
             # 10. Store gaps for clarification
@@ -498,7 +499,7 @@ class StorageService:
             food_item_id = await self._resolve_food_item(
                 item.canonical_name or item.raw_name, item.raw_name
             )
-            
+
             # Use nutrition from Gemini extraction directly
             calories = item.calories
             protein = item.protein_g
@@ -778,7 +779,9 @@ class StorageService:
 
         # Clear existing
         await self.db.execute(
-            text("DELETE FROM extraction_locations WHERE extraction_id = :extraction_id"),
+            text(
+                "DELETE FROM extraction_locations WHERE extraction_id = :extraction_id"
+            ),
             {"extraction_id": extraction_id},
         )
 

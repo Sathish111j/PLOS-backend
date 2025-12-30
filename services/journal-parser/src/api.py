@@ -40,7 +40,7 @@ class ProcessJournalRequest(BaseModel):
     require_complete: bool = Field(
         default=False,
         description="If True, requires all clarification questions to be answered before storing. "
-                    "Returns gaps without storing data until resolved."
+        "Returns gaps without storing data until resolved.",
     )
 
 

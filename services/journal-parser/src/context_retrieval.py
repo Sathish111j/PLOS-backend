@@ -32,6 +32,7 @@ config = get_context_config()
 
 class MetricTypeID:
     """Database MetricTypeID constants"""
+
     SLEEP_DURATION = 1
     SLEEP_QUALITY = 2
     MOOD_SCORE = 3
@@ -57,29 +58,27 @@ class ContextRetrievalEngine:
         self.session = db_session
         self.config = config
 
-    async def get_full_context(
-        self, user_id: UUID, entry_date: date
-    ) -> Dict[str, Any]:
+    async def get_full_context(self, user_id: UUID, entry_date: date) -> Dict[str, Any]:
         """
         Get comprehensive user context for journal extraction.
         This is the main entry point used by the orchestrator.
-        
+
         IMPORTANT: On any error, we rollback to avoid corrupting the transaction
         state for subsequent operations (like storage).
         """
         try:
             # Get baseline
             baseline = await self._get_user_baseline(user_id, entry_date)
-            
+
             # Get recent activities
             recent_activities = await self._get_recent_activities(user_id, entry_date)
-            
+
             # Get recent sleep
             recent_sleep = await self._get_recent_sleep(user_id, entry_date)
-            
+
             # Get 7-day averages
             seven_day_avgs = await self._get_seven_day_averages(user_id, entry_date)
-            
+
             context = {
                 "baseline": {
                     "mood_score": baseline.mood_score,
@@ -100,10 +99,12 @@ class ContextRetrievalEngine:
                 "seven_day_averages": seven_day_avgs,
                 "entries_count": len(recent_activities),
             }
-            
-            logger.info(f"Full context retrieved for user {user_id}: baseline sample_count={baseline.sample_count}")
+
+            logger.info(
+                f"Full context retrieved for user {user_id}: baseline sample_count={baseline.sample_count}"
+            )
             return context
-            
+
         except Exception as e:
             logger.error(f"Error getting full context for user {user_id}: {e}")
             # CRITICAL: Rollback to clear any failed transaction state
@@ -118,10 +119,11 @@ class ContextRetrievalEngine:
         """Calculate user baseline using raw SQL with proper joins"""
         try:
             baseline_start = entry_date - timedelta(days=self.config.baseline_days)
-            
+
             # Query metrics (mood, energy, stress) with proper join
-            metrics_query = text("""
-                SELECT 
+            metrics_query = text(
+                """
+                SELECT
                     em.metric_type_id,
                     AVG(em.value) as avg_value,
                     STDDEV_POP(em.value) as stddev_value,
@@ -133,8 +135,9 @@ class ContextRetrievalEngine:
                   AND je.entry_date <= :end_date
                   AND em.metric_type_id IN (:mood_id, :energy_id, :stress_id)
                 GROUP BY em.metric_type_id
-            """)
-            
+            """
+            )
+
             metrics_result = await self.session.execute(
                 metrics_query,
                 {
@@ -144,9 +147,9 @@ class ContextRetrievalEngine:
                     "mood_id": MetricTypeID.MOOD_SCORE,
                     "energy_id": MetricTypeID.ENERGY_LEVEL,
                     "stress_id": MetricTypeID.STRESS_LEVEL,
-                }
+                },
             )
-            
+
             metrics_data = {}
             for row in metrics_result:
                 metrics_data[row.metric_type_id] = {
@@ -154,10 +157,11 @@ class ContextRetrievalEngine:
                     "stddev": float(row.stddev_value) if row.stddev_value else 0.0,
                     "count": row.sample_count or 0,
                 }
-            
+
             # Query sleep hours with proper join
-            sleep_query = text("""
-                SELECT 
+            sleep_query = text(
+                """
+                SELECT
                     AVG(es.duration_hours) as avg_sleep,
                     STDDEV_POP(es.duration_hours) as stddev_sleep,
                     COUNT(es.duration_hours) as sleep_count
@@ -166,26 +170,35 @@ class ContextRetrievalEngine:
                 WHERE je.user_id = :user_id
                   AND je.entry_date >= :start_date
                   AND je.entry_date <= :end_date
-            """)
-            
+            """
+            )
+
             sleep_result = await self.session.execute(
                 sleep_query,
                 {
                     "user_id": user_id,
                     "start_date": baseline_start,
                     "end_date": entry_date,
-                }
+                },
             )
             sleep_row = sleep_result.first()
-            
+
             # Build baseline with safe defaults
             mood_data = metrics_data.get(MetricTypeID.MOOD_SCORE, {})
             energy_data = metrics_data.get(MetricTypeID.ENERGY_LEVEL, {})
             stress_data = metrics_data.get(MetricTypeID.STRESS_LEVEL, {})
-            
+
             return UserBaseline(
-                sleep_hours=float(sleep_row.avg_sleep) if sleep_row and sleep_row.avg_sleep else config.default_sleep_hours,
-                sleep_stddev=float(sleep_row.stddev_sleep) if sleep_row and sleep_row.stddev_sleep else config.default_sleep_stddev,
+                sleep_hours=(
+                    float(sleep_row.avg_sleep)
+                    if sleep_row and sleep_row.avg_sleep
+                    else config.default_sleep_hours
+                ),
+                sleep_stddev=(
+                    float(sleep_row.stddev_sleep)
+                    if sleep_row and sleep_row.stddev_sleep
+                    else config.default_sleep_stddev
+                ),
                 mood_score=mood_data.get("avg") or config.default_mood_score,
                 mood_stddev=mood_data.get("stddev") or config.default_mood_stddev,
                 energy_level=energy_data.get("avg") or config.default_energy_level,
@@ -195,7 +208,7 @@ class ContextRetrievalEngine:
                 sample_count=mood_data.get("count", 0),
                 last_updated=datetime.now(),
             )
-            
+
         except Exception as e:
             logger.warning(f"Error calculating baseline for user {user_id}: {e}")
             try:
@@ -210,9 +223,10 @@ class ContextRetrievalEngine:
         """Get recent activities from extraction_activities"""
         try:
             start_date = entry_date - timedelta(days=self.config.recent_entries_days)
-            
-            query = text("""
-                SELECT 
+
+            query = text(
+                """
+                SELECT
                     ea.canonical_name as activity_name,
                     ea.duration_minutes,
                     ea.category,
@@ -224,8 +238,9 @@ class ContextRetrievalEngine:
                   AND je.entry_date <= :end_date
                 ORDER BY je.entry_date DESC
                 LIMIT :limit
-            """)
-            
+            """
+            )
+
             result = await self.session.execute(
                 query,
                 {
@@ -233,9 +248,9 @@ class ContextRetrievalEngine:
                     "start_date": start_date,
                     "end_date": entry_date,
                     "limit": self.config.max_recent_entries,
-                }
+                },
             )
-            
+
             return [
                 {
                     "activity_name": row.activity_name,
@@ -245,7 +260,7 @@ class ContextRetrievalEngine:
                 }
                 for row in result
             ]
-            
+
         except Exception as e:
             logger.warning(f"Error fetching recent activities: {e}")
             try:
@@ -259,8 +274,9 @@ class ContextRetrievalEngine:
     ) -> Optional[Dict[str, Any]]:
         """Get most recent sleep data"""
         try:
-            query = text("""
-                SELECT 
+            query = text(
+                """
+                SELECT
                     es.duration_hours as sleep_hours,
                     es.bedtime,
                     es.waketime,
@@ -272,17 +288,18 @@ class ContextRetrievalEngine:
                   AND je.entry_date <= :end_date
                 ORDER BY je.entry_date DESC
                 LIMIT 1
-            """)
-            
+            """
+            )
+
             result = await self.session.execute(
                 query,
                 {
                     "user_id": user_id,
                     "end_date": entry_date,
-                }
+                },
             )
             row = result.first()
-            
+
             if row:
                 return {
                     "sleep_hours": row.sleep_hours,
@@ -292,7 +309,7 @@ class ContextRetrievalEngine:
                     "entry_date": str(row.entry_date),
                 }
             return None
-            
+
         except Exception as e:
             logger.warning(f"Error fetching recent sleep: {e}")
             try:
@@ -307,10 +324,11 @@ class ContextRetrievalEngine:
         """Calculate 7-day averages for mood, energy, sleep, stress"""
         try:
             seven_days_ago = entry_date - timedelta(days=7)
-            
+
             # Get metric averages
-            metrics_query = text("""
-                SELECT 
+            metrics_query = text(
+                """
+                SELECT
                     em.metric_type_id,
                     AVG(em.value) as avg_value
                 FROM extraction_metrics em
@@ -320,8 +338,9 @@ class ContextRetrievalEngine:
                   AND je.entry_date <= :end_date
                   AND em.metric_type_id IN (:mood_id, :energy_id, :stress_id)
                 GROUP BY em.metric_type_id
-            """)
-            
+            """
+            )
+
             metrics_result = await self.session.execute(
                 metrics_query,
                 {
@@ -331,40 +350,48 @@ class ContextRetrievalEngine:
                     "mood_id": MetricTypeID.MOOD_SCORE,
                     "energy_id": MetricTypeID.ENERGY_LEVEL,
                     "stress_id": MetricTypeID.STRESS_LEVEL,
-                }
+                },
             )
-            
+
             metrics = {}
             for row in metrics_result:
-                metrics[row.metric_type_id] = float(row.avg_value) if row.avg_value else None
-            
+                metrics[row.metric_type_id] = (
+                    float(row.avg_value) if row.avg_value else None
+                )
+
             # Get sleep average
-            sleep_query = text("""
+            sleep_query = text(
+                """
                 SELECT AVG(es.duration_hours) as avg_sleep
                 FROM extraction_sleep es
                 JOIN journal_extractions je ON es.extraction_id = je.id
                 WHERE je.user_id = :user_id
                   AND je.entry_date >= :start_date
                   AND je.entry_date <= :end_date
-            """)
-            
+            """
+            )
+
             sleep_result = await self.session.execute(
                 sleep_query,
                 {
                     "user_id": user_id,
                     "start_date": seven_days_ago,
                     "end_date": entry_date,
-                }
+                },
             )
             sleep_row = sleep_result.first()
-            
+
             return {
                 "avg_mood_7d": metrics.get(MetricTypeID.MOOD_SCORE),
                 "avg_energy_7d": metrics.get(MetricTypeID.ENERGY_LEVEL),
                 "avg_stress_7d": metrics.get(MetricTypeID.STRESS_LEVEL),
-                "avg_sleep_7d": float(sleep_row.avg_sleep) if sleep_row and sleep_row.avg_sleep else None,
+                "avg_sleep_7d": (
+                    float(sleep_row.avg_sleep)
+                    if sleep_row and sleep_row.avg_sleep
+                    else None
+                ),
             }
-            
+
         except Exception as e:
             logger.warning(f"Error calculating 7-day averages: {e}")
             try:

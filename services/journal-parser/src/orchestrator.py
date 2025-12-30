@@ -95,11 +95,11 @@ class JournalParserOrchestrator:
             logger.info("STAGE 1: PREPROCESSING")
             logger.info("=" * 60)
             logger.info(f"Input text ({len(entry_text)} chars): {entry_text[:200]}...")
-            
+
             preprocessed_text, preprocessing_data, _ = self.preprocessor.process(
                 entry_text
             )
-            
+
             logger.info(f"Preprocessed text: {preprocessed_text[:200]}...")
             logger.info(f"Preprocessing stats: {preprocessing_data}")
 
@@ -129,23 +129,27 @@ class JournalParserOrchestrator:
             logger.info("STAGE 3: GEMINI EXTRACTION + NORMALIZATION")
             logger.info("=" * 60)
             logger.info("Calling Gemini AI for extraction...")
-            
+
             extraction: ExtractionResult = await self.extractor.extract_all(
                 journal_text=preprocessed_text,
                 user_context=user_context,
                 entry_date=entry_date,
             )
 
-            logger.info(f"Extraction complete!")
+            logger.info("Extraction complete!")
             logger.info(f"  - Quality: {extraction.quality}")
             logger.info(f"  - Sleep: {extraction.sleep}")
             logger.info(f"  - Metrics: {extraction.metrics}")
             logger.info(f"  - Activities ({len(extraction.activities)}):")
             for i, a in enumerate(extraction.activities):
-                logger.info(f"      [{i+1}] {a.raw_name} -> {a.canonical_name} ({a.category}, {a.duration_minutes}min)")
+                logger.info(
+                    f"      [{i+1}] {a.raw_name} -> {a.canonical_name} ({a.category}, {a.duration_minutes}min)"
+                )
             logger.info(f"  - Consumptions ({len(extraction.consumptions)}):")
             for i, c in enumerate(extraction.consumptions):
-                logger.info(f"      [{i+1}] {c.raw_name} -> {c.canonical_name} ({c.consumption_type}, {c.meal_type})")
+                logger.info(
+                    f"      [{i+1}] {c.raw_name} -> {c.canonical_name} ({c.consumption_type}, {c.meal_type})"
+                )
             logger.info(f"  - Gaps requiring clarification: {len(extraction.gaps)}")
             for i, g in enumerate(extraction.gaps):
                 logger.info(f"      [{i+1}] {g.field_category}: {g.question}")
@@ -160,10 +164,12 @@ class JournalParserOrchestrator:
 
             entry_id = None
             stored = False
-            
+
             if require_complete and extraction.has_gaps:
                 logger.info("SKIPPING STORAGE: require_complete=True and gaps exist")
-                logger.info("User must answer clarification questions before data is stored")
+                logger.info(
+                    "User must answer clarification questions before data is stored"
+                )
             else:
                 entry_id = await self.storage.store_extraction(
                     user_id=user_id,
@@ -174,7 +180,9 @@ class JournalParserOrchestrator:
                 )
                 stored = True
                 logger.info(f"Stored extraction with entry_id: {entry_id}")
-                logger.info(f"Data saved to database tables: journal_entries, activities, consumptions")
+                logger.info(
+                    "Data saved to database tables: journal_entries, activities, consumptions"
+                )
 
             # ================================================================
             # STAGE 5: RESPONSE ASSEMBLY
@@ -190,7 +198,9 @@ class JournalParserOrchestrator:
                 clarification_questions = self.gap_resolver.format_gaps_for_user(
                     extraction.gaps
                 )
-                logger.info(f"Generated {len(clarification_questions)} clarification questions")
+                logger.info(
+                    f"Generated {len(clarification_questions)} clarification questions"
+                )
 
             result = {
                 "entry_id": str(entry_id) if entry_id else None,
@@ -228,32 +238,42 @@ class JournalParserOrchestrator:
                     for c in extraction.consumptions
                 ],
                 # social and notes are lists in ExtractionResult, convert to dict for API response
-                "social": {"interactions": extraction.social} if extraction.social else None,
+                "social": (
+                    {"interactions": extraction.social} if extraction.social else None
+                ),
                 "notes": {"items": extraction.notes} if extraction.notes else None,
                 # Locations
-                "locations": [
-                    {
-                        "location_name": loc.get("location_name"),
-                        "location_type": loc.get("location_type"),
-                        "time_of_day": loc.get("time_of_day"),
-                        "duration_minutes": loc.get("duration_minutes"),
-                        "activity_context": loc.get("activity_context"),
-                    }
-                    for loc in extraction.locations
-                ] if extraction.locations else [],
+                "locations": (
+                    [
+                        {
+                            "location_name": loc.get("location_name"),
+                            "location_type": loc.get("location_type"),
+                            "time_of_day": loc.get("time_of_day"),
+                            "duration_minutes": loc.get("duration_minutes"),
+                            "activity_context": loc.get("activity_context"),
+                        }
+                        for loc in extraction.locations
+                    ]
+                    if extraction.locations
+                    else []
+                ),
                 # Health symptoms
-                "health": [
-                    {
-                        "symptom_type": h.get("symptom_type"),
-                        "body_part": h.get("body_part"),
-                        "severity": h.get("severity"),
-                        "duration_minutes": h.get("duration_minutes"),
-                        "time_of_day": h.get("time_of_day"),
-                        "possible_cause": h.get("possible_cause"),
-                        "medication_taken": h.get("medication_taken"),
-                    }
-                    for h in extraction.health
-                ] if extraction.health else [],
+                "health": (
+                    [
+                        {
+                            "symptom_type": h.get("symptom_type"),
+                            "body_part": h.get("body_part"),
+                            "severity": h.get("severity"),
+                            "duration_minutes": h.get("duration_minutes"),
+                            "time_of_day": h.get("time_of_day"),
+                            "possible_cause": h.get("possible_cause"),
+                            "medication_taken": h.get("medication_taken"),
+                        }
+                        for h in extraction.health
+                    ]
+                    if extraction.health
+                    else []
+                ),
                 # Gaps requiring user clarification
                 "has_gaps": extraction.has_gaps,
                 "clarification_questions": clarification_questions,
