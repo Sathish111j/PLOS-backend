@@ -17,7 +17,7 @@ import aiohttp
 from redis.asyncio import Redis
 
 from shared.kafka.consumer import KafkaConsumerService
-from shared.kafka.topics import KafkaTopic
+from shared.kafka.topics import KafkaTopics
 from shared.utils.logger import get_logger
 
 from .orchestrator import JournalParserOrchestrator
@@ -79,8 +79,8 @@ class JournalProcessingWorker:
         self._running = True
         logger.info("Starting journal processing worker")
 
-        # Subscribe to the raw journal entries topic
-        await self.kafka_consumer.subscribe([KafkaTopic.JOURNAL_ENTRIES_RAW])
+        # Subscribe to the journal entries topic
+        await self.kafka_consumer.subscribe([KafkaTopics.JOURNAL_ENTRIES])
 
         batch = []
 

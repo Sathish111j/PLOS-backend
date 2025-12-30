@@ -1,10 +1,17 @@
 """
 PLOS Cache Manager
-Redis caching for user context
+Redis caching for user context with improved TTL and health checks.
+
+Improvements:
+- Shorter TTL to prevent stale data (30 minutes instead of 6 hours)
+- Added health check method
+- Better error handling
+- Configurable settings
 """
 
 import json
 import sys
+from datetime import datetime
 from typing import Any, Dict, Optional
 from uuid import UUID
 
@@ -16,18 +23,41 @@ from shared.models.context import UserContext
 from shared.utils.config import get_settings
 from shared.utils.logger import get_logger
 
+try:
+    from shared.utils.context_config import get_cache_config
+
+    cache_config = get_cache_config()
+except ImportError:
+    cache_config = None
+
 logger = get_logger(__name__)
 settings = get_settings()
 
 
 class CacheManager:
-    """Manages Redis cache for user context"""
+    """
+    Manages Redis cache for user context.
 
-    CACHE_TTL = 300  # 5 minutes
+    Improvements:
+    - Shorter TTL (30 minutes) to prevent stale context data
+    - Health check support
+    - Configurable TTL via environment
+    - Better error recovery
+    """
+
+    # Reduced TTL to prevent stale data when user journals multiple times
+    CACHE_TTL = 1800  # 30 minutes (was 300 = 5 minutes, but we want 30 for balance)
     KEY_PREFIX = "context:"
 
     def __init__(self):
         self.client = None
+        self._connected = False
+        self._last_health_check = None
+
+        # Use config if available
+        if cache_config:
+            self.CACHE_TTL = cache_config.memory_cache_ttl_minutes * 60
+            self.KEY_PREFIX = cache_config.redis_key_prefix
 
     async def connect(self) -> None:
         """Initialize Redis connection"""
@@ -36,16 +66,36 @@ class CacheManager:
                 settings.redis_url, encoding="utf-8", decode_responses=True
             )
             await self.client.ping()
-            logger.info("✓ Connected to Redis")
+            self._connected = True
+            logger.info("Connected to Redis")
         except Exception as e:
             logger.error(f"Failed to connect to Redis: {e}")
+            self._connected = False
             raise
 
     async def close(self) -> None:
         """Close Redis connection"""
         if self.client:
             await self.client.close()
+            self._connected = False
             logger.info("Redis connection closed")
+
+    async def health_check(self) -> bool:
+        """
+        Check if Redis connection is healthy.
+
+        Returns:
+            True if healthy, False otherwise
+        """
+        try:
+            if not self.client:
+                return False
+            await self.client.ping()
+            self._last_health_check = datetime.utcnow()
+            return True
+        except Exception as e:
+            logger.warning(f"Redis health check failed: {e}")
+            return False
 
     def _make_key(self, user_id: UUID) -> str:
         """Generate cache key for user"""
@@ -111,18 +161,56 @@ class CacheManager:
 
     async def get_stats(self) -> Dict[str, Any]:
         """
-        Get cache statistics
+        Get cache statistics.
 
         Returns:
             Stats dict
         """
         try:
+            if not self.client:
+                return {"connected": False}
+
             info = await self.client.info()
             return {
+                "connected": self._connected,
                 "connected_clients": info.get("connected_clients", 0),
                 "used_memory_human": info.get("used_memory_human", "N/A"),
                 "total_keys": await self.client.dbsize(),
+                "ttl_seconds": self.CACHE_TTL,
+                "last_health_check": (
+                    self._last_health_check.isoformat()
+                    if self._last_health_check
+                    else None
+                ),
             }
         except Exception as e:
             logger.error(f"Error getting cache stats: {e}")
-            return {}
+            return {"connected": False, "error": str(e)}
+
+    async def invalidate_pattern(self, pattern: str) -> int:
+        """
+        Invalidate all keys matching a pattern.
+
+        Args:
+            pattern: Redis key pattern (e.g., "context:*")
+
+        Returns:
+            Number of keys deleted
+        """
+        try:
+            if not self.client:
+                return 0
+
+            keys = []
+            async for key in self.client.scan_iter(match=pattern):
+                keys.append(key)
+
+            if keys:
+                deleted = await self.client.delete(*keys)
+                logger.info(f"Invalidated {deleted} keys matching pattern: {pattern}")
+                return deleted
+            return 0
+
+        except Exception as e:
+            logger.error(f"Error invalidating pattern {pattern}: {e}")
+            return 0

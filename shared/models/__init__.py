@@ -4,6 +4,17 @@ Pydantic models used across all microservices
 """
 
 from .context import ContextUpdate, UserContext
+from .database import (
+    ActivityImpactDB,
+    Base,
+    HealthAlertDB,
+    JournalExtractionDB,
+    PredictionDB,
+    RelationshipHistoryDB,
+    SleepDebtLogDB,
+    UserContextStateDB,
+    UserPatternDB,
+)
 from .extraction import (
     ActivityData,
     AlertLevel,
@@ -97,4 +108,14 @@ __all__ = [
     "PredictionCreate",
     "ContextSummary",
     "PatternAnalysis",
+    # Database ORM models
+    "Base",
+    "JournalExtractionDB",
+    "UserPatternDB",
+    "RelationshipHistoryDB",
+    "SleepDebtLogDB",
+    "ActivityImpactDB",
+    "HealthAlertDB",
+    "PredictionDB",
+    "UserContextStateDB",
 ]

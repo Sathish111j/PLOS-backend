@@ -4,7 +4,7 @@ Simplified pipeline using comprehensive Gemini extraction with normalized storag
 """
 
 import time
-from datetime import date, datetime
+from datetime import date
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -99,9 +99,10 @@ class JournalParserOrchestrator:
             # STAGE 2: CONTEXT RETRIEVAL
             # ================================================================
             logger.debug("Stage 2: Context retrieval")
+            # Pass date directly - context_retrieval.py now handles date type consistently
             user_context = await self.context_engine.get_full_context(
                 user_id=user_id,
-                entry_date=datetime.combine(entry_date, datetime.min.time()),
+                entry_date=entry_date,  # Pass date directly, not datetime
             )
 
             baseline = user_context.get("baseline")
@@ -238,6 +239,134 @@ class JournalParserOrchestrator:
 
         except Exception as e:
             logger.error(f"Error resolving gap: {e}")
+            raise
+
+    async def resolve_gaps_with_paragraph(
+        self,
+        user_id: UUID,
+        entry_id: UUID,
+        user_paragraph: str,
+    ) -> Dict[str, Any]:
+        """
+        Resolve multiple gaps with a natural language paragraph response.
+
+        Gemini parses the paragraph to extract answers to pending questions.
+        This allows users to respond naturally instead of one question at a time.
+
+        Args:
+            user_id: User UUID
+            entry_id: Entry UUID with gaps to resolve
+            user_paragraph: User's natural language response
+
+        Returns:
+            Resolution results with remaining gaps if any
+        """
+        try:
+            # Get pending gaps for this entry
+            pending_gaps = await self.storage.get_entry_gaps(entry_id)
+
+            if not pending_gaps:
+                return {
+                    "entry_id": str(entry_id),
+                    "resolved_count": 0,
+                    "remaining_count": 0,
+                    "remaining_questions": [],
+                    "updated_activities": [],
+                    "updated_consumptions": [],
+                    "prompt_for_remaining": None,
+                }
+
+            # Convert to DataGap objects
+            from .generalized_extraction import DataGap, GapPriority
+
+            gaps = []
+            for g in pending_gaps:
+                priority = GapPriority.MEDIUM
+                if g.get("priority") == 1:
+                    priority = GapPriority.HIGH
+                elif g.get("priority") == 3:
+                    priority = GapPriority.LOW
+
+                gaps.append(
+                    DataGap(
+                        field_category=g.get("field_category", "other"),
+                        question=g.get("question", ""),
+                        context=g.get("context", ""),
+                        original_mention=g.get("original_mention", ""),
+                        priority=priority,
+                        suggested_options=g.get("suggested_options", []),
+                    )
+                )
+
+            # Get current extraction state
+            current_extraction = await self.storage.get_extraction_result(entry_id)
+
+            # Use Gemini to resolve gaps from paragraph
+            original_gap_count = len(gaps)
+            updated_extraction, remaining_gaps = (
+                await self.gap_resolver.resolve_gaps_from_paragraph(
+                    gaps=gaps,
+                    user_paragraph=user_paragraph,
+                    original_extraction=current_extraction,
+                )
+            )
+
+            resolved_count = original_gap_count - len(remaining_gaps)
+
+            # Update storage with resolved gaps and new data
+            await self.storage.update_extraction_from_resolution(
+                entry_id=entry_id,
+                extraction=updated_extraction,
+                resolved_gap_count=resolved_count,
+            )
+
+            # Format remaining questions
+            remaining_questions = self.gap_resolver.format_gaps_for_user(remaining_gaps)
+
+            # Generate prompt for remaining questions
+            prompt_for_remaining = None
+            if remaining_gaps:
+                prompt_for_remaining = self.gap_resolver.format_gaps_as_prompt(
+                    remaining_gaps
+                )
+
+            logger.info(
+                f"Paragraph resolution for entry {entry_id}: "
+                f"{resolved_count} resolved, {len(remaining_gaps)} remaining"
+            )
+
+            return {
+                "entry_id": str(entry_id),
+                "resolved_count": resolved_count,
+                "remaining_count": len(remaining_gaps),
+                "remaining_questions": remaining_questions,
+                "updated_activities": [
+                    {
+                        "name": a.canonical_name or a.raw_name,
+                        "category": a.category,
+                        "duration_minutes": a.duration_minutes,
+                        "time_of_day": a.time_of_day.value if a.time_of_day else None,
+                        "intensity": a.intensity,
+                        "calories": a.calories_burned,
+                    }
+                    for a in updated_extraction.activities
+                ],
+                "updated_consumptions": [
+                    {
+                        "name": c.canonical_name or c.raw_name,
+                        "type": c.consumption_type,
+                        "meal_type": c.meal_type,
+                        "time_of_day": c.time_of_day.value if c.time_of_day else None,
+                        "quantity": c.quantity,
+                        "unit": c.unit,
+                    }
+                    for c in updated_extraction.consumptions
+                ],
+                "prompt_for_remaining": prompt_for_remaining,
+            }
+
+        except Exception as e:
+            logger.error(f"Error resolving gaps with paragraph: {e}")
             raise
 
     async def get_pending_gaps(self, user_id: UUID) -> List[Dict[str, Any]]:

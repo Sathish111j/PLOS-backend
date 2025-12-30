@@ -103,6 +103,31 @@ class ResolveGapRequest(BaseModel):
     user_response: str = Field(..., description="User's answer to the question")
 
 
+class ResolveParagraphRequest(BaseModel):
+    """Request to resolve multiple gaps with a paragraph response"""
+
+    user_id: UUID = Field(..., description="User UUID")
+    entry_id: UUID = Field(..., description="Entry UUID with gaps to resolve")
+    user_paragraph: str = Field(
+        ...,
+        min_length=1,
+        max_length=5000,
+        description="User's natural language response answering clarification questions",
+    )
+
+
+class ResolveParagraphResponse(BaseModel):
+    """Response after resolving gaps with paragraph"""
+
+    entry_id: str
+    resolved_count: int
+    remaining_count: int
+    remaining_questions: List[ClarificationQuestion] = []
+    updated_activities: List[ActivityResponse] = []
+    updated_consumptions: List[ConsumptionResponse] = []
+    prompt_for_remaining: Optional[str] = None
+
+
 class ResolveGapResponse(BaseModel):
     """Response after resolving a gap"""
 
@@ -249,6 +274,67 @@ async def resolve_gap(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to resolve gap: {str(e)}",
+        )
+
+
+@router.post(
+    "/resolve-paragraph",
+    response_model=ResolveParagraphResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Resolve gaps with a paragraph response",
+    description="""
+    Resolve multiple clarification gaps using a natural language paragraph.
+
+    Instead of answering each question individually, the user can respond naturally:
+    "I played badminton for about 45 minutes in the morning. Had idli and coffee
+    for breakfast around 9am. The meeting was with my colleague Rahul."
+
+    Gemini will parse the response and extract answers to all pending questions.
+    Returns remaining gaps if some questions are still unanswered.
+    """,
+)
+async def resolve_gaps_with_paragraph(
+    request: ResolveParagraphRequest,
+    db: AsyncSession = Depends(get_db_session),
+    kafka: KafkaProducerService = Depends(get_kafka_producer),
+    gemini: ResilientGeminiClient = Depends(get_gemini_client),
+) -> ResolveParagraphResponse:
+    """
+    Resolve multiple gaps with a paragraph response using Gemini
+    """
+    try:
+        orchestrator = JournalParserOrchestrator(
+            db_session=db, kafka_producer=kafka, gemini_client=gemini
+        )
+
+        result = await orchestrator.resolve_gaps_with_paragraph(
+            user_id=request.user_id,
+            entry_id=request.entry_id,
+            user_paragraph=request.user_paragraph,
+        )
+
+        return ResolveParagraphResponse(
+            entry_id=result["entry_id"],
+            resolved_count=result["resolved_count"],
+            remaining_count=result["remaining_count"],
+            remaining_questions=[
+                ClarificationQuestion(**q)
+                for q in result.get("remaining_questions", [])
+            ],
+            updated_activities=[
+                ActivityResponse(**a) for a in result.get("updated_activities", [])
+            ],
+            updated_consumptions=[
+                ConsumptionResponse(**c) for c in result.get("updated_consumptions", [])
+            ],
+            prompt_for_remaining=result.get("prompt_for_remaining"),
+        )
+
+    except Exception as e:
+        logger.error(f"Error resolving gaps with paragraph: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to resolve gaps: {str(e)}",
         )
 
 

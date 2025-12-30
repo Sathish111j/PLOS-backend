@@ -1,10 +1,11 @@
 """
 PLOS - Preprocessing & Explicit Extraction
-Spell correction, time normalization, and rule-based extraction before AI
+Spell correction, time normalization, and rule-based extraction before AI.
+Includes optional Gemini-enhanced preprocessing for messy inputs.
 """
 
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from shared.models import ExtractionType, FieldMetadata
 from shared.utils.logger import get_logger
@@ -495,3 +496,106 @@ class Preprocessor:
         )
 
         return normalized_text, preprocessing_data, explicit_extractions
+
+    async def process_with_gemini(
+        self,
+        raw_text: str,
+        gemini_client: Optional[Any] = None,
+    ) -> Tuple[str, Dict[str, Any], Dict[str, FieldMetadata]]:
+        """
+        Enhanced preprocessing using Gemini for messy/shorthand text.
+
+        Use this when the journal entry contains:
+        - Heavy abbreviations ("wrked frm hm", "bfast @ 9")
+        - Voice-to-text errors
+        - Mixed languages
+        - Very informal writing
+
+        Args:
+            raw_text: Raw journal entry
+            gemini_client: ResilientGeminiClient instance
+
+        Returns:
+            Same as process() - (preprocessed_text, preprocessing_data, explicit_extractions)
+        """
+        if not gemini_client:
+            logger.warning(
+                "No Gemini client provided, falling back to rule-based preprocessing"
+            )
+            return self.process(raw_text)
+
+        logger.info("Starting Gemini-enhanced preprocessing")
+
+        try:
+            # Use Gemini to clean and expand the text
+            cleaned_text = await self._gemini_clean_text(raw_text, gemini_client)
+
+            # Then apply standard pipeline on cleaned text
+            corrected_text = correct_spelling(cleaned_text)
+            normalized_text, time_mentions = normalize_times(corrected_text)
+
+            preprocessing_data = {
+                "original_text": raw_text,
+                "gemini_cleaned": cleaned_text,
+                "spell_corrected": corrected_text != cleaned_text,
+                "time_mentions": time_mentions,
+                "used_gemini_preprocessing": True,
+            }
+
+            explicit_extractions = self.explicit_extractor.extract(
+                normalized_text, preprocessing_data
+            )
+
+            logger.info(
+                f"Gemini preprocessing complete. Extracted {len(explicit_extractions)} explicit fields"
+            )
+
+            return normalized_text, preprocessing_data, explicit_extractions
+
+        except Exception as e:
+            logger.error(
+                f"Gemini preprocessing failed: {e}, falling back to rule-based"
+            )
+            return self.process(raw_text)
+
+    async def _gemini_clean_text(self, raw_text: str, gemini_client: Any) -> str:
+        """
+        Use Gemini to clean and expand shorthand/messy text.
+
+        This is a lightweight call focused only on text cleanup, not extraction.
+        """
+        prompt = f"""Clean and expand this journal entry text. Fix:
+1. Spelling errors and typos
+2. Abbreviations (expand them: "bfast" -> "breakfast", "wrk" -> "work")
+3. Missing punctuation
+4. Voice-to-text errors
+
+Keep the meaning exactly the same. Do NOT add new information.
+Do NOT extract data - just clean the text.
+
+Original:
+\"\"\"{raw_text}\"\"\"
+
+Cleaned text (return ONLY the cleaned text, no explanation):"""
+
+        try:
+            response = await gemini_client.generate_content(
+                prompt=prompt,
+                model="gemini-2.5-flash",
+            )
+
+            cleaned = response.strip()
+
+            # Basic validation - shouldn't be drastically different length
+            if len(cleaned) < len(raw_text) * 0.5 or len(cleaned) > len(raw_text) * 3:
+                logger.warning(
+                    "Gemini cleaning produced suspicious output, using original"
+                )
+                return raw_text
+
+            logger.debug(f"Text cleaned: {len(raw_text)} -> {len(cleaned)} chars")
+            return cleaned
+
+        except Exception as e:
+            logger.error(f"Gemini text cleaning failed: {e}")
+            return raw_text

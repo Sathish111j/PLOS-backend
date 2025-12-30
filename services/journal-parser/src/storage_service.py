@@ -879,6 +879,323 @@ class StorageService:
         }
 
     # ========================================================================
+    # GAP RESOLUTION METHODS
+    # ========================================================================
+
+    async def get_entry_gaps(self, entry_id: UUID) -> List[Dict[str, Any]]:
+        """Get all unresolved gaps for an entry."""
+        result = await self.db.execute(
+            text(
+                """
+                SELECT
+                    id as gap_id,
+                    field_category,
+                    question,
+                    context,
+                    original_mention,
+                    priority,
+                    suggested_options
+                FROM extraction_gaps
+                WHERE extraction_id = :entry_id
+                  AND resolved = false
+                ORDER BY priority ASC
+            """
+            ),
+            {"entry_id": entry_id},
+        )
+
+        gaps = []
+        for row in result.fetchall():
+            gap = dict(row._mapping)
+            # Parse JSONB suggested_options
+            if gap.get("suggested_options"):
+                if isinstance(gap["suggested_options"], str):
+                    import json
+
+                    gap["suggested_options"] = json.loads(gap["suggested_options"])
+            else:
+                gap["suggested_options"] = []
+            gaps.append(gap)
+
+        return gaps
+
+    async def get_extraction_result(self, entry_id: UUID) -> "ExtractionResult":
+        """
+        Reconstruct ExtractionResult from database for an entry.
+        Used when resolving gaps to update existing extraction.
+        """
+        from .generalized_extraction import (
+            ExtractionResult,
+            NormalizedActivity,
+            NormalizedConsumption,
+            TimeOfDay,
+        )
+
+        # Get activities
+        activities = []
+        result = await self.db.execute(
+            text(
+                """
+                SELECT
+                    at.canonical_name,
+                    ea.activity_raw,
+                    c.name as category,
+                    ea.duration_minutes,
+                    ea.time_of_day,
+                    ea.start_time,
+                    ea.end_time,
+                    ea.intensity,
+                    ea.satisfaction,
+                    ea.calories_burned,
+                    ea.confidence,
+                    ea.raw_mention,
+                    ea.needs_clarification
+                FROM extraction_activities ea
+                LEFT JOIN activity_types at ON ea.activity_type_id = at.id
+                LEFT JOIN categories c ON at.category_id = c.id
+                WHERE ea.extraction_id = :entry_id
+            """
+            ),
+            {"entry_id": entry_id},
+        )
+
+        for row in result.fetchall():
+            r = dict(row._mapping)
+            time_of_day = None
+            if r.get("time_of_day"):
+                try:
+                    time_of_day = TimeOfDay(r["time_of_day"])
+                except ValueError:
+                    pass
+
+            activities.append(
+                NormalizedActivity(
+                    canonical_name=r.get("canonical_name"),
+                    raw_name=r.get("activity_raw") or r.get("canonical_name") or "",
+                    category=r.get("category", "other"),
+                    duration_minutes=r.get("duration_minutes"),
+                    time_of_day=time_of_day,
+                    start_time=str(r["start_time"]) if r.get("start_time") else None,
+                    end_time=str(r["end_time"]) if r.get("end_time") else None,
+                    intensity=r.get("intensity"),
+                    satisfaction=r.get("satisfaction"),
+                    calories_burned=r.get("calories_burned"),
+                    confidence=r.get("confidence", 0.7),
+                    needs_clarification=r.get("needs_clarification", False),
+                    raw_mention=r.get("raw_mention"),
+                )
+            )
+
+        # Get consumptions
+        consumptions = []
+        result = await self.db.execute(
+            text(
+                """
+                SELECT
+                    fi.canonical_name,
+                    ec.food_raw,
+                    ec.consumption_type,
+                    ec.meal_type,
+                    ec.time_of_day,
+                    ec.consumption_time,
+                    ec.quantity,
+                    ec.unit,
+                    ec.calories,
+                    ec.is_healthy,
+                    ec.is_home_cooked,
+                    ec.confidence
+                FROM extraction_consumptions ec
+                LEFT JOIN food_items fi ON ec.food_item_id = fi.id
+                WHERE ec.extraction_id = :entry_id
+            """
+            ),
+            {"entry_id": entry_id},
+        )
+
+        for row in result.fetchall():
+            r = dict(row._mapping)
+            time_of_day = None
+            if r.get("time_of_day"):
+                try:
+                    time_of_day = TimeOfDay(r["time_of_day"])
+                except ValueError:
+                    pass
+
+            consumptions.append(
+                NormalizedConsumption(
+                    canonical_name=r.get("canonical_name"),
+                    raw_name=r.get("food_raw") or r.get("canonical_name") or "",
+                    consumption_type=r.get("consumption_type", "meal"),
+                    meal_type=r.get("meal_type"),
+                    time_of_day=time_of_day,
+                    consumption_time=(
+                        str(r["consumption_time"])
+                        if r.get("consumption_time")
+                        else None
+                    ),
+                    quantity=r.get("quantity", 1.0),
+                    unit=r.get("unit", "serving"),
+                    calories=r.get("calories"),
+                    is_healthy=r.get("is_healthy"),
+                    is_home_cooked=r.get("is_home_cooked"),
+                    confidence=r.get("confidence", 0.7),
+                )
+            )
+
+        # Get metrics
+        metrics = {}
+        result = await self.db.execute(
+            text(
+                """
+                SELECT mt.name, em.value, em.time_of_day, em.confidence
+                FROM extraction_metrics em
+                JOIN metric_types mt ON em.metric_type_id = mt.id
+                WHERE em.extraction_id = :entry_id
+            """
+            ),
+            {"entry_id": entry_id},
+        )
+
+        for row in result.fetchall():
+            r = dict(row._mapping)
+            metrics[r["name"]] = {
+                "value": r.get("value"),
+                "time_of_day": r.get("time_of_day"),
+                "confidence": r.get("confidence", 0.7),
+            }
+
+        # Get social
+        social = []
+        result = await self.db.execute(
+            text(
+                """
+                SELECT person_name, relationship_type, interaction_type,
+                       quality, duration_minutes, context
+                FROM extraction_social
+                WHERE extraction_id = :entry_id
+            """
+            ),
+            {"entry_id": entry_id},
+        )
+        for row in result.fetchall():
+            social.append(dict(row._mapping))
+
+        # Get notes
+        notes = []
+        result = await self.db.execute(
+            text(
+                """
+                SELECT note_type, content, importance
+                FROM extraction_notes
+                WHERE extraction_id = :entry_id
+            """
+            ),
+            {"entry_id": entry_id},
+        )
+        for row in result.fetchall():
+            notes.append(dict(row._mapping))
+
+        # Get sleep
+        sleep = None
+        result = await self.db.execute(
+            text(
+                """
+                SELECT hours, quality, bed_time, wake_time, interruptions, dreams_noted
+                FROM extraction_sleep
+                WHERE extraction_id = :entry_id
+            """
+            ),
+            {"entry_id": entry_id},
+        )
+        row = result.fetchone()
+        if row:
+            sleep = dict(row._mapping)
+            sleep["duration_hours"] = sleep.pop("hours", None)
+
+        # Get gap count
+        result = await self.db.execute(
+            text(
+                "SELECT COUNT(*) FROM extraction_gaps WHERE extraction_id = :entry_id AND resolved = false"
+            ),
+            {"entry_id": entry_id},
+        )
+        gap_count = result.scalar() or 0
+
+        return ExtractionResult(
+            metrics=metrics,
+            activities=activities,
+            consumptions=consumptions,
+            social=social,
+            sleep=sleep,
+            notes=notes,
+            gaps=[],  # Gaps handled separately
+            has_gaps=gap_count > 0,
+            quality="medium",  # Would need to recalculate
+        )
+
+    async def update_extraction_from_resolution(
+        self,
+        entry_id: UUID,
+        extraction: "ExtractionResult",
+        resolved_gap_count: int,
+    ) -> None:
+        """
+        Update extraction data after gap resolution.
+        Adds newly resolved activities/consumptions and marks gaps as resolved.
+        """
+        # Store any new activities
+        await self._store_activities(entry_id, extraction.activities)
+
+        # Store any new consumptions
+        await self._store_consumptions(entry_id, extraction.consumptions)
+
+        # Mark resolved gaps
+        if resolved_gap_count > 0:
+            # Get the oldest unresolved gaps and mark them resolved
+            await self.db.execute(
+                text(
+                    """
+                    UPDATE extraction_gaps
+                    SET resolved = true, resolved_at = NOW()
+                    WHERE id IN (
+                        SELECT id FROM extraction_gaps
+                        WHERE extraction_id = :entry_id AND resolved = false
+                        ORDER BY priority ASC
+                        LIMIT :count
+                    )
+                """
+                ),
+                {"entry_id": entry_id, "count": resolved_gap_count},
+            )
+
+        # Update has_gaps flag on main extraction
+        result = await self.db.execute(
+            text(
+                "SELECT COUNT(*) FROM extraction_gaps WHERE extraction_id = :entry_id AND resolved = false"
+            ),
+            {"entry_id": entry_id},
+        )
+        remaining_gaps = result.scalar() or 0
+
+        await self.db.execute(
+            text(
+                """
+                UPDATE journal_extractions
+                SET has_gaps = :has_gaps, updated_at = NOW()
+                WHERE id = :entry_id
+            """
+            ),
+            {"entry_id": entry_id, "has_gaps": remaining_gaps > 0},
+        )
+
+        await self.db.commit()
+
+        logger.info(
+            f"Updated extraction {entry_id}: {resolved_gap_count} gaps resolved, "
+            f"{remaining_gaps} remaining"
+        )
+
+    # ========================================================================
     # EVENTS
     # ========================================================================
 

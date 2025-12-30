@@ -987,24 +987,360 @@ For ambiguous items, generate a helpful clarification question.
 
 
 # ============================================================================
-# GAP RESOLVER
+# GAP RESOLVER WITH GEMINI PARAGRAPH PARSING
 # ============================================================================
 
 
+GAP_RESOLUTION_SCHEMA = """
+{
+  "resolved_gaps": [
+    {
+      "original_question": "the question that was asked",
+      "answer_found": true/false,
+      "extracted_data": {
+        "field_category": "activity|meal|sleep|social|other",
+        "value": "extracted value (activity name, food item, etc.)",
+        "duration_minutes": "int if applicable",
+        "time_of_day": "morning|afternoon|evening|night",
+        "additional_details": {}
+      },
+      "confidence": 0.0-1.0
+    }
+  ],
+  "new_data_found": {
+    "activities": [],
+    "consumptions": [],
+    "social": [],
+    "notes": [],
+    "metrics": {}
+  },
+  "remaining_unclear": [
+    {
+      "question": "follow-up question if still unclear",
+      "context": "what was mentioned but unclear"
+    }
+  ]
+}
+"""
+
+
 class GapResolver:
-    """Resolves data gaps with user responses."""
+    """
+    Resolves data gaps using Gemini to parse user's paragraph responses.
+
+    Unlike simple keyword matching, this uses AI to understand natural
+    language responses like "Yeah I played badminton for about an hour
+    in the morning, then had some dosa for breakfast."
+    """
 
     def __init__(self, gemini_client: Optional[ResilientGeminiClient] = None):
         self.gemini_client = gemini_client or ResilientGeminiClient()
 
-    async def resolve_gap(
+    async def resolve_gaps_from_paragraph(
+        self,
+        gaps: List[DataGap],
+        user_paragraph: str,
+        original_extraction: ExtractionResult,
+    ) -> Tuple[ExtractionResult, List[DataGap]]:
+        """
+        Use Gemini to parse a paragraph response and resolve multiple gaps.
+
+        The user can respond naturally like: "I played badminton for 45 mins
+        in the morning. Had idli for breakfast around 9am."
+
+        Args:
+            gaps: List of gaps to resolve
+            user_paragraph: User's natural language response
+            original_extraction: The extraction result to update
+
+        Returns:
+            Tuple of (updated ExtractionResult, remaining unresolved gaps)
+        """
+        if not gaps or not user_paragraph.strip():
+            return original_extraction, gaps
+
+        prompt = self._build_gap_resolution_prompt(gaps, user_paragraph)
+
+        try:
+            response = await self.gemini_client.generate_content(
+                prompt=prompt,
+                model="gemini-2.5-flash",
+            )
+
+            parsed = self._parse_response(response)
+
+            # Apply resolved gaps to extraction
+            updated_extraction = self._apply_resolutions(
+                original_extraction, parsed, gaps
+            )
+
+            # Determine remaining gaps
+            remaining_gaps = self._get_remaining_gaps(gaps, parsed)
+
+            # Add any new gaps from unclear items
+            for unclear in parsed.get("remaining_unclear", []):
+                remaining_gaps.append(
+                    DataGap(
+                        field_category="other",
+                        question=unclear.get("question", "Can you clarify?"),
+                        context=unclear.get("context", ""),
+                        original_mention=unclear.get("context", ""),
+                        priority=GapPriority.MEDIUM,
+                    )
+                )
+
+            updated_extraction.gaps = remaining_gaps
+            updated_extraction.has_gaps = len(remaining_gaps) > 0
+
+            logger.info(
+                f"Gap resolution: {len(gaps)} gaps -> {len(remaining_gaps)} remaining"
+            )
+
+            return updated_extraction, remaining_gaps
+
+        except Exception as e:
+            logger.error(f"Gap resolution failed: {e}")
+            return original_extraction, gaps
+
+    def _build_gap_resolution_prompt(
+        self, gaps: List[DataGap], user_paragraph: str
+    ) -> str:
+        """Build prompt for gap resolution."""
+        questions = []
+        for i, gap in enumerate(gaps, 1):
+            q = f"{i}. [{gap.field_category.upper()}] {gap.question}"
+            if gap.context:
+                q += f" (Context: {gap.context})"
+            if gap.suggested_options:
+                q += f" (Suggestions: {', '.join(gap.suggested_options)})"
+            questions.append(q)
+
+        return f"""You are resolving clarification questions from a journal entry.
+
+QUESTIONS THAT NEED ANSWERS:
+{chr(10).join(questions)}
+
+USER'S RESPONSE:
+\"\"\"{user_paragraph}\"\"\"
+
+INSTRUCTIONS:
+1. Extract answers to the above questions from the user's response
+2. The user may answer naturally - parse their intent, not just keywords
+3. Also extract any NEW information not related to the questions
+4. If something is still unclear, generate a follow-up question
+5. Normalize activity names (jogging -> running, gym -> gym, etc.)
+
+For activities, extract: name, duration, time_of_day, intensity
+For meals, extract: items, meal_type, time
+For social, extract: person, interaction type, sentiment
+
+RESPONSE SCHEMA:
+```json
+{GAP_RESOLUTION_SCHEMA}
+```
+
+Return ONLY valid JSON."""
+
+    def _parse_response(self, response: str) -> Dict[str, Any]:
+        """Parse Gemini JSON response."""
+        try:
+            cleaned = response.strip()
+            if cleaned.startswith("```json"):
+                cleaned = cleaned[7:]
+            if cleaned.startswith("```"):
+                cleaned = cleaned[3:]
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3]
+            return json.loads(cleaned.strip())
+        except json.JSONDecodeError as e:
+            logger.error(f"Gap resolution JSON parse error: {e}")
+            return {}
+
+    def _apply_resolutions(
+        self,
+        extraction: ExtractionResult,
+        parsed: Dict[str, Any],
+        original_gaps: List[DataGap],
+    ) -> ExtractionResult:
+        """Apply resolved gaps and new data to extraction."""
+
+        # Process resolved gaps
+        for resolved in parsed.get("resolved_gaps", []):
+            if not resolved.get("answer_found"):
+                continue
+
+            data = resolved.get("extracted_data", {})
+            category = data.get("field_category", "other")
+
+            if category == "activity":
+                raw_name = data.get("value", "")
+                canonical, cat = normalize_activity_name(raw_name)
+
+                duration = data.get("duration_minutes")
+                if isinstance(duration, str):
+                    try:
+                        duration = int(duration)
+                    except ValueError:
+                        duration = None
+
+                time_of_day = None
+                tod_str = data.get("time_of_day")
+                if tod_str:
+                    try:
+                        time_of_day = TimeOfDay(tod_str.lower())
+                    except ValueError:
+                        pass
+
+                extraction.activities.append(
+                    NormalizedActivity(
+                        canonical_name=canonical,
+                        raw_name=raw_name,
+                        category=cat,
+                        duration_minutes=duration,
+                        time_of_day=time_of_day,
+                        start_time=None,
+                        end_time=None,
+                        intensity=data.get("additional_details", {}).get("intensity"),
+                        satisfaction=None,
+                        calories_burned=(
+                            estimate_calories(canonical, duration)
+                            if canonical
+                            else None
+                        ),
+                        is_screen_time=(
+                            canonical in SCREEN_TIME_ACTIVITIES if canonical else False
+                        ),
+                        confidence=resolved.get("confidence", 0.9),
+                        needs_clarification=False,
+                        raw_mention=data.get("value"),
+                    )
+                )
+
+            elif category == "meal":
+                time_of_day = None
+                tod_str = data.get("time_of_day")
+                if tod_str:
+                    try:
+                        time_of_day = TimeOfDay(tod_str.lower())
+                    except ValueError:
+                        pass
+
+                extraction.consumptions.append(
+                    NormalizedConsumption(
+                        canonical_name=None,
+                        raw_name=data.get("value", ""),
+                        consumption_type="meal",
+                        meal_type=data.get("additional_details", {}).get("meal_type"),
+                        time_of_day=time_of_day,
+                        consumption_time=data.get("additional_details", {}).get("time"),
+                        confidence=resolved.get("confidence", 0.9),
+                        raw_mention=data.get("value"),
+                    )
+                )
+
+            elif category == "sleep":
+                if extraction.sleep is None:
+                    extraction.sleep = {}
+                extraction.sleep["duration_hours"] = data.get("value")
+                if data.get("additional_details"):
+                    extraction.sleep.update(data["additional_details"])
+
+            elif category == "social":
+                extraction.social.append(
+                    {
+                        "person": data.get("value"),
+                        "interaction_type": data.get("additional_details", {}).get(
+                            "interaction_type"
+                        ),
+                        "sentiment": data.get("additional_details", {}).get(
+                            "sentiment"
+                        ),
+                    }
+                )
+
+        # Process any new data found in the response
+        new_data = parsed.get("new_data_found", {})
+
+        for act in new_data.get("activities", []):
+            if isinstance(act, dict):
+                raw_name = act.get("activity_name", act.get("name", ""))
+                canonical, cat = normalize_activity_name(raw_name)
+
+                duration = act.get("duration_minutes")
+                if isinstance(duration, str):
+                    try:
+                        duration = int(duration)
+                    except ValueError:
+                        duration = None
+
+                extraction.activities.append(
+                    NormalizedActivity(
+                        canonical_name=canonical,
+                        raw_name=raw_name,
+                        category=cat,
+                        duration_minutes=duration,
+                        time_of_day=None,
+                        start_time=None,
+                        end_time=None,
+                        intensity=act.get("intensity"),
+                        satisfaction=None,
+                        calories_burned=(
+                            estimate_calories(canonical, duration)
+                            if canonical
+                            else None
+                        ),
+                        is_screen_time=(
+                            canonical in SCREEN_TIME_ACTIVITIES if canonical else False
+                        ),
+                        confidence=0.85,
+                        needs_clarification=False,
+                        raw_mention=raw_name,
+                    )
+                )
+
+        for meal in new_data.get("consumptions", []):
+            if isinstance(meal, dict):
+                extraction.consumptions.append(
+                    NormalizedConsumption(
+                        canonical_name=None,
+                        raw_name=meal.get("name", ""),
+                        consumption_type=meal.get("type", "meal"),
+                        meal_type=meal.get("meal_type"),
+                        time_of_day=None,
+                        consumption_time=None,
+                        confidence=0.85,
+                        raw_mention=meal.get("name"),
+                    )
+                )
+
+        return extraction
+
+    def _get_remaining_gaps(
+        self, original_gaps: List[DataGap], parsed: Dict[str, Any]
+    ) -> List[DataGap]:
+        """Determine which gaps were not resolved."""
+        resolved_questions = set()
+
+        for resolved in parsed.get("resolved_gaps", []):
+            if resolved.get("answer_found"):
+                resolved_questions.add(resolved.get("original_question", "").lower())
+
+        remaining = []
+        for gap in original_gaps:
+            if gap.question.lower() not in resolved_questions:
+                remaining.append(gap)
+
+        return remaining
+
+    async def resolve_single_gap(
         self,
         gap: DataGap,
         user_response: str,
         original_extraction: ExtractionResult,
     ) -> ExtractionResult:
         """
-        Update extraction with user's clarification.
+        Resolve a single gap with user's response (simple keyword approach for
+        quick single answers).
 
         Args:
             gap: The gap being resolved
@@ -1017,13 +1353,12 @@ class GapResolver:
         if gap.field_category == "activity":
             canonical, category = normalize_activity_name(user_response)
 
-            # Add the resolved activity
             original_extraction.activities.append(
                 NormalizedActivity(
                     canonical_name=canonical,
                     raw_name=user_response,
                     category=category,
-                    duration_minutes=None,  # May need follow-up
+                    duration_minutes=None,
                     time_of_day=None,
                     start_time=None,
                     end_time=None,
@@ -1033,13 +1368,12 @@ class GapResolver:
                     is_screen_time=(
                         canonical in SCREEN_TIME_ACTIVITIES if canonical else False
                     ),
-                    confidence=0.9,  # High confidence since user confirmed
+                    confidence=0.9,
                     needs_clarification=False,
                     raw_mention=gap.original_mention,
                 )
             )
 
-        # Remove the resolved gap
         original_extraction.gaps = [g for g in original_extraction.gaps if g != gap]
         original_extraction.has_gaps = len(original_extraction.gaps) > 0
 
@@ -1070,6 +1404,31 @@ class GapResolver:
             questions.append(q)
 
         return questions
+
+    def format_gaps_as_prompt(self, gaps: List[DataGap]) -> str:
+        """
+        Format gaps as a natural prompt for the user.
+
+        Args:
+            gaps: List of DataGap objects
+
+        Returns:
+            A natural language prompt asking all questions
+        """
+        if not gaps:
+            return ""
+
+        parts = ["I have a few questions about your journal entry:"]
+
+        for i, gap in enumerate(sorted(gaps, key=lambda g: g.priority.value), 1):
+            q = f"\n{i}. {gap.question}"
+            if gap.suggested_options:
+                q += f" (e.g., {', '.join(gap.suggested_options[:3])})"
+            parts.append(q)
+
+        parts.append("\n\nYou can answer naturally - just tell me the details!")
+
+        return "".join(parts)
 
 
 # ============================================================================

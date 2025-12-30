@@ -1,6 +1,6 @@
 """
 PLOS State Manager
-Database operations for user context state
+Database operations for user context state with improved health checks.
 """
 
 import sys
@@ -22,11 +22,20 @@ settings = get_settings()
 
 
 class StateManager:
-    """Manages database operations for user state"""
+    """
+    Manages database operations for user state.
+
+    Improvements:
+    - Added health check method
+    - Better connection management
+    - Improved error handling
+    """
 
     def __init__(self):
         self.engine = None
         self.Session = None
+        self._connected = False
+        self._last_health_check = None
 
     async def connect(self) -> None:
         """Initialize database connection"""
@@ -35,16 +44,40 @@ class StateManager:
                 settings.postgres_url, pool_size=10, max_overflow=20, pool_pre_ping=True
             )
             self.Session = sessionmaker(bind=self.engine)
-            logger.info("✓ Connected to PostgreSQL")
+            self._connected = True
+            logger.info("Connected to PostgreSQL")
         except Exception as e:
             logger.error(f"Failed to connect to PostgreSQL: {e}")
+            self._connected = False
             raise
 
     async def close(self) -> None:
         """Close database connection"""
         if self.engine:
             self.engine.dispose()
+            self._connected = False
             logger.info("Database connection closed")
+
+    async def health_check(self) -> bool:
+        """
+        Check if database connection is healthy.
+
+        Returns:
+            True if healthy, False otherwise
+        """
+        try:
+            if not self.Session:
+                return False
+
+            with self.Session() as session:
+                session.execute(text("SELECT 1"))
+
+            self._last_health_check = datetime.utcnow()
+            return True
+
+        except Exception as e:
+            logger.warning(f"Database health check failed: {e}")
+            return False
 
     async def fetch_context(self, user_id: UUID) -> Optional[UserContext]:
         """
