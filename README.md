@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/PLOS-Personal%20Life%20OS-blueviolet?style=for-the-badge" alt="PLOS"/>
+  <img src="https://img.shields.io/badge/PLOS-Personal%20Life%20Management-blueviolet?style=for-the-badge" alt="PLOS"/>
 </p>
 
-<h1 align="center">PLOS - Personal Life Operating System</h1>
+<h1 align="center">PLOS - Personal Life Management System </h1>
 
 <p align="center">
-  <strong>Your life, intelligently organized. Your data, always accessible. Your AI assistant, deeply personal.</strong>
+  <strong>An AI-powered platform that transforms your daily journal entries into structured life data, revealing patterns and insights about your habits, health, and happiness.</strong>
 </p>
 
 <p align="center">
