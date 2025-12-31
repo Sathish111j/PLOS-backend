@@ -200,8 +200,8 @@ jobs:
 
       - name: Validate SQL scripts
         run: |
-          if ! grep -q "CREATE" infrastructure/database/init-postgres.sql; then
-            echo "Error: init-postgres.sql appears invalid"
+          if ! grep -q "CREATE" infrastructure/database/init.sql; then
+            echo "Error: init.sql appears invalid"
             exit 1
           fi
           echo "SQL scripts validated successfully"
