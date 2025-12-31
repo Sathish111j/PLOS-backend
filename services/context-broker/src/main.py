@@ -11,7 +11,7 @@ from uuid import UUID
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
-from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
 sys.path.append("/app")
 
@@ -40,12 +40,12 @@ settings = get_settings()
 REQUEST_COUNT = Counter(
     "context_broker_requests_total",
     "Total number of requests",
-    ["method", "endpoint", "status"]
+    ["method", "endpoint", "status"],
 )
 REQUEST_LATENCY = Histogram(
     "context_broker_request_latency_seconds",
     "Request latency in seconds",
-    ["method", "endpoint"]
+    ["method", "endpoint"],
 )
 
 # Initialize managers
@@ -199,10 +199,7 @@ async def health_check():
 )
 async def metrics_endpoint():
     """Prometheus metrics endpoint"""
-    return PlainTextResponse(
-        content=generate_latest(),
-        media_type=CONTENT_TYPE_LATEST
-    )
+    return PlainTextResponse(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 # ============================================================================

@@ -10,7 +10,7 @@ from typing import List, Optional
 import structlog
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import PlainTextResponse
-from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from pydantic import BaseModel, Field
 from src.extraction_engine import KnowledgeExtractor
 from src.vector_store import VectorStore
@@ -30,15 +30,13 @@ logger = structlog.get_logger(__name__)
 KNOWLEDGE_ITEMS_ADDED = Counter(
     "knowledge_system_items_added_total",
     "Total number of knowledge items added",
-    ["type"]
+    ["type"],
 )
 SEARCH_COUNT = Counter(
-    "knowledge_system_searches_total",
-    "Total number of searches performed"
+    "knowledge_system_searches_total", "Total number of searches performed"
 )
 SEARCH_LATENCY = Histogram(
-    "knowledge_system_search_latency_seconds",
-    "Search latency in seconds"
+    "knowledge_system_search_latency_seconds", "Search latency in seconds"
 )
 
 
@@ -217,10 +215,7 @@ async def health_check():
 @app.get("/metrics")
 async def metrics_endpoint():
     """Prometheus metrics endpoint"""
-    return PlainTextResponse(
-        content=generate_latest(),
-        media_type=CONTENT_TYPE_LATEST
-    )
+    return PlainTextResponse(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.post("/knowledge/add")

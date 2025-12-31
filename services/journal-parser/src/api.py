@@ -11,7 +11,7 @@ from dependencies import get_db_session, get_gemini_client, get_kafka_producer
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import PlainTextResponse
 from orchestrator import JournalParserOrchestrator
-from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,11 +27,10 @@ router = APIRouter(prefix="/journal", tags=["journal-parser"])
 JOURNAL_PROCESS_COUNT = Counter(
     "journal_parser_entries_processed_total",
     "Total number of journal entries processed",
-    ["status"]
+    ["status"],
 )
 JOURNAL_PROCESS_LATENCY = Histogram(
-    "journal_parser_process_latency_seconds",
-    "Journal processing latency in seconds"
+    "journal_parser_process_latency_seconds", "Journal processing latency in seconds"
 )
 
 
@@ -528,7 +527,4 @@ async def get_metrics() -> PlainTextResponse:
     """
     Returns Prometheus-compatible metrics
     """
-    return PlainTextResponse(
-        content=generate_latest(),
-        media_type=CONTENT_TYPE_LATEST
-    )
+    return PlainTextResponse(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
