@@ -1,5 +1,15 @@
+# ============================================================================
+# PLOS Journal Parser - Production Dependencies
+# Last Updated: 2025-12-31
+# ============================================================================
+
+# Web Framework
 fastapi==0.109.0
 uvicorn[standard]==0.27.0
+uvloop==0.19.0
+httptools==0.6.1
+
+# Data Validation
 pydantic==2.5.3
 pydantic-settings==2.1.0
 email-validator==2.1.0
@@ -8,20 +18,25 @@ email-validator==2.1.0
 google-genai>=1.0.0
 
 # Database
-sqlalchemy==2.0.25
+sqlalchemy[asyncio]==2.0.25
 asyncpg==0.29.0
 
-# Redis
+# Cache
 redis[hiredis]==5.0.1
 
-# Kafka
+# Message Queue
 aiokafka==0.10.0
 kafka-python==2.0.2
 
 # HTTP Client
+httpx==0.26.0
 aiohttp==3.9.1
 
-# Utilities & Logging
-python-json-logger==2.0.7
+# Monitoring & Logging
 prometheus-client==0.19.0
-httpx==0.26.0
+python-json-logger==2.0.7
+structlog==24.1.0
+
+# Utilities
+tenacity==8.2.3
+orjson==3.9.10

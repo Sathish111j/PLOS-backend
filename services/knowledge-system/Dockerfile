@@ -1,32 +1,70 @@
-# Knowledge System Service
-FROM python:3.11-slim
+# ============================================================================
+# PLOS Knowledge System - Production Dockerfile
+# Multi-stage build with security hardening
+# ============================================================================
 
-# Set working directory
-WORKDIR /app
+# Stage 1: Builder - Install dependencies
+FROM python:3.11-slim AS builder
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    curl \
+WORKDIR /build
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy shared module first
-COPY shared /app/shared
-
-# Copy service requirements
-COPY services/knowledge-system/requirements.txt .
+# Create virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+COPY services/knowledge-system/requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Copy service source code
-COPY services/knowledge-system/src /app/src
+# ============================================================================
+# Stage 2: Production - Minimal runtime image
+# ============================================================================
+FROM python:3.11-slim AS production
 
-# Expose service port
+# Security: Create non-root user
+RUN groupadd --gid 1000 plos && \
+    useradd --uid 1000 --gid plos --shell /bin/bash --create-home plos
+
+WORKDIR /app
+
+# Install runtime dependencies only
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Copy virtual environment from builder
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Copy application code
+COPY --chown=plos:plos shared /app/shared
+COPY --chown=plos:plos services/knowledge-system/src /app/src
+
+# Environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app \
+    SERVICE_NAME=knowledge-system \
+    SERVICE_PORT=8003
+
+# Switch to non-root user
+USER plos
+
+# Expose port
 EXPOSE 8003
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import httpx; httpx.get('http://localhost:8003/health')"
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:8003/health || exit 1
 
-# Run the service
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8003", "--reload"]
+# Run with production settings (no --reload)
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8003", "--workers", "2", "--loop", "uvloop", "--http", "httptools"]

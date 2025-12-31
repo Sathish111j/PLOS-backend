@@ -10,7 +10,8 @@ from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
+from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 
 sys.path.append("/app")
 
@@ -34,6 +35,18 @@ setup_logging("context-broker", log_level="INFO", json_logs=True)
 logger = get_logger(__name__)
 metrics = MetricsLogger("context-broker")
 settings = get_settings()
+
+# Prometheus metrics
+REQUEST_COUNT = Counter(
+    "context_broker_requests_total",
+    "Total number of requests",
+    ["method", "endpoint", "status"]
+)
+REQUEST_LATENCY = Histogram(
+    "context_broker_request_latency_seconds",
+    "Request latency in seconds",
+    ["method", "endpoint"]
+)
 
 # Initialize managers
 cache_manager = CacheManager()
@@ -186,8 +199,10 @@ async def health_check():
 )
 async def metrics_endpoint():
     """Prometheus metrics endpoint"""
-    # TODO: Implement Prometheus metrics
-    return {"message": "Metrics endpoint - implement Prometheus"}
+    return PlainTextResponse(
+        content=generate_latest(),
+        media_type=CONTENT_TYPE_LATEST
+    )
 
 
 # ============================================================================

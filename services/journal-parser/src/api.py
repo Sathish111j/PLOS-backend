@@ -9,7 +9,9 @@ from uuid import UUID
 
 from dependencies import get_db_session, get_gemini_client, get_kafka_producer
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import PlainTextResponse
 from orchestrator import JournalParserOrchestrator
+from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +22,17 @@ from shared.utils.logger import get_logger
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/journal", tags=["journal-parser"])
+
+# Prometheus metrics
+JOURNAL_PROCESS_COUNT = Counter(
+    "journal_parser_entries_processed_total",
+    "Total number of journal entries processed",
+    ["status"]
+)
+JOURNAL_PROCESS_LATENCY = Histogram(
+    "journal_parser_process_latency_seconds",
+    "Journal processing latency in seconds"
+)
 
 
 # ============================================================================
@@ -509,26 +522,13 @@ async def health_check() -> HealthCheckResponse:
 @router.get(
     "/metrics",
     summary="Get service metrics",
-    description="Get processing metrics and statistics",
+    description="Get Prometheus-compatible metrics for monitoring",
 )
-async def get_metrics(
-    gemini: ResilientGeminiClient = Depends(get_gemini_client),
-) -> Dict[str, Any]:
+async def get_metrics() -> PlainTextResponse:
     """
-    Get service metrics including Gemini API usage
+    Returns Prometheus-compatible metrics
     """
-    try:
-        metrics = gemini.get_key_metrics()
-
-        return {
-            "service": "journal-parser",
-            "timestamp": datetime.utcnow().isoformat(),
-            "gemini_metrics": metrics,
-        }
-
-    except Exception as e:
-        logger.error(f"Error retrieving metrics: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve metrics: {str(e)}",
-        )
+    return PlainTextResponse(
+        content=generate_latest(),
+        media_type=CONTENT_TYPE_LATEST
+    )
