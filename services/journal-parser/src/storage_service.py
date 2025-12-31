@@ -127,11 +127,19 @@ class StorageService:
             if hasattr(extraction, "health") and extraction.health:
                 await self._store_health(extraction_id, extraction.health)
 
-            # 10. Store gaps for clarification
+            # 10. Store work/productivity data
+            if hasattr(extraction, "work") and extraction.work:
+                await self._store_work(extraction_id, extraction.work)
+
+            # 11. Store weather context
+            if hasattr(extraction, "weather") and extraction.weather:
+                await self._store_weather(extraction_id, extraction.weather)
+
+            # 12. Store gaps for clarification
             if extraction.gaps:
                 await self._store_gaps(extraction_id, extraction.gaps)
 
-            # 11. Commit transaction
+            # 13. Commit transaction
             await self.db.commit()
 
             logger.info(
@@ -218,6 +226,16 @@ class StorageService:
         if not metrics:
             return
 
+        # Valid time_of_day enum values
+        valid_time_of_day = {
+            "early_morning",
+            "morning",
+            "afternoon",
+            "evening",
+            "night",
+            "late_night",
+        }
+
         # First, clear existing metrics for this extraction
         await self.db.execute(
             text("DELETE FROM extraction_metrics WHERE extraction_id = :extraction_id"),
@@ -233,6 +251,9 @@ class StorageService:
             metric_type_id = await self._resolve_metric_type(metric_name)
 
             time_of_day = metric_data.get("time_of_day")
+            # Validate time_of_day is a valid enum value, otherwise set to None
+            if time_of_day and time_of_day not in valid_time_of_day:
+                time_of_day = None
 
             query = text(
                 """
@@ -313,13 +334,15 @@ class StorageService:
             query = text(
                 """
                 INSERT INTO extraction_activities
-                    (extraction_id, activity_type_id, activity_raw, duration_minutes,
+                    (extraction_id, activity_type_id, activity_raw, activity_category, duration_minutes,
                      time_of_day, start_time, end_time, intensity, satisfaction,
-                     calories_burned, confidence, raw_mention, needs_clarification)
+                     calories_burned, confidence, raw_mention, needs_clarification,
+                     is_outdoor, with_others, location, mood_before, mood_after)
                 VALUES
-                    (:extraction_id, :activity_type_id, :activity_raw, :duration,
+                    (:extraction_id, :activity_type_id, :activity_raw, :activity_category, :duration,
                      CAST(:time_of_day AS time_of_day), :start_time, :end_time, :intensity,
-                     :satisfaction, :calories, :confidence, :raw_mention, :needs_clarification)
+                     :satisfaction, :calories, :confidence, :raw_mention, :needs_clarification,
+                     :is_outdoor, :with_others, :location, :mood_before, :mood_after)
             """
             )
 
@@ -328,7 +351,8 @@ class StorageService:
                 {
                     "extraction_id": extraction_id,
                     "activity_type_id": activity_type_id,
-                    "activity_raw": activity.raw_name if not activity_type_id else None,
+                    "activity_raw": activity.raw_name,  # Always store raw activity name
+                    "activity_category": activity.category,  # Store category for aggregation
                     "duration": activity.duration_minutes,
                     "time_of_day": time_of_day,
                     "start_time": self._parse_time_string(activity.start_time),
@@ -339,6 +363,11 @@ class StorageService:
                     "confidence": activity.confidence,
                     "raw_mention": activity.raw_mention,
                     "needs_clarification": activity.needs_clarification,
+                    "is_outdoor": activity.is_outdoor,
+                    "with_others": activity.with_others,
+                    "location": activity.location,
+                    "mood_before": activity.mood_before,
+                    "mood_after": activity.mood_after,
                 },
             )
 
@@ -516,14 +545,16 @@ class StorageService:
             query = text(
                 """
                 INSERT INTO extraction_consumptions
-                    (extraction_id, food_item_id, item_raw, consumption_type, meal_type,
+                    (extraction_id, food_item_id, item_raw, food_category, consumption_type, meal_type,
                      time_of_day, consumption_time, quantity, unit,
                      calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, sodium_mg,
+                     caffeine_mg, alcohol_units, is_processed, water_ml,
                      is_healthy, is_home_cooked, confidence, raw_mention)
                 VALUES
-                    (:extraction_id, :food_id, :item_raw, :type, :meal_type,
+                    (:extraction_id, :food_id, :item_raw, :food_category, :type, :meal_type,
                      CAST(:time_of_day AS time_of_day), :time, :quantity, :unit,
                      :calories, :protein, :carbs, :fat, :fiber, :sugar, :sodium,
+                     :caffeine_mg, :alcohol_units, :is_processed, :water_ml,
                      :healthy, :home_cooked, :confidence, :raw_mention)
             """
             )
@@ -533,7 +564,10 @@ class StorageService:
                 {
                     "extraction_id": extraction_id,
                     "food_id": food_item_id,
-                    "item_raw": item.raw_name if not food_item_id else None,
+                    "item_raw": item.raw_name,  # Always store raw item name
+                    "food_category": getattr(
+                        item, "food_category", None
+                    ),  # Store category for aggregation
                     "type": item.consumption_type,
                     "meal_type": item.meal_type,
                     "time_of_day": time_of_day,
@@ -547,6 +581,10 @@ class StorageService:
                     "fiber": fiber,
                     "sugar": sugar,
                     "sodium": sodium,
+                    "caffeine_mg": getattr(item, "caffeine_mg", None),
+                    "alcohol_units": getattr(item, "alcohol_units", None),
+                    "is_processed": getattr(item, "is_processed", None),
+                    "water_ml": getattr(item, "water_ml", None),
                     "healthy": item.is_healthy,
                     "home_cooked": item.is_home_cooked,
                     "confidence": item.confidence,
@@ -617,9 +655,19 @@ class StorageService:
     async def _store_social(
         self, extraction_id: UUID, social: List[Dict[str, Any]]
     ) -> None:
-        """Store social interactions."""
+        """Store social interactions with deep relationship tracking."""
         if not social:
             return
+
+        # Valid time_of_day enum values
+        valid_time_of_day = {
+            "early_morning",
+            "morning",
+            "afternoon",
+            "evening",
+            "night",
+            "late_night",
+        }
 
         # Clear existing
         await self.db.execute(
@@ -629,17 +677,24 @@ class StorageService:
 
         for interaction in social:
             time_of_day = interaction.get("time_of_day")
+            # Validate time_of_day is a valid enum value
+            if time_of_day and time_of_day not in valid_time_of_day:
+                time_of_day = None
 
             query = text(
                 """
                 INSERT INTO extraction_social
-                    (extraction_id, person_name, relationship, interaction_type,
-                     duration_minutes, time_of_day, sentiment, notes,
-                     confidence, raw_mention)
+                    (extraction_id, person_name, relationship, relationship_category,
+                     interaction_type, duration_minutes, time_of_day, sentiment,
+                     quality_score, conflict_level, mood_before, mood_after,
+                     emotional_impact, interaction_outcome, initiated_by,
+                     is_virtual, location, topic, confidence, raw_mention)
                 VALUES
-                    (:extraction_id, :person, :relationship, :type,
-                     :duration, CAST(:time_of_day AS time_of_day), :sentiment, :notes,
-                     :confidence, :raw_mention)
+                    (:extraction_id, :person, :relationship, :relationship_category,
+                     :type, :duration, CAST(:time_of_day AS time_of_day), :sentiment,
+                     :quality_score, :conflict_level, :mood_before, :mood_after,
+                     :emotional_impact, :interaction_outcome, :initiated_by,
+                     :is_virtual, :location, :topic, :confidence, :raw_mention)
             """
             )
 
@@ -649,11 +704,21 @@ class StorageService:
                     "extraction_id": extraction_id,
                     "person": interaction.get("person"),
                     "relationship": interaction.get("relationship"),
+                    "relationship_category": interaction.get("relationship_category"),
                     "type": interaction.get("interaction_type"),
                     "duration": interaction.get("duration_minutes"),
                     "time_of_day": time_of_day if time_of_day else None,
                     "sentiment": interaction.get("sentiment"),
-                    "notes": interaction.get("topic"),
+                    "quality_score": interaction.get("quality_score"),
+                    "conflict_level": interaction.get("conflict_level"),
+                    "mood_before": interaction.get("mood_before"),
+                    "mood_after": interaction.get("mood_after"),
+                    "emotional_impact": interaction.get("emotional_impact"),
+                    "interaction_outcome": interaction.get("interaction_outcome"),
+                    "initiated_by": interaction.get("initiated_by"),
+                    "is_virtual": interaction.get("is_virtual"),
+                    "location": interaction.get("location"),
+                    "topic": interaction.get("topic"),
                     "confidence": interaction.get("confidence", 0.7),
                     "raw_mention": interaction.get("raw_mention"),
                 },
@@ -714,10 +779,14 @@ class StorageService:
             """
             INSERT INTO extraction_sleep
                 (extraction_id, duration_hours, quality, bedtime, waketime,
-                 disruptions, nap_duration_minutes, confidence, raw_mention)
+                 disruptions, trouble_falling_asleep, woke_up_tired,
+                 nap_duration_minutes, sleep_environment, pre_sleep_activity,
+                 dreams_noted, confidence, raw_mention)
             VALUES
                 (:extraction_id, :duration, :quality, :bedtime, :waketime,
-                 :disruptions, :nap, :confidence, :raw_mention)
+                 :disruptions, :trouble_falling_asleep, :woke_up_tired,
+                 :nap, :sleep_environment, :pre_sleep_activity,
+                 :dreams_noted, :confidence, :raw_mention)
         """
         )
 
@@ -730,7 +799,12 @@ class StorageService:
                 "bedtime": self._parse_time_string(sleep.get("bedtime")),
                 "waketime": self._parse_time_string(sleep.get("waketime")),
                 "disruptions": sleep.get("disruptions", 0),
+                "trouble_falling_asleep": sleep.get("trouble_falling_asleep"),
+                "woke_up_tired": sleep.get("woke_up_tired"),
                 "nap": sleep.get("nap_minutes", 0),
+                "sleep_environment": sleep.get("sleep_environment"),
+                "pre_sleep_activity": sleep.get("pre_sleep_activity"),
+                "dreams_noted": sleep.get("dreams_noted"),
                 "confidence": sleep.get("confidence", 0.7),
                 "raw_mention": sleep.get("raw_mention"),
             },
@@ -837,11 +911,11 @@ class StorageService:
                 INSERT INTO extraction_health
                     (extraction_id, symptom_type, body_part, severity,
                      duration_minutes, time_of_day, possible_cause,
-                     medication_taken, raw_mention)
+                     medication_taken, is_resolved, impact_score, triggers, raw_mention)
                 VALUES
                     (:extraction_id, :symptom, :body_part, :severity,
                      :duration, :time_of_day, :cause,
-                     :medication, :raw_mention)
+                     :medication, :is_resolved, :impact_score, :triggers, :raw_mention)
             """
             )
 
@@ -856,9 +930,101 @@ class StorageService:
                     "time_of_day": time_of_day if time_of_day else None,
                     "cause": symptom.get("possible_cause"),
                     "medication": symptom.get("medication_taken"),
+                    "is_resolved": symptom.get("is_resolved"),
+                    "impact_score": symptom.get("impact_score"),
+                    "triggers": symptom.get("triggers"),
                     "raw_mention": symptom.get("raw_mention"),
                 },
             )
+
+    # ========================================================================
+    # WORK / PRODUCTIVITY
+    # ========================================================================
+
+    async def _store_work(
+        self, extraction_id: UUID, work: List[Dict[str, Any]]
+    ) -> None:
+        """Store work/productivity data."""
+        if not work:
+            return
+
+        # Clear existing
+        await self.db.execute(
+            text("DELETE FROM extraction_work WHERE extraction_id = :extraction_id"),
+            {"extraction_id": extraction_id},
+        )
+
+        for item in work:
+            time_of_day = item.get("time_of_day")
+
+            query = text(
+                """
+                INSERT INTO extraction_work
+                    (extraction_id, work_type, project_name, duration_minutes,
+                     time_of_day, productivity_score, focus_quality, interruptions,
+                     accomplishments, blockers, raw_mention)
+                VALUES
+                    (:extraction_id, :work_type, :project_name, :duration,
+                     :time_of_day, :productivity_score, :focus_quality, :interruptions,
+                     :accomplishments, :blockers, :raw_mention)
+            """
+            )
+
+            await self.db.execute(
+                query,
+                {
+                    "extraction_id": extraction_id,
+                    "work_type": item.get("work_type"),
+                    "project_name": item.get("project_name"),
+                    "duration": item.get("duration_minutes"),
+                    "time_of_day": time_of_day if time_of_day else None,
+                    "productivity_score": item.get("productivity_score"),
+                    "focus_quality": item.get("focus_quality"),
+                    "interruptions": item.get("interruptions"),
+                    "accomplishments": item.get("accomplishments"),
+                    "blockers": item.get("blockers"),
+                    "raw_mention": item.get("raw_mention"),
+                },
+            )
+
+    # ========================================================================
+    # WEATHER CONTEXT
+    # ========================================================================
+
+    async def _store_weather(
+        self, extraction_id: UUID, weather: Dict[str, Any]
+    ) -> None:
+        """Store weather context data."""
+        if not weather:
+            return
+
+        # Clear existing
+        await self.db.execute(
+            text("DELETE FROM extraction_weather WHERE extraction_id = :extraction_id"),
+            {"extraction_id": extraction_id},
+        )
+
+        query = text(
+            """
+            INSERT INTO extraction_weather
+                (extraction_id, weather_condition, temperature_feel,
+                 mentioned_impact, raw_mention)
+            VALUES
+                (:extraction_id, :condition, :temp_feel,
+                 :impact, :raw_mention)
+        """
+        )
+
+        await self.db.execute(
+            query,
+            {
+                "extraction_id": extraction_id,
+                "condition": weather.get("condition"),
+                "temp_feel": weather.get("temperature_feel"),
+                "impact": weather.get("impact"),
+                "raw_mention": weather.get("raw_mention"),
+            },
+        )
 
     # ========================================================================
     # GAP RESOLUTION

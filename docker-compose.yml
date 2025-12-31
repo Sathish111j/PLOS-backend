@@ -23,8 +23,8 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./infrastructure/database/init-postgres.sql:/docker-entrypoint-initdb.d/01-init.sql
-      - ./infrastructure/database/init-timescaledb.sql:/docker-entrypoint-initdb.d/02-timescale.sql
+      - ./infrastructure/database/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./infrastructure/database/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql
     networks:
       - plos-network
     healthcheck:

@@ -61,6 +61,7 @@ class ConsumptionResponse(BaseModel):
     name: str
     type: str
     meal_type: Optional[str] = None
+    food_category: Optional[str] = None
     time_of_day: Optional[str] = None
     quantity: Optional[float] = None
     unit: Optional[str] = None

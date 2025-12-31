@@ -68,6 +68,11 @@ class NormalizedActivity:
     satisfaction: Optional[int] = None  # 1-10
     calories_burned: Optional[int] = None
     is_screen_time: bool = False
+    is_outdoor: Optional[bool] = None  # outdoor vs indoor
+    with_others: Optional[bool] = None  # solo vs group
+    location: Optional[str] = None  # where activity happened
+    mood_before: Optional[int] = None  # mood before activity (1-10)
+    mood_after: Optional[int] = None  # mood after activity (1-10)
     confidence: float = 0.5
     needs_clarification: bool = False
     raw_mention: Optional[str] = None
@@ -81,6 +86,9 @@ class NormalizedConsumption:
     raw_name: str
     consumption_type: str  # meal, snack, drink, medication
     meal_type: Optional[str] = None  # breakfast, lunch, dinner, snack
+    food_category: Optional[str] = (
+        None  # protein, carb, vegetable, fruit, dairy, beverage, snack, dessert, mixed
+    )
     time_of_day: Optional[TimeOfDay] = None
     consumption_time: Optional[str] = None  # HH:MM
     quantity: float = 1.0
@@ -92,6 +100,10 @@ class NormalizedConsumption:
     fiber_g: Optional[float] = None
     sugar_g: Optional[float] = None
     sodium_mg: Optional[float] = None
+    caffeine_mg: Optional[float] = None  # caffeine content
+    alcohol_units: Optional[float] = None  # alcohol tracking
+    water_ml: Optional[int] = None  # water content
+    is_processed: Optional[bool] = None  # processed vs whole food
     is_healthy: Optional[bool] = None
     is_home_cooked: Optional[bool] = None
     confidence: float = 0.5
@@ -125,6 +137,12 @@ class ExtractionResult:
 
     # Health symptoms
     health: List[Dict[str, Any]] = field(default_factory=list)
+
+    # Work/productivity tracking
+    work: List[Dict[str, Any]] = field(default_factory=list)
+
+    # Weather context
+    weather: Optional[Dict[str, Any]] = None
 
     # Gaps that need clarification
     gaps: List[DataGap] = field(default_factory=list)
@@ -522,8 +540,13 @@ EXTRACTION_SCHEMA = """
     "quality": "int (1-10)",
     "bedtime": "HH:MM (24h format)",
     "waketime": "HH:MM",
-    "disruptions": "int",
+    "disruptions": "int (times woke up)",
     "nap_minutes": "int",
+    "trouble_falling_asleep": "boolean",
+    "woke_up_tired": "boolean",
+    "sleep_environment": "AC|fan|open_window|quiet|noisy (optional)",
+    "pre_sleep_activity": "what was done before sleeping (optional)",
+    "dreams_noted": "any dreams mentioned (optional)",
     "raw_mention": "exact text about sleep"
   },
 
@@ -539,13 +562,19 @@ EXTRACTION_SCHEMA = """
 
   "activities": [
     {
-      "activity_name": "the activity (badminton, coding, netflix, etc.)",
-      "duration_minutes": "int",
+      "activity_name": "SPECIFIC activity (jogging, leetcode, badminton - NOT normalized)",
+      "activity_category": "sports|fitness|programming|entertainment|learning|work|creative|social|other",
+      "duration_minutes": "int (REQUIRED - estimate if not explicit)",
       "time_of_day": "morning|afternoon|evening|night",
       "start_time": "HH:MM if mentioned",
       "end_time": "HH:MM if mentioned",
       "intensity": "low|medium|high",
       "satisfaction": "int 1-10",
+      "is_outdoor": "boolean (true if outdoor activity)",
+      "with_others": "boolean (true if done with other people)",
+      "location": "where the activity happened (gym, park, home, office, etc.)",
+      "mood_before": "int 1-10 (mood before activity, if mentioned)",
+      "mood_after": "int 1-10 (mood after activity, if mentioned)",
       "raw_mention": "exact text"
     }
   ],
@@ -557,16 +586,19 @@ EXTRACTION_SCHEMA = """
       "meal_time": "HH:MM if mentioned",
       "items": [
         {
-          "name": "food item name",
+          "name": "SPECIFIC food item name (masala dosa, chicken biryani - preserve specificity)",
+          "food_category": "protein|carb|vegetable|fruit|dairy|beverage|snack|dessert|mixed",
           "quantity": "float (e.g., 2 for 2 eggs)",
           "unit": "serving|piece|g|ml",
-          "calories": "estimated calories (int)",
+          "calories": "estimated calories (int) - USE YOUR KNOWLEDGE",
           "protein_g": "estimated protein in grams (float)",
           "carbs_g": "estimated carbs in grams (float)",
           "fat_g": "estimated fat in grams (float)",
           "fiber_g": "estimated fiber in grams (float, optional)",
           "sugar_g": "estimated sugar in grams (float, optional)",
-          "sodium_mg": "estimated sodium in mg (float, optional)"
+          "sodium_mg": "estimated sodium in mg (float, optional)",
+          "caffeine_mg": "caffeine content in mg (for coffee, tea, energy drinks)",
+          "is_processed": "boolean (true if processed/packaged food)"
         }
       ],
       "is_healthy": "boolean",
@@ -577,10 +609,13 @@ EXTRACTION_SCHEMA = """
 
   "drinks": [
     {
-      "drink_name": "water|coffee|tea|juice|etc",
+      "drink_name": "water|coffee|tea|juice|alcohol|soda|energy_drink|etc",
       "quantity": "float",
       "unit": "cups|liters|glasses|ml",
       "calories": "estimated calories (int)",
+      "caffeine_mg": "caffeine in mg (coffee ~95mg, tea ~47mg per cup)",
+      "alcohol_units": "alcohol units if alcoholic drink",
+      "water_ml": "water content in ml",
       "time_of_day": "...",
       "raw_mention": "..."
     }
@@ -588,18 +623,52 @@ EXTRACTION_SCHEMA = """
 
   "social": [
     {
-      "person": "name or relationship (mom, friend, colleague)",
-      "interaction_type": "in_person|call|video|message",
-      "duration_minutes": "int",
-      "time_of_day": "...",
+      "person": "name of person (Mike, Sarah) OR relationship term (mom, girlfriend)",
+      "relationship": "SPECIFIC relationship: mom|dad|brother|sister|grandfather|grandmother|uncle|aunt|cousin|girlfriend|boyfriend|husband|wife|partner|ex|boss|manager|colleague|coworker|client|teacher|professor|student|classmate|friend|best_friend|roommate|neighbor|doctor|therapist|stranger|acquaintance",
+      "relationship_category": "family|romantic|professional|friend|acquaintance|healthcare|other",
+      "interaction_type": "in_person|call|video|message|text|email|group_hangout|date|meeting|argument|fight|deep_talk|casual_chat|support_given|support_received",
+      "duration_minutes": "int estimate",
+      "time_of_day": "morning|afternoon|evening|night",
       "sentiment": "positive|negative|neutral|conflict",
-      "raw_mention": "..."
+      "quality_score": "int 1-10 (overall quality of interaction)",
+      "conflict_level": "int 0-10 (0=no conflict, 5=disagreement, 10=major fight)",
+      "mood_before": "int 1-10 (user mood before interaction)",
+      "mood_after": "int 1-10 (user mood after interaction)",
+      "emotional_impact": "energized|drained|supported|stressed|happy|sad|frustrated|calm|anxious|loved|lonely|understood|misunderstood|appreciated|criticized",
+      "interaction_outcome": "resolved|ongoing|escalated|bonded|distanced|neutral|apologized|forgave|agreed|disagreed",
+      "initiated_by": "user|other|mutual (who started the interaction)",
+      "is_virtual": "boolean (true if video/call/message/text)",
+      "location": "where interaction happened (home, office, restaurant, etc.)",
+      "topic": "what was discussed or happened",
+      "raw_mention": "exact text from journal"
     }
   ],
 
+  "work": [
+    {
+      "work_type": "office_work|remote_work|meetings|deep_work|admin|emails|collaboration",
+      "project_name": "project or task name if mentioned",
+      "duration_minutes": "int",
+      "time_of_day": "morning|afternoon|evening|night",
+      "productivity_score": "int 1-10",
+      "focus_quality": "high|medium|low|distracted",
+      "interruptions": "int (number of interruptions)",
+      "accomplishments": "what was accomplished",
+      "blockers": "what blocked progress",
+      "raw_mention": "exact text"
+    }
+  ],
+
+  "weather": {
+    "condition": "sunny|rainy|cloudy|humid|cold|hot|windy|pleasant",
+    "temperature_feel": "hot|warm|pleasant|cold|freezing",
+    "impact": "how weather affected the day",
+    "raw_mention": "..."
+  },
+
   "notes": [
     {
-      "type": "goal|achievement|gratitude|symptom|thought|plan",
+      "type": "goal|achievement|gratitude|symptom|thought|plan|reflection",
       "content": "the note content",
       "sentiment": "positive|negative|neutral",
       "raw_mention": "..."
@@ -609,7 +678,7 @@ EXTRACTION_SCHEMA = """
   "locations": [
     {
       "location_name": "name of place (home, office, gym, cafe, park, mall, etc.)",
-      "location_type": "home|office|gym|restaurant|cafe|outdoors|mall|hospital|school|other",
+      "location_type": "home|office|gym|restaurant|cafe|outdoors|mall|hospital|school|travel|other",
       "time_of_day": "morning|afternoon|evening|night",
       "duration_minutes": "int (how long at this location)",
       "activity_context": "what was done at this location",
@@ -619,13 +688,16 @@ EXTRACTION_SCHEMA = """
 
   "health": [
     {
-      "symptom_type": "headache|fatigue|pain|nausea|fever|cold|cough|allergy|insomnia|anxiety|other",
+      "symptom_type": "headache|fatigue|pain|nausea|fever|cold|cough|allergy|insomnia|anxiety|stress|other",
       "body_part": "head|back|stomach|chest|throat|eyes|legs|arms|full_body|none",
       "severity": "int 1-10 (1=mild, 10=severe)",
       "duration_minutes": "int (optional)",
       "time_of_day": "morning|afternoon|evening|night",
       "possible_cause": "what might have caused it (optional)",
       "medication_taken": "any medication taken for it (optional)",
+      "is_resolved": "boolean (true if symptom went away by end of day)",
+      "impact_score": "int 1-10 (how much it affected the day)",
+      "triggers": "what triggered it (optional)",
       "raw_mention": "exact text about the symptom"
     }
   ],
@@ -634,7 +706,7 @@ EXTRACTION_SCHEMA = """
     {
       "text": "the ambiguous text",
       "question": "clarification question to ask",
-      "field_category": "activity|meal|social|location|health|other",
+      "field_category": "activity|meal|social|location|health|work|other",
       "suggestions": ["option1", "option2"]
     }
   ]
@@ -734,34 +806,50 @@ class GeminiExtractor:
         parts.append(
             """You are an intelligent journal analyzer for PLOS (Personal Life Operating System).
 
-CRITICAL RULES:
-1. Extract EVERYTHING mentioned - activities, food, mood, sleep, social, locations, health symptoms, etc.
-2. Track TIME OF DAY for each item (morning, afternoon, evening, night)
-3. For activities: extract exact duration if mentioned, or estimate from context
-4. For food: list individual items with NUTRITION DATA (calories, protein, carbs, fat)
-5. If something is AMBIGUOUS (e.g., "played well" - what was played?), add to "ambiguous" section
-6. Include raw_mention - the exact text that mentioned each item
+CRITICAL RULES FOR HIGH-QUALITY EXTRACTION:
+1. Extract EVERYTHING mentioned - activities, food, mood, sleep, social, locations, health symptoms
+2. BE PRECISE with durations - if user says "3 hrs" that means 180 minutes, "1.5 hr" = 90 minutes
+3. For food: ALWAYS include the item name in "name" field (e.g., "eggs", "rice", "biryani")
+4. For activities: ALWAYS include the activity name in "activity_name" field
+5. Track TIME OF DAY accurately based on context clues
+6. Use raw_mention to store the EXACT original text that mentioned each item
 7. Use 24-hour format for times (HH:MM)
+8. NEVER leave name fields empty - always extract what was mentioned
+
+DATA QUALITY REQUIREMENTS:
+- Every meal item MUST have a "name" field with the food name
+- Every activity MUST have an "activity_name" field
+- Duration must be in MINUTES (convert hours to minutes: 1 hr = 60, 2 hrs = 120)
+- Calories should be reasonable estimates (not 0 unless water)
+- Include confidence score (0.5-1.0) based on how clear the mention was
 
 LOCATION EXTRACTION:
 - Extract any places/locations mentioned (gym, cafe, mall, office, home, park, hospital, etc.)
 - Include what activity was done at each location
 - Common location types: home, office, gym, restaurant, cafe, outdoors, mall, hospital, school, other
-- Example: "went to the gym" -> location: gym, activity_context: workout
+- Example: "went to the gym" -> location_name: "gym", location_type: "gym", activity_context: "workout"
 
 HEALTH SYMPTOM EXTRACTION:
 - Extract any health issues or symptoms mentioned (headache, fatigue, pain, nausea, cold, etc.)
-- Include severity if mentioned (1-10 scale)
+- Include severity if mentioned (1-10 scale, default 5 for moderate)
 - Note any medication taken for it
 - Note possible causes if mentioned
 - Common symptoms: headache, fatigue, pain, nausea, fever, cold, cough, allergy, insomnia, anxiety
 
-ACTIVITY NORMALIZATION:
-- "jogging", "jog", "run" -> use "running"
-- "gym", "workout", "exercising" -> use "gym"
-- "coding", "programming" -> use "programming"
-- "insta", "scrolling", "reels" -> use "social_media"
-- Keep sport names as-is: badminton, cricket, football, etc.
+ACTIVITY EXTRACTION (CRITICAL FOR QUERYING):
+- "activity_name": Store the SPECIFIC activity mentioned (jogging, leetcode, badminton)
+- "activity_category": Group into categories for aggregation:
+  * sports: badminton, cricket, football, tennis, swimming, etc.
+  * fitness: gym, running, jogging, cycling, yoga, exercise, workout
+  * programming: coding, leetcode, codeforces, programming, debugging
+  * entertainment: netflix, youtube, gaming, social_media, streaming
+  * learning: reading, studying, course, tutorial
+  * work: office_work, meetings, emails
+  * creative: writing, drawing, music, photography
+  * social: hangout, party, call, chat
+- DO NOT normalize away specificity - "jogging" stays "jogging", "leetcode" stays "leetcode"
+- This allows queries like: "total time jogging" AND "total time in fitness category"
+- Keep sport names EXACTLY as mentioned: badminton, cricket, football, tennis, etc.
 
 DO NOT EXTRACT AS ACTIVITIES:
 - Sleep-related: "going to bed", "sleeping", "waking up", "woke up", "going to sleep", "getting up", "got up"
@@ -771,15 +859,13 @@ DO NOT EXTRACT AS ACTIVITIES:
 
 FOOD & NUTRITION EXTRACTION:
 - Extract each food item separately with estimated nutrition values
-- Estimate calories based on typical serving sizes and Indian food values
-- Common Indian food calories (per serving):
-  * Dosa: 120 cal, Idli: 80 cal, Vada: 180 cal, Poori: 150 cal
-  * Rice (1 cup): 200 cal, Chapathi: 100 cal, Parotta: 200 cal
-  * Dal/Sambar: 150 cal, Chicken curry: 250 cal, Egg: 78 cal
-  * Biryani: 400 cal, Chicken (100g): 165 cal
-  * Fruits bowl: 100 cal, Banana: 105 cal
-- Multiply by quantity mentioned (e.g., "2 eggs" = 156 cal)
-- Estimate protein, carbs, fat based on food type
+- The "name" field MUST contain the EXACT food item name as mentioned (e.g., "boiled eggs", "chicken biryani")
+- Include "food_category" for each item: protein|carb|vegetable|fruit|dairy|beverage|snack|dessert|mixed
+- Use your nutritional knowledge to ESTIMATE calories, protein, carbs, fat
+- Consider typical Indian serving sizes when estimating
+- If quantity is mentioned (e.g., "2 eggs"), multiply nutritional values accordingly
+- If unsure about a food item, add it to "ambiguous" with a clarification question
+- BE SPECIFIC: "masala dosa" is different from "plain dosa" - preserve the specificity
 
 TIME OF DAY:
 - early_morning: 4am-7am
@@ -874,9 +960,16 @@ For ambiguous items, generate a helpful clarification question.
             if not isinstance(act, dict):
                 continue
 
-            raw_name = act.get("activity_name", "")
+            raw_name = (act.get("activity_name", "") or "").strip()
 
-            canonical, category = normalize_activity_name(raw_name)
+            # Skip activities with empty names - data quality check
+            if not raw_name:
+                continue
+
+            # Get category from Gemini response, fallback to our normalization
+            gemini_category = act.get("activity_category")
+            canonical, fallback_category = normalize_activity_name(raw_name)
+            category = gemini_category or fallback_category
 
             duration = act.get("duration_minutes")
             if isinstance(duration, str):
@@ -895,7 +988,7 @@ For ambiguous items, generate a helpful clarification question.
 
             activities.append(
                 NormalizedActivity(
-                    canonical_name=canonical,
+                    canonical_name=raw_name,  # Use raw_name as canonical for specific queries
                     raw_name=raw_name,
                     category=category,
                     duration_minutes=duration,
@@ -905,13 +998,22 @@ For ambiguous items, generate a helpful clarification question.
                     intensity=act.get("intensity"),
                     satisfaction=act.get("satisfaction"),
                     calories_burned=(
-                        estimate_calories(canonical, duration) if canonical else None
+                        estimate_calories(raw_name.lower(), duration)
+                        if raw_name
+                        else None
                     ),
                     is_screen_time=(
-                        canonical in SCREEN_TIME_ACTIVITIES if canonical else False
+                        raw_name.lower() in SCREEN_TIME_ACTIVITIES
+                        if raw_name
+                        else False
                     ),
-                    confidence=0.8 if canonical else 0.5,
-                    needs_clarification=canonical is None,
+                    is_outdoor=act.get("is_outdoor"),
+                    with_others=act.get("with_others"),
+                    location=act.get("location"),
+                    mood_before=act.get("mood_before"),
+                    mood_after=act.get("mood_after"),
+                    confidence=0.8,
+                    needs_clarification=False,
                     raw_mention=act.get("raw_mention"),
                 )
             )
@@ -958,14 +1060,21 @@ For ambiguous items, generate a helpful clarification question.
             for item in items:
                 # Handle both old format (string) and new format (dict with nutrition)
                 if isinstance(item, str):
-                    item_name = item
+                    item_name = item.strip()
                     item_data = {}
                 else:
-                    item_name = item.get("name", "")
+                    item_name = (item.get("name", "") or "").strip()
                     item_data = item
+
+                # Skip items with empty names - data quality check
+                if not item_name:
+                    continue
 
                 # Fix meal_type to proper values
                 fixed_meal_type = fix_meal_type(meal.get("meal_type"), tod_str)
+
+                # Get food_category from Gemini response
+                food_category = item_data.get("food_category")
 
                 consumptions.append(
                     NormalizedConsumption(
@@ -973,6 +1082,7 @@ For ambiguous items, generate a helpful clarification question.
                         raw_name=item_name,
                         consumption_type="meal",
                         meal_type=fixed_meal_type,
+                        food_category=food_category,
                         time_of_day=time_of_day,
                         consumption_time=meal.get("meal_time"),
                         quantity=item_data.get("quantity", 1.0),
@@ -984,6 +1094,8 @@ For ambiguous items, generate a helpful clarification question.
                         fiber_g=item_data.get("fiber_g"),
                         sugar_g=item_data.get("sugar_g"),
                         sodium_mg=item_data.get("sodium_mg"),
+                        caffeine_mg=item_data.get("caffeine_mg"),
+                        is_processed=item_data.get("is_processed"),
                         is_healthy=meal.get("is_healthy"),
                         is_home_cooked=meal.get("is_home_cooked"),
                         raw_mention=meal.get("raw_mention"),
@@ -992,6 +1104,11 @@ For ambiguous items, generate a helpful clarification question.
 
         for drink in raw.get("drinks", []):
             if not isinstance(drink, dict):
+                continue
+
+            # Get drink name and skip if empty
+            drink_name = (drink.get("drink_name", "") or "").strip()
+            if not drink_name:
                 continue
 
             time_of_day = None
@@ -1005,13 +1122,17 @@ For ambiguous items, generate a helpful clarification question.
             consumptions.append(
                 NormalizedConsumption(
                     canonical_name=None,
-                    raw_name=drink.get("drink_name", ""),
+                    raw_name=drink_name,
                     consumption_type="drink",
                     meal_type=None,
+                    food_category="beverage",
                     time_of_day=time_of_day,
                     quantity=drink.get("quantity", 1),
                     unit=drink.get("unit", "ml"),
                     calories=drink.get("calories"),
+                    caffeine_mg=drink.get("caffeine_mg"),
+                    alcohol_units=drink.get("alcohol_units"),
+                    water_ml=drink.get("water_ml"),
                     raw_mention=drink.get("raw_mention"),
                 )
             )
@@ -1086,6 +1207,15 @@ For ambiguous items, generate a helpful clarification question.
             if isinstance(h, dict):
                 health.append(h)
 
+        # Work/productivity
+        work = []
+        for w in raw.get("work", []):
+            if isinstance(w, dict):
+                work.append(w)
+
+        # Weather context
+        weather = raw.get("weather") if isinstance(raw.get("weather"), dict) else None
+
         return ExtractionResult(
             metrics=metrics,
             activities=activities,
@@ -1095,6 +1225,8 @@ For ambiguous items, generate a helpful clarification question.
             notes=notes,
             locations=locations,
             health=health,
+            work=work,
+            weather=weather,
             gaps=unique_gaps,
             has_gaps=len(unique_gaps) > 0,
             quality=self._calculate_quality(raw, unique_gaps),
