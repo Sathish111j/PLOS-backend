@@ -53,6 +53,7 @@ Open in your browser:
 |------|-----|
 | **Frontend** | http://localhost:3000 |
 | **API Docs** | http://localhost:8000/docs |
+| **Metabase** | http://localhost:8082 |
 | **Health Check** | http://localhost:8001/health |
 
 Or test with curl:

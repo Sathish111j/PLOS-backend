@@ -322,6 +322,7 @@ docker compose ps
 | Journal API | http://localhost:8002 | Process journal entries |
 | Knowledge API | http://localhost:8003 | Search and retrieve |
 | Context API | http://localhost:8001 | User state management |
+| Metabase | http://localhost:8082 | Data visualization & BI |
 | Monitoring | http://localhost:9090 | Prometheus metrics |
 | Dashboards | http://localhost:3333 | Grafana visualization |
 

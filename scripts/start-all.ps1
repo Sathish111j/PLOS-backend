@@ -42,6 +42,7 @@ Write-Host "All services are running!" -ForegroundColor Green
 Write-Host ""
 Write-Host "Infrastructure:" -ForegroundColor Cyan
 Write-Host "  Kafka UI:    http://localhost:8080" -ForegroundColor White
+Write-Host "  Metabase:    http://localhost:8082" -ForegroundColor White
 Write-Host "  Grafana:     http://localhost:3333" -ForegroundColor White
 Write-Host "  Prometheus:  http://localhost:9090" -ForegroundColor White
 Write-Host ""

@@ -462,6 +462,48 @@ services:
       - plos-network
     restart: unless-stopped
 
+  # Metabase - Business Intelligence & Data Visualization
+  metabase:
+    image: metabase/metabase:latest
+    container_name: plos-metabase
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_DBNAME: metabase
+      MB_DB_PORT: 5432
+      MB_DB_USER: ${POSTGRES_USER:-postgres}
+      MB_DB_PASS: ${POSTGRES_PASSWORD:-plos_db_secure_2025}
+      MB_DB_HOST: postgres
+      JAVA_OPTS: -Xmx1g
+    ports:
+      - "${METABASE_PORT:-3001}:3000"
+    volumes:
+      - metabase_data:/metabase-data
+    networks:
+      - plos-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
 # ============================================================================
 # NETWORKING
 # ============================================================================
@@ -493,4 +535,6 @@ volumes:
   qdrant_data:
     driver: local
   pgadmin_data:
+    driver: local
+  metabase_data:
     driver: local

@@ -114,10 +114,11 @@ Open your browser and visit:
 | **API Gateway** | http://localhost:8000 | API entry point |
 | **API Docs** | http://localhost:8000/docs | Interactive API documentation |
 | **Context Broker** | http://localhost:8001/health | Health check |
-| **Grafana** | http://localhost:3001 | Monitoring (admin/admin) |
+| **Metabase** | http://localhost:8082 | Data visualization & BI |
+| **Grafana** | http://localhost:3333 | Monitoring dashboards |
 | **Prometheus** | http://localhost:9090 | Metrics |
 | **Kafka UI** | http://localhost:8080 | Kafka management |
-| **Jaeger** | http://localhost:16686 | Distributed tracing |
+| **pgAdmin** | http://localhost:5050 | Database management |
 
 **Test API Gateway:**
 ```bash
