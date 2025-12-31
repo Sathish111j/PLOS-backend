@@ -309,6 +309,16 @@ PLOS creates a **personal data layer** that:
 
 ---
 
+## Why Self-Host?
+
+**Your personal data stays personal.** Unlike cloud services that mine your life patterns for profit, PLOS runs entirely on your infrastructure. Your journal entries, insights, and patterns remain private - accessible only to you.
+
+**Complete privacy with full control:** Self-host PLOS on your own hardware with Docker. Your AI learns from your data, not someone else's. Search, analyze, and visualize your life patterns without third-party access.
+
+**Ready to get started?** See the Quick Start section below for setup instructions.
+
+---
+
 ## Quick Start
 
 ### Prerequisites
