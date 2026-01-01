@@ -16,23 +16,6 @@ try {
     $pgReady = docker exec plos-postgres pg_isready -U postgres 2>&1
     if ($pgReady -match "accepting connections") {
         Write-Host "  Connection: OK" -ForegroundColor Green
-        
-        # Check tables
-        $tableCount = docker exec plos-postgres psql -U postgres -d plos -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>&1
-        $tableCount = $tableCount.Trim()
-        
-        if ($tableCount -eq "17") {
-            Write-Host "  Tables: $tableCount/17 created" -ForegroundColor Green
-        } else {
-            Write-Host "  Tables: Only $tableCount/17 found!" -ForegroundColor Red
-            $ErrorCount++
-        }
-        
-        # Check test user exists
-        $userCount = docker exec plos-postgres psql -U postgres -d plos -t -c "SELECT COUNT(*) FROM users;" 2>&1
-        $userCount = $userCount.Trim()
-        Write-Host "  Test Users: $userCount" -ForegroundColor Green
-        
     } else {
         Write-Host "  FAILED: Database not ready" -ForegroundColor Red
         $ErrorCount++

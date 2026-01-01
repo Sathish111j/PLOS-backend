@@ -1,669 +1,107 @@
--- ============================================================================
--- PLOS (Personal Life Operating System) - PostgreSQL Database Schema
--- Version: 1.0.0
--- Last Updated: 2025-12-31
--- ============================================================================
--- 
--- This script initializes the complete PLOS database schema including:
--- - Extensions (UUID, pgcrypto, pg_trgm for fuzzy matching)
--- - Custom ENUMs for type safety
--- - Core tables (users, journal extractions)
--- - Controlled vocabulary tables (categories, activity_types, food_items, metric_types)
--- - 11 extraction tables for comprehensive life tracking
--- - Views for analytics and reporting
--- - Stored functions for pattern analysis
--- - Proper indexes for performance
 --
--- ============================================================================
+-- PostgreSQL database dump
+--
 
--- ============================================================================
--- KONG API GATEWAY DATABASE
--- Required for Kong to store its configuration
--- ============================================================================
+-- Dumped from database version 15.15
+-- Dumped by pg_dump version 15.15
 
-CREATE DATABASE kong;
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET idle_in_transaction_session_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+SELECT pg_catalog.set_config('search_path', '', false);
+SET check_function_bodies = false;
+SET xmloption = content;
+SET client_min_messages = warning;
+SET row_security = off;
 
--- ============================================================================
--- METABASE DATABASE
--- Required for Metabase to store its metadata and configurations
--- ============================================================================
+--
+-- Name: pg_trgm; Type: EXTENSION; Schema: -; Owner: -
+--
 
-CREATE DATABASE metabase;
+CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public;
 
--- ============================================================================
--- EXTENSIONS
--- ============================================================================
 
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-CREATE EXTENSION IF NOT EXISTS "pg_trgm";  -- For fuzzy text matching
+--
+-- Name: EXTENSION pg_trgm; Type: COMMENT; Schema: -; Owner: -
+--
 
--- ============================================================================
--- CUSTOM ENUMS
--- ============================================================================
+COMMENT ON EXTENSION pg_trgm IS 'text similarity measurement and index searching based on trigrams';
 
-DO $$ BEGIN
-    CREATE TYPE extraction_quality AS ENUM ('high', 'medium', 'low');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
 
-DO $$ BEGIN
-    CREATE TYPE time_of_day AS ENUM ('early_morning', 'morning', 'afternoon', 'evening', 'night', 'late_night');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
+--
+-- Name: pgcrypto; Type: EXTENSION; Schema: -; Owner: -
+--
 
-DO $$ BEGIN
-    CREATE TYPE data_gap_status AS ENUM ('pending', 'answered', 'skipped', 'expired');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
 
--- ============================================================================
--- UTILITY FUNCTIONS
--- ============================================================================
 
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = CURRENT_TIMESTAMP;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+--
+-- Name: EXTENSION pgcrypto; Type: COMMENT; Schema: -; Owner: -
+--
 
--- ============================================================================
--- USERS TABLE
--- ============================================================================
+COMMENT ON EXTENSION pgcrypto IS 'cryptographic functions';
 
-CREATE TABLE IF NOT EXISTS users (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    email VARCHAR(255) NOT NULL UNIQUE,
-    username VARCHAR(100) NOT NULL UNIQUE,
-    password_hash VARCHAR(255) NOT NULL,
-    full_name VARCHAR(255),
-    timezone VARCHAR(50) DEFAULT 'UTC',
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    last_login TIMESTAMPTZ,
-    is_active BOOLEAN DEFAULT TRUE,
-    is_verified BOOLEAN DEFAULT FALSE
+
+--
+-- Name: uuid-ossp; Type: EXTENSION; Schema: -; Owner: -
+--
+
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA public;
+
+
+--
+-- Name: EXTENSION "uuid-ossp"; Type: COMMENT; Schema: -; Owner: -
+--
+
+COMMENT ON EXTENSION "uuid-ossp" IS 'generate universally unique identifiers (UUIDs)';
+
+
+--
+-- Name: data_gap_status; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.data_gap_status AS ENUM (
+    'pending',
+    'answered',
+    'skipped',
+    'expired'
 );
 
-CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 
-CREATE TRIGGER update_users_updated_at 
-    BEFORE UPDATE ON users 
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+--
+-- Name: extraction_quality; Type: TYPE; Schema: public; Owner: -
+--
 
--- ============================================================================
--- CONTROLLED VOCABULARY: CATEGORIES
--- Hierarchical category system for organizing data
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS categories (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(50) NOT NULL UNIQUE,
-    display_name VARCHAR(100) NOT NULL,
-    parent_id INT REFERENCES categories(id),
-    description TEXT,
-    icon VARCHAR(50),
-    created_at TIMESTAMPTZ DEFAULT NOW()
+CREATE TYPE public.extraction_quality AS ENUM (
+    'high',
+    'medium',
+    'low'
 );
 
-CREATE INDEX IF NOT EXISTS idx_categories_parent ON categories(parent_id);
-CREATE INDEX IF NOT EXISTS idx_categories_name ON categories(name);
 
--- ============================================================================
--- CONTROLLED VOCABULARY: ACTIVITY TYPES
--- ============================================================================
+--
+-- Name: time_of_day; Type: TYPE; Schema: public; Owner: -
+--
 
-CREATE TABLE IF NOT EXISTS activity_types (
-    id SERIAL PRIMARY KEY,
-    canonical_name VARCHAR(100) NOT NULL UNIQUE,
-    display_name VARCHAR(100) NOT NULL,
-    category_id INT NOT NULL REFERENCES categories(id),
-    is_physical BOOLEAN DEFAULT FALSE,
-    is_screen_time BOOLEAN DEFAULT FALSE,
-    avg_calories_per_hour INT,
-    typical_duration_minutes INT,
-    search_vector TSVECTOR,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+CREATE TYPE public.time_of_day AS ENUM (
+    'early_morning',
+    'morning',
+    'afternoon',
+    'evening',
+    'night',
+    'late_night'
 );
 
-COMMENT ON TABLE activity_types IS 'Controlled vocabulary for activities. New activities are added here with canonical names.';
 
-CREATE INDEX IF NOT EXISTS idx_activity_types_category ON activity_types(category_id);
-CREATE INDEX IF NOT EXISTS idx_activity_types_search ON activity_types USING GIN(search_vector);
+--
+-- Name: calculate_user_baseline(uuid, date, integer); Type: FUNCTION; Schema: public; Owner: -
+--
 
--- Activity aliases for fuzzy matching
-CREATE TABLE IF NOT EXISTS activity_aliases (
-    id SERIAL PRIMARY KEY,
-    alias VARCHAR(100) NOT NULL UNIQUE,
-    activity_type_id INT NOT NULL REFERENCES activity_types(id),
-    confidence FLOAT DEFAULT 1.0,
-    source VARCHAR(50) DEFAULT 'manual',
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-COMMENT ON TABLE activity_aliases IS 'Maps user variations to canonical activity names. Grows over time as we learn new terms.';
-
-CREATE INDEX IF NOT EXISTS idx_aliases_alias ON activity_aliases(alias);
-CREATE INDEX IF NOT EXISTS idx_aliases_trgm ON activity_aliases USING GIN(alias gin_trgm_ops);
-
--- ============================================================================
--- CONTROLLED VOCABULARY: FOOD ITEMS
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS food_items (
-    id SERIAL PRIMARY KEY,
-    canonical_name VARCHAR(100) NOT NULL UNIQUE,
-    display_name VARCHAR(100) NOT NULL,
-    category VARCHAR(50),
-    serving_size_g INT DEFAULT 100,
-    calories_per_serving INT,
-    protein_g FLOAT,
-    carbs_g FLOAT,
-    fat_g FLOAT,
-    fiber_g FLOAT,
-    is_healthy BOOLEAN,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_food_items_category ON food_items(category);
-
--- Food aliases for fuzzy matching
-CREATE TABLE IF NOT EXISTS food_aliases (
-    id SERIAL PRIMARY KEY,
-    alias VARCHAR(100) NOT NULL UNIQUE,
-    food_item_id INT NOT NULL REFERENCES food_items(id),
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- ============================================================================
--- CONTROLLED VOCABULARY: METRIC TYPES
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS metric_types (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(50) NOT NULL UNIQUE,
-    display_name VARCHAR(100) NOT NULL,
-    category_id INT REFERENCES categories(id),
-    unit VARCHAR(20),
-    min_value FLOAT,
-    max_value FLOAT,
-    description TEXT
-);
-
--- ============================================================================
--- JOURNAL EXTRACTIONS (Main Entry Table)
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS journal_extractions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL,
-    entry_date DATE NOT NULL,
-    raw_entry TEXT NOT NULL,
-    preprocessed_entry TEXT,
-    overall_quality extraction_quality,
-    extraction_time_ms INT,
-    gemini_model VARCHAR(50),
-    has_gaps BOOLEAN DEFAULT FALSE,
-    gaps_resolved BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(user_id, entry_date)
-);
-
-CREATE INDEX IF NOT EXISTS idx_extractions_user_date ON journal_extractions(user_id, entry_date);
-CREATE INDEX IF NOT EXISTS idx_journal_entry_date ON journal_extractions(entry_date);
-CREATE INDEX IF NOT EXISTS idx_journal_user_date ON journal_extractions(user_id, entry_date);
-CREATE INDEX IF NOT EXISTS idx_journal_user_entry ON journal_extractions(user_id, entry_date);
-
--- ============================================================================
--- EXTRACTION TABLE: ACTIVITIES
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS extraction_activities (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    extraction_id UUID NOT NULL REFERENCES journal_extractions(id) ON DELETE CASCADE,
-    activity_type_id INT REFERENCES activity_types(id),
-    activity_raw VARCHAR(100),
-    activity_category VARCHAR(50),
-    start_time TIME,
-    end_time TIME,
-    duration_minutes INT,
-    time_of_day time_of_day,
-    intensity VARCHAR(10) CHECK (intensity IN ('low', 'medium', 'high')),
-    satisfaction INT CHECK (satisfaction >= 1 AND satisfaction <= 10),
-    calories_burned INT,
-    is_outdoor BOOLEAN,
-    with_others BOOLEAN,
-    location VARCHAR(100),
-    mood_before INT CHECK (mood_before >= 1 AND mood_before <= 10),
-    mood_after INT CHECK (mood_after >= 1 AND mood_after <= 10),
-    confidence FLOAT DEFAULT 0.5,
-    raw_mention TEXT,
-    needs_clarification BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_activities_extraction ON extraction_activities(extraction_id);
-CREATE INDEX IF NOT EXISTS idx_activities_type ON extraction_activities(activity_type_id);
-CREATE INDEX IF NOT EXISTS idx_activities_category ON extraction_activities(activity_category);
-CREATE INDEX IF NOT EXISTS idx_activities_time ON extraction_activities(time_of_day);
-CREATE INDEX IF NOT EXISTS idx_activities_raw ON extraction_activities(activity_raw);
-CREATE INDEX IF NOT EXISTS idx_activities_date_cat ON extraction_activities(extraction_id, activity_category);
-
--- ============================================================================
--- EXTRACTION TABLE: CONSUMPTIONS (Food, Drinks, Medications)
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS extraction_consumptions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    extraction_id UUID NOT NULL REFERENCES journal_extractions(id) ON DELETE CASCADE,
-    food_item_id INT REFERENCES food_items(id),
-    item_raw VARCHAR(200),
-    food_category VARCHAR(50),
-    consumption_type VARCHAR(20) NOT NULL CHECK (consumption_type IN ('meal', 'snack', 'drink', 'medication', 'supplement')),
-    meal_type VARCHAR(20) CHECK (meal_type IN ('breakfast', 'lunch', 'dinner', 'snack')),
-    consumption_time TIME,
-    time_of_day time_of_day,
-    quantity FLOAT DEFAULT 1,
-    unit VARCHAR(20) DEFAULT 'serving',
-    calories INT,
-    protein_g FLOAT,
-    carbs_g FLOAT,
-    fat_g FLOAT,
-    fiber_g FLOAT,
-    sugar_g FLOAT,
-    sodium_mg FLOAT,
-    caffeine_mg FLOAT,
-    alcohol_units FLOAT,
-    water_ml INT,
-    is_processed BOOLEAN,
-    is_healthy BOOLEAN,
-    is_home_cooked BOOLEAN,
-    confidence FLOAT DEFAULT 0.5,
-    raw_mention TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_consumptions_extraction ON extraction_consumptions(extraction_id);
-CREATE INDEX IF NOT EXISTS idx_consumptions_type ON extraction_consumptions(consumption_type);
-CREATE INDEX IF NOT EXISTS idx_consumptions_meal_type ON extraction_consumptions(meal_type);
-CREATE INDEX IF NOT EXISTS idx_consumptions_category ON extraction_consumptions(food_category);
-CREATE INDEX IF NOT EXISTS idx_consumptions_time ON extraction_consumptions(time_of_day);
-CREATE INDEX IF NOT EXISTS idx_consumptions_raw ON extraction_consumptions(item_raw);
-CREATE INDEX IF NOT EXISTS idx_consumptions_date_type ON extraction_consumptions(extraction_id, food_category);
-
--- ============================================================================
--- EXTRACTION TABLE: SLEEP
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS extraction_sleep (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    extraction_id UUID NOT NULL UNIQUE REFERENCES journal_extractions(id) ON DELETE CASCADE,
-    duration_hours FLOAT,
-    quality INT CHECK (quality >= 1 AND quality <= 10),
-    bedtime TIME,
-    waketime TIME,
-    disruptions INT DEFAULT 0,
-    trouble_falling_asleep BOOLEAN,
-    woke_up_tired BOOLEAN,
-    nap_duration_minutes INT DEFAULT 0,
-    sleep_environment VARCHAR(100),
-    pre_sleep_activity VARCHAR(100),
-    dreams_noted TEXT,
-    confidence FLOAT DEFAULT 0.5,
-    raw_mention TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- ============================================================================
--- EXTRACTION TABLE: SOCIAL INTERACTIONS
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS extraction_social (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    extraction_id UUID NOT NULL REFERENCES journal_extractions(id) ON DELETE CASCADE,
-    person_name VARCHAR(100),
-    relationship VARCHAR(50),
-    relationship_category VARCHAR(50),
-    interaction_type VARCHAR(50),
-    duration_minutes INT,
-    time_of_day time_of_day,
-    sentiment VARCHAR(20) CHECK (sentiment IN ('positive', 'negative', 'neutral', 'conflict')),
-    quality_score INT CHECK (quality_score >= 1 AND quality_score <= 10),
-    conflict_level INT CHECK (conflict_level >= 0 AND conflict_level <= 10),
-    mood_before INT CHECK (mood_before >= 1 AND mood_before <= 10),
-    mood_after INT CHECK (mood_after >= 1 AND mood_after <= 10),
-    emotional_impact VARCHAR(50),
-    interaction_outcome VARCHAR(50),
-    initiated_by VARCHAR(20),
-    is_virtual BOOLEAN,
-    location VARCHAR(100),
-    topic VARCHAR(200),
-    confidence FLOAT DEFAULT 0.5,
-    raw_mention TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-COMMENT ON COLUMN extraction_social.relationship IS 'Specific: mom, dad, girlfriend, boyfriend, boss, colleague, classmate, teacher, student, neighbor, etc.';
-COMMENT ON COLUMN extraction_social.relationship_category IS 'family|romantic|professional|friend|acquaintance|other';
-COMMENT ON COLUMN extraction_social.mood_before IS 'Mood 1-10 before interaction';
-COMMENT ON COLUMN extraction_social.mood_after IS 'Mood 1-10 after interaction';
-COMMENT ON COLUMN extraction_social.conflict_level IS '0=no conflict, 10=major fight';
-COMMENT ON COLUMN extraction_social.emotional_impact IS 'energized|drained|supported|stressed|happy|sad|frustrated|calm|anxious';
-COMMENT ON COLUMN extraction_social.initiated_by IS 'user|other|mutual';
-COMMENT ON COLUMN extraction_social.interaction_outcome IS 'resolved|ongoing|escalated|positive|negative|neutral';
-
-CREATE INDEX IF NOT EXISTS idx_social_extraction ON extraction_social(extraction_id);
-CREATE INDEX IF NOT EXISTS idx_social_person ON extraction_social(person_name);
-CREATE INDEX IF NOT EXISTS idx_social_relationship ON extraction_social(relationship);
-CREATE INDEX IF NOT EXISTS idx_social_relationship_category ON extraction_social(relationship_category);
-CREATE INDEX IF NOT EXISTS idx_social_sentiment ON extraction_social(sentiment);
-CREATE INDEX IF NOT EXISTS idx_social_conflict ON extraction_social(conflict_level);
-CREATE INDEX IF NOT EXISTS idx_social_emotional_impact ON extraction_social(emotional_impact);
-
--- ============================================================================
--- EXTRACTION TABLE: METRICS (Numeric Scores)
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS extraction_metrics (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    extraction_id UUID NOT NULL REFERENCES journal_extractions(id) ON DELETE CASCADE,
-    metric_type_id INT NOT NULL REFERENCES metric_types(id),
-    value FLOAT NOT NULL,
-    time_of_day time_of_day,
-    confidence FLOAT DEFAULT 0.5,
-    raw_mention TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(extraction_id, metric_type_id, time_of_day)
-);
-
-CREATE INDEX IF NOT EXISTS idx_metrics_extraction ON extraction_metrics(extraction_id);
-CREATE INDEX IF NOT EXISTS idx_metrics_type ON extraction_metrics(metric_type_id);
-
--- ============================================================================
--- EXTRACTION TABLE: WORK / PRODUCTIVITY
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS extraction_work (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    extraction_id UUID NOT NULL REFERENCES journal_extractions(id) ON DELETE CASCADE,
-    work_type VARCHAR(50),
-    project_name VARCHAR(200),
-    duration_minutes INT,
-    time_of_day time_of_day,
-    productivity_score INT CHECK (productivity_score >= 1 AND productivity_score <= 10),
-    focus_quality VARCHAR(20),
-    interruptions INT DEFAULT 0,
-    accomplishments TEXT,
-    blockers TEXT,
-    raw_mention TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_work_extraction ON extraction_work(extraction_id);
-CREATE INDEX IF NOT EXISTS idx_work_type ON extraction_work(work_type);
-
--- ============================================================================
--- EXTRACTION TABLE: HEALTH SYMPTOMS
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS extraction_health (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    extraction_id UUID NOT NULL REFERENCES journal_extractions(id) ON DELETE CASCADE,
-    symptom_type VARCHAR(100) NOT NULL,
-    body_part VARCHAR(50),
-    severity INT CHECK (severity >= 1 AND severity <= 10),
-    duration_minutes INT,
-    time_of_day VARCHAR(20),
-    possible_cause TEXT,
-    medication_taken TEXT,
-    is_resolved BOOLEAN,
-    impact_score INT CHECK (impact_score >= 1 AND impact_score <= 10),
-    triggers TEXT,
-    raw_mention TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_health_extraction ON extraction_health(extraction_id);
-CREATE INDEX IF NOT EXISTS idx_health_symptom ON extraction_health(symptom_type);
-
--- ============================================================================
--- EXTRACTION TABLE: WEATHER CONTEXT
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS extraction_weather (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    extraction_id UUID NOT NULL REFERENCES journal_extractions(id) ON DELETE CASCADE,
-    weather_condition VARCHAR(50),
-    temperature_feel VARCHAR(20),
-    mentioned_impact TEXT,
-    raw_mention TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_weather_extraction ON extraction_weather(extraction_id);
-CREATE INDEX IF NOT EXISTS idx_weather_condition ON extraction_weather(weather_condition);
-
--- ============================================================================
--- EXTRACTION TABLE: LOCATIONS
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS extraction_locations (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    extraction_id UUID NOT NULL REFERENCES journal_extractions(id) ON DELETE CASCADE,
-    location_name VARCHAR(255) NOT NULL,
-    location_type VARCHAR(50),
-    time_of_day VARCHAR(20),
-    duration_minutes INT,
-    activity_context TEXT,
-    raw_mention TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_locations_extraction ON extraction_locations(extraction_id);
-CREATE INDEX IF NOT EXISTS idx_locations_type ON extraction_locations(location_type);
-
--- ============================================================================
--- EXTRACTION TABLE: NOTES (Goals, Gratitude, Thoughts)
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS extraction_notes (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    extraction_id UUID NOT NULL REFERENCES journal_extractions(id) ON DELETE CASCADE,
-    note_type VARCHAR(50) NOT NULL,
-    content TEXT NOT NULL,
-    sentiment VARCHAR(20),
-    confidence FLOAT DEFAULT 0.5,
-    raw_mention TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_notes_extraction ON extraction_notes(extraction_id);
-CREATE INDEX IF NOT EXISTS idx_notes_type ON extraction_notes(note_type);
-
--- ============================================================================
--- EXTRACTION TABLE: GAPS (Clarification Questions)
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS extraction_gaps (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    extraction_id UUID NOT NULL REFERENCES journal_extractions(id) ON DELETE CASCADE,
-    field_category VARCHAR(50) NOT NULL,
-    question TEXT NOT NULL,
-    context TEXT,
-    original_mention TEXT,
-    priority INT DEFAULT 1,
-    status data_gap_status DEFAULT 'pending',
-    user_response TEXT,
-    resolved_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-COMMENT ON TABLE extraction_gaps IS 'Questions that need user clarification. LLM generates these when data is ambiguous.';
-
-CREATE INDEX IF NOT EXISTS idx_gaps_extraction ON extraction_gaps(extraction_id);
-CREATE INDEX IF NOT EXISTS idx_gaps_status ON extraction_gaps(status);
-
--- ============================================================================
--- USER PATTERNS TABLE (Cached Baselines)
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS user_patterns (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL,
-    pattern_type VARCHAR(50) NOT NULL,
-    day_of_week INT CHECK (day_of_week >= 0 AND day_of_week <= 6),
-    value FLOAT,
-    std_dev FLOAT,
-    sample_count INT DEFAULT 0,
-    confidence FLOAT DEFAULT 0.5 CHECK (confidence >= 0 AND confidence <= 1),
-    metadata JSONB DEFAULT '{}',
-    last_updated TIMESTAMPTZ DEFAULT NOW(),
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(user_id, pattern_type, day_of_week)
-);
-
-COMMENT ON TABLE user_patterns IS 'Cached user patterns and baselines for fast context retrieval. Updated periodically.';
-
-CREATE INDEX IF NOT EXISTS idx_user_patterns_user ON user_patterns(user_id);
-CREATE INDEX IF NOT EXISTS idx_user_patterns_type ON user_patterns(pattern_type);
-CREATE INDEX IF NOT EXISTS idx_user_patterns_dow ON user_patterns(day_of_week);
-
--- ============================================================================
--- USER CONTEXT STATE (Real-time State)
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS user_context_state (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-    current_mood_score INT,
-    current_energy_level INT,
-    current_stress_level INT,
-    sleep_quality_avg_7d NUMERIC(4,2),
-    productivity_score_avg_7d NUMERIC(4,2),
-    active_goals_count INT DEFAULT 0,
-    pending_tasks_count INT DEFAULT 0,
-    completed_tasks_today INT DEFAULT 0,
-    context_data JSONB,
-    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-);
-
-COMMENT ON TABLE user_context_state IS 'Real-time user context for fast API responses.';
-
--- ============================================================================
--- VIEWS FOR ANALYTICS
--- ============================================================================
-
--- Activity summary view
-CREATE OR REPLACE VIEW v_activity_summary AS
-SELECT 
-    je.user_id,
-    je.entry_date,
-    COALESCE(at.canonical_name, ea.activity_raw) as activity,
-    COALESCE(at.display_name, ea.activity_raw) as activity_display,
-    c.name as category,
-    ea.duration_minutes,
-    ea.time_of_day,
-    ea.intensity,
-    ea.satisfaction,
-    ea.calories_burned,
-    at.is_physical,
-    at.is_screen_time
-FROM extraction_activities ea
-JOIN journal_extractions je ON ea.extraction_id = je.id
-LEFT JOIN activity_types at ON ea.activity_type_id = at.id
-LEFT JOIN categories c ON at.category_id = c.id;
-
--- Daily nutrition view
-CREATE OR REPLACE VIEW v_daily_nutrition AS
-SELECT 
-    je.user_id,
-    je.entry_date,
-    COUNT(*) FILTER (WHERE ec.consumption_type = 'meal') as meals_count,
-    SUM(ec.calories) as total_calories,
-    SUM(ec.protein_g) as total_protein,
-    SUM(ec.carbs_g) as total_carbs,
-    SUM(ec.fat_g) as total_fat,
-    COUNT(*) FILTER (WHERE ec.is_healthy = TRUE) as healthy_items,
-    COUNT(*) FILTER (WHERE ec.is_home_cooked = TRUE) as home_cooked
-FROM extraction_consumptions ec
-JOIN journal_extractions je ON ec.extraction_id = je.id
-GROUP BY je.user_id, je.entry_date;
-
--- Pending gaps view
-CREATE OR REPLACE VIEW v_pending_gaps AS
-SELECT 
-    je.user_id,
-    eg.id as gap_id,
-    je.entry_date,
-    eg.field_category,
-    eg.question,
-    eg.context,
-    eg.priority,
-    eg.created_at
-FROM extraction_gaps eg
-JOIN journal_extractions je ON eg.extraction_id = je.id
-WHERE eg.status = 'pending'
-ORDER BY eg.priority, eg.created_at;
-
--- Rolling averages view
-CREATE OR REPLACE VIEW v_rolling_averages AS
-SELECT 
-    je.user_id,
-    je.entry_date,
-    AVG(em.value) FILTER (WHERE mt.name = 'mood_score') 
-        OVER (PARTITION BY je.user_id ORDER BY je.entry_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) as avg_mood_7d,
-    AVG(em.value) FILTER (WHERE mt.name = 'energy_level') 
-        OVER (PARTITION BY je.user_id ORDER BY je.entry_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) as avg_energy_7d,
-    AVG(em.value) FILTER (WHERE mt.name = 'sleep_duration') 
-        OVER (PARTITION BY je.user_id ORDER BY je.entry_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) as avg_sleep_7d,
-    AVG(em.value) FILTER (WHERE mt.name = 'stress_level') 
-        OVER (PARTITION BY je.user_id ORDER BY je.entry_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) as avg_stress_7d
-FROM journal_extractions je
-JOIN extraction_metrics em ON je.id = em.extraction_id
-JOIN metric_types mt ON em.metric_type_id = mt.id;
-
--- Day of week mood patterns
-CREATE OR REPLACE VIEW v_dow_mood_patterns AS
-SELECT 
-    je.user_id,
-    EXTRACT(DOW FROM je.entry_date) as day_of_week,
-    AVG(em.value) as avg_mood,
-    STDDEV(em.value) as stddev_mood,
-    COUNT(*) as sample_count
-FROM journal_extractions je
-JOIN extraction_metrics em ON je.id = em.extraction_id
-JOIN metric_types mt ON em.metric_type_id = mt.id
-WHERE mt.name = 'mood_score'
-GROUP BY je.user_id, EXTRACT(DOW FROM je.entry_date);
-
--- ============================================================================
--- STORED FUNCTIONS
--- ============================================================================
-
--- Calculate user baseline metrics
-CREATE OR REPLACE FUNCTION calculate_user_baseline(
-    p_user_id UUID, 
-    p_entry_date DATE, 
-    p_days INT DEFAULT 30
-)
-RETURNS TABLE (
-    avg_sleep FLOAT,
-    stddev_sleep FLOAT,
-    avg_mood FLOAT,
-    stddev_mood FLOAT,
-    avg_energy FLOAT,
-    stddev_energy FLOAT,
-    avg_stress FLOAT,
-    stddev_stress FLOAT,
-    sample_count BIGINT
-) AS $$
+CREATE FUNCTION public.calculate_user_baseline(p_user_id uuid, p_entry_date date, p_days integer DEFAULT 30) RETURNS TABLE(avg_sleep double precision, stddev_sleep double precision, avg_mood double precision, stddev_mood double precision, avg_energy double precision, stddev_energy double precision, avg_stress double precision, stddev_stress double precision, sample_count bigint)
+    LANGUAGE plpgsql
+    AS $$
 BEGIN
     RETURN QUERY
     SELECT 
@@ -683,13 +121,50 @@ BEGIN
       AND je.entry_date >= (p_entry_date - p_days)
       AND je.entry_date < p_entry_date;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
-COMMENT ON FUNCTION calculate_user_baseline IS 'Calculates user baseline metrics from journal extractions.';
 
--- Resolve activity name to ID
-CREATE OR REPLACE FUNCTION resolve_activity_name(p_name VARCHAR)
-RETURNS INT AS $$
+--
+-- Name: FUNCTION calculate_user_baseline(p_user_id uuid, p_entry_date date, p_days integer); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.calculate_user_baseline(p_user_id uuid, p_entry_date date, p_days integer) IS 'Calculates user baseline metrics from journal extractions.';
+
+
+--
+-- Name: get_activity_totals(uuid, date, date, character varying); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.get_activity_totals(p_user_id uuid, p_start_date date, p_end_date date, p_category character varying DEFAULT NULL::character varying) RETURNS TABLE(activity character varying, category character varying, total_minutes bigint, total_hours double precision, occurrences bigint, avg_satisfaction double precision, total_calories bigint)
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        v.activity::VARCHAR,
+        v.category::VARCHAR,
+        SUM(v.duration_minutes)::BIGINT,
+        SUM(v.duration_minutes)::FLOAT / 60,
+        COUNT(*)::BIGINT,
+        AVG(v.satisfaction)::FLOAT,
+        SUM(v.calories_burned)::BIGINT
+    FROM v_activity_summary v
+    WHERE v.user_id = p_user_id
+      AND v.entry_date BETWEEN p_start_date AND p_end_date
+      AND (p_category IS NULL OR v.category = p_category)
+    GROUP BY v.activity, v.category
+    ORDER BY SUM(v.duration_minutes) DESC NULLS LAST;
+END;
+$$;
+
+
+--
+-- Name: resolve_activity_name(character varying); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.resolve_activity_name(p_name character varying) RETURNS integer
+    LANGUAGE plpgsql
+    AS $$
 DECLARE
     v_type_id INT;
 BEGIN
@@ -711,62 +186,43 @@ BEGIN
     
     -- Try fuzzy match
     SELECT at.id INTO v_type_id FROM activity_types at
-    WHERE at.canonical_name % LOWER(p_name)
+    WHERE at.canonical_name % LOWER(p_name)  -- trigram similarity
     ORDER BY similarity(at.canonical_name, LOWER(p_name)) DESC
     LIMIT 1;
     
-    RETURN v_type_id;
+    RETURN v_type_id;  -- May be NULL
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
-COMMENT ON FUNCTION resolve_activity_name IS 'Resolves user activity text to canonical activity_type_id using exact match, alias, then fuzzy match.';
 
--- Get activity totals for date range
-CREATE OR REPLACE FUNCTION get_activity_totals(
-    p_user_id UUID,
-    p_start_date DATE,
-    p_end_date DATE,
-    p_category VARCHAR DEFAULT NULL
-)
-RETURNS TABLE (
-    activity VARCHAR,
-    category VARCHAR,
-    total_minutes BIGINT,
-    total_hours FLOAT,
-    occurrences BIGINT,
-    avg_satisfaction FLOAT,
-    total_calories BIGINT
-) AS $$
+--
+-- Name: FUNCTION resolve_activity_name(p_name character varying); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.resolve_activity_name(p_name character varying) IS 'Resolves user activity text to canonical activity_type_id using exact match, alias, then fuzzy match.';
+
+
+--
+-- Name: update_updated_at_column(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.update_updated_at_column() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
 BEGIN
-    RETURN QUERY
-    SELECT 
-        v.activity::VARCHAR,
-        v.category::VARCHAR,
-        SUM(v.duration_minutes)::BIGINT,
-        SUM(v.duration_minutes)::FLOAT / 60,
-        COUNT(*)::BIGINT,
-        AVG(v.satisfaction)::FLOAT,
-        SUM(v.calories_burned)::BIGINT
-    FROM v_activity_summary v
-    WHERE v.user_id = p_user_id
-      AND v.entry_date BETWEEN p_start_date AND p_end_date
-      AND (p_category IS NULL OR v.category = p_category)
-    GROUP BY v.activity, v.category
-    ORDER BY SUM(v.duration_minutes) DESC NULLS LAST;
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
--- Update user pattern cache
-CREATE OR REPLACE FUNCTION update_user_pattern_cache(
-    p_user_id UUID,
-    p_pattern_type VARCHAR,
-    p_value FLOAT,
-    p_std_dev FLOAT,
-    p_sample_count INT,
-    p_day_of_week INT DEFAULT NULL,
-    p_metadata JSONB DEFAULT '{}'
-)
-RETURNS UUID AS $$
+
+--
+-- Name: update_user_pattern_cache(uuid, character varying, double precision, double precision, integer, integer, jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.update_user_pattern_cache(p_user_id uuid, p_pattern_type character varying, p_value double precision, p_std_dev double precision, p_sample_count integer, p_day_of_week integer DEFAULT NULL::integer, p_metadata jsonb DEFAULT '{}'::jsonb) RETURNS uuid
+    LANGUAGE plpgsql
+    AS $$
 DECLARE
     v_pattern_id UUID;
 BEGIN
@@ -776,7 +232,7 @@ BEGIN
     ) VALUES (
         p_user_id, p_pattern_type, p_day_of_week, p_value, p_std_dev,
         p_sample_count, 
-        LEAST(p_sample_count::FLOAT / 30.0, 1.0),
+        LEAST(p_sample_count::FLOAT / 30.0, 1.0),  -- Confidence based on samples
         p_metadata,
         NOW()
     )
@@ -792,10 +248,1591 @@ BEGIN
     
     RETURN v_pattern_id;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
-COMMENT ON FUNCTION update_user_pattern_cache IS 'Upserts a user pattern into the cache.';
 
--- ============================================================================
--- END OF SCHEMA
--- ============================================================================
+--
+-- Name: FUNCTION update_user_pattern_cache(p_user_id uuid, p_pattern_type character varying, p_value double precision, p_std_dev double precision, p_sample_count integer, p_day_of_week integer, p_metadata jsonb); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.update_user_pattern_cache(p_user_id uuid, p_pattern_type character varying, p_value double precision, p_std_dev double precision, p_sample_count integer, p_day_of_week integer, p_metadata jsonb) IS 'Upserts a user pattern into the cache.';
+
+
+SET default_tablespace = '';
+
+SET default_table_access_method = heap;
+
+--
+-- Name: activity_aliases; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.activity_aliases (
+    id integer NOT NULL,
+    alias character varying(100) NOT NULL,
+    activity_type_id integer NOT NULL,
+    confidence double precision DEFAULT 1.0,
+    source character varying(50) DEFAULT 'manual'::character varying,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+
+--
+-- Name: TABLE activity_aliases; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.activity_aliases IS 'Maps user variations to canonical activity names. Grows over time as we learn new terms.';
+
+
+--
+-- Name: activity_aliases_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.activity_aliases_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: activity_aliases_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.activity_aliases_id_seq OWNED BY public.activity_aliases.id;
+
+
+--
+-- Name: activity_types; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.activity_types (
+    id integer NOT NULL,
+    canonical_name character varying(100) NOT NULL,
+    display_name character varying(100) NOT NULL,
+    category_id integer NOT NULL,
+    is_physical boolean DEFAULT false,
+    is_screen_time boolean DEFAULT false,
+    avg_calories_per_hour integer,
+    typical_duration_minutes integer,
+    search_vector tsvector,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+
+--
+-- Name: TABLE activity_types; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.activity_types IS 'Controlled vocabulary for activities. New activities are added here with canonical names.';
+
+
+--
+-- Name: activity_types_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.activity_types_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: activity_types_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.activity_types_id_seq OWNED BY public.activity_types.id;
+
+
+--
+-- Name: categories; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.categories (
+    id integer NOT NULL,
+    name character varying(50) NOT NULL,
+    display_name character varying(100) NOT NULL,
+    parent_id integer,
+    description text,
+    icon character varying(50),
+    created_at timestamp with time zone DEFAULT now()
+);
+
+
+--
+-- Name: categories_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.categories_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: categories_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.categories_id_seq OWNED BY public.categories.id;
+
+
+--
+-- Name: extraction_activities; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.extraction_activities (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    extraction_id uuid NOT NULL,
+    activity_type_id integer,
+    activity_raw character varying(100),
+    start_time time without time zone,
+    end_time time without time zone,
+    duration_minutes integer,
+    time_of_day public.time_of_day,
+    intensity character varying(10),
+    satisfaction integer,
+    calories_burned integer,
+    confidence double precision DEFAULT 0.5,
+    raw_mention text,
+    needs_clarification boolean DEFAULT false,
+    created_at timestamp with time zone DEFAULT now(),
+    activity_category character varying(50),
+    is_outdoor boolean,
+    with_others boolean,
+    location character varying(100),
+    mood_before integer,
+    mood_after integer,
+    CONSTRAINT extraction_activities_intensity_check CHECK (((intensity)::text = ANY ((ARRAY['low'::character varying, 'medium'::character varying, 'high'::character varying])::text[]))),
+    CONSTRAINT extraction_activities_mood_after_check CHECK (((mood_after >= 1) AND (mood_after <= 10))),
+    CONSTRAINT extraction_activities_mood_before_check CHECK (((mood_before >= 1) AND (mood_before <= 10))),
+    CONSTRAINT extraction_activities_satisfaction_check CHECK (((satisfaction >= 1) AND (satisfaction <= 10)))
+);
+
+
+--
+-- Name: extraction_consumptions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.extraction_consumptions (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    extraction_id uuid NOT NULL,
+    consumption_type character varying(20) NOT NULL,
+    meal_type character varying(20),
+    food_item_id integer,
+    item_raw character varying(200),
+    consumption_time time without time zone,
+    time_of_day public.time_of_day,
+    quantity double precision DEFAULT 1,
+    unit character varying(20) DEFAULT 'serving'::character varying,
+    calories integer,
+    protein_g double precision,
+    carbs_g double precision,
+    fat_g double precision,
+    is_healthy boolean,
+    is_home_cooked boolean,
+    confidence double precision DEFAULT 0.5,
+    raw_mention text,
+    created_at timestamp with time zone DEFAULT now(),
+    fiber_g double precision,
+    sugar_g double precision,
+    sodium_mg double precision,
+    food_category character varying(50),
+    caffeine_mg double precision,
+    alcohol_units double precision,
+    is_processed boolean,
+    water_ml integer,
+    CONSTRAINT extraction_consumptions_consumption_type_check CHECK (((consumption_type)::text = ANY ((ARRAY['meal'::character varying, 'snack'::character varying, 'drink'::character varying, 'medication'::character varying, 'supplement'::character varying])::text[]))),
+    CONSTRAINT extraction_consumptions_meal_type_check CHECK (((meal_type)::text = ANY ((ARRAY['breakfast'::character varying, 'lunch'::character varying, 'dinner'::character varying, 'snack'::character varying])::text[])))
+);
+
+
+--
+-- Name: extraction_gaps; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.extraction_gaps (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    extraction_id uuid NOT NULL,
+    field_category character varying(50) NOT NULL,
+    question text NOT NULL,
+    context text,
+    original_mention text,
+    priority integer DEFAULT 1,
+    status public.data_gap_status DEFAULT 'pending'::public.data_gap_status,
+    user_response text,
+    resolved_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+
+--
+-- Name: TABLE extraction_gaps; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.extraction_gaps IS 'Questions that need user clarification. LLM generates these when data is ambiguous.';
+
+
+--
+-- Name: extraction_health; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.extraction_health (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    extraction_id uuid NOT NULL,
+    symptom_type character varying(100) NOT NULL,
+    body_part character varying(50),
+    severity integer,
+    duration_minutes integer,
+    time_of_day character varying(20),
+    possible_cause text,
+    medication_taken text,
+    raw_mention text,
+    created_at timestamp with time zone DEFAULT now(),
+    is_resolved boolean,
+    impact_score integer,
+    triggers text,
+    CONSTRAINT extraction_health_impact_score_check CHECK (((impact_score >= 1) AND (impact_score <= 10))),
+    CONSTRAINT extraction_health_severity_check CHECK (((severity >= 1) AND (severity <= 10)))
+);
+
+
+--
+-- Name: extraction_locations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.extraction_locations (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    extraction_id uuid NOT NULL,
+    location_name character varying(255) NOT NULL,
+    location_type character varying(50),
+    time_of_day character varying(20),
+    duration_minutes integer,
+    activity_context text,
+    raw_mention text,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+
+--
+-- Name: extraction_metrics; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.extraction_metrics (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    extraction_id uuid NOT NULL,
+    metric_type_id integer NOT NULL,
+    value double precision NOT NULL,
+    confidence double precision DEFAULT 0.5,
+    time_of_day public.time_of_day,
+    raw_mention text,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+
+--
+-- Name: extraction_notes; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.extraction_notes (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    extraction_id uuid NOT NULL,
+    note_type character varying(50) NOT NULL,
+    content text NOT NULL,
+    sentiment character varying(20),
+    confidence double precision DEFAULT 0.5,
+    raw_mention text,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+
+--
+-- Name: extraction_sleep; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.extraction_sleep (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    extraction_id uuid NOT NULL,
+    duration_hours double precision,
+    quality integer,
+    bedtime time without time zone,
+    waketime time without time zone,
+    disruptions integer DEFAULT 0,
+    trouble_falling_asleep boolean,
+    woke_up_tired boolean,
+    nap_duration_minutes integer DEFAULT 0,
+    confidence double precision DEFAULT 0.5,
+    raw_mention text,
+    created_at timestamp with time zone DEFAULT now(),
+    sleep_environment character varying(100),
+    pre_sleep_activity character varying(100),
+    dreams_noted text,
+    CONSTRAINT extraction_sleep_quality_check CHECK (((quality >= 1) AND (quality <= 10)))
+);
+
+
+--
+-- Name: extraction_social; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.extraction_social (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    extraction_id uuid NOT NULL,
+    person_name character varying(100),
+    relationship character varying(50),
+    interaction_type character varying(50),
+    sentiment character varying(20),
+    time_of_day public.time_of_day,
+    duration_minutes integer,
+    confidence double precision DEFAULT 0.5,
+    raw_mention text,
+    created_at timestamp with time zone DEFAULT now(),
+    quality_score integer,
+    is_virtual boolean,
+    topic character varying(200),
+    relationship_category character varying(50),
+    mood_before integer,
+    mood_after integer,
+    interaction_outcome character varying(50),
+    conflict_level integer,
+    emotional_impact character varying(50),
+    initiated_by character varying(20),
+    location character varying(100),
+    CONSTRAINT extraction_social_conflict_level_check CHECK (((conflict_level >= 0) AND (conflict_level <= 10))),
+    CONSTRAINT extraction_social_mood_after_check CHECK (((mood_after >= 1) AND (mood_after <= 10))),
+    CONSTRAINT extraction_social_mood_before_check CHECK (((mood_before >= 1) AND (mood_before <= 10))),
+    CONSTRAINT extraction_social_quality_score_check CHECK (((quality_score >= 1) AND (quality_score <= 10))),
+    CONSTRAINT extraction_social_sentiment_check CHECK (((sentiment)::text = ANY ((ARRAY['positive'::character varying, 'negative'::character varying, 'neutral'::character varying, 'conflict'::character varying])::text[])))
+);
+
+
+--
+-- Name: COLUMN extraction_social.relationship; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.extraction_social.relationship IS 'Specific: mom, dad, girlfriend, boyfriend, boss, colleague, classmate, teacher, student, neighbor, etc.';
+
+
+--
+-- Name: COLUMN extraction_social.relationship_category; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.extraction_social.relationship_category IS 'family|romantic|professional|friend|acquaintance|other';
+
+
+--
+-- Name: COLUMN extraction_social.mood_before; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.extraction_social.mood_before IS 'Mood 1-10 before interaction';
+
+
+--
+-- Name: COLUMN extraction_social.mood_after; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.extraction_social.mood_after IS 'Mood 1-10 after interaction';
+
+
+--
+-- Name: COLUMN extraction_social.interaction_outcome; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.extraction_social.interaction_outcome IS 'resolved|ongoing|escalated|positive|negative|neutral';
+
+
+--
+-- Name: COLUMN extraction_social.conflict_level; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.extraction_social.conflict_level IS '0=no conflict, 10=major fight';
+
+
+--
+-- Name: COLUMN extraction_social.emotional_impact; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.extraction_social.emotional_impact IS 'energized|drained|supported|stressed|happy|sad|frustrated|calm|anxious';
+
+
+--
+-- Name: COLUMN extraction_social.initiated_by; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.extraction_social.initiated_by IS 'user|other|mutual';
+
+
+--
+-- Name: extraction_weather; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.extraction_weather (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    extraction_id uuid NOT NULL,
+    weather_condition character varying(50),
+    temperature_feel character varying(20),
+    mentioned_impact text,
+    raw_mention text,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+
+--
+-- Name: extraction_work; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.extraction_work (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    extraction_id uuid NOT NULL,
+    work_type character varying(50),
+    project_name character varying(200),
+    duration_minutes integer,
+    time_of_day public.time_of_day,
+    productivity_score integer,
+    focus_quality character varying(20),
+    interruptions integer DEFAULT 0,
+    accomplishments text,
+    blockers text,
+    raw_mention text,
+    created_at timestamp with time zone DEFAULT now(),
+    CONSTRAINT extraction_work_productivity_score_check CHECK (((productivity_score >= 1) AND (productivity_score <= 10)))
+);
+
+
+--
+-- Name: food_aliases; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.food_aliases (
+    id integer NOT NULL,
+    alias character varying(100) NOT NULL,
+    food_item_id integer NOT NULL,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+
+--
+-- Name: food_aliases_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.food_aliases_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: food_aliases_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.food_aliases_id_seq OWNED BY public.food_aliases.id;
+
+
+--
+-- Name: food_items; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.food_items (
+    id integer NOT NULL,
+    canonical_name character varying(100) NOT NULL,
+    display_name character varying(100) NOT NULL,
+    category character varying(50),
+    serving_size_g integer DEFAULT 100,
+    calories_per_serving integer,
+    protein_g double precision,
+    carbs_g double precision,
+    fat_g double precision,
+    fiber_g double precision,
+    is_healthy boolean,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+
+--
+-- Name: food_items_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.food_items_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: food_items_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.food_items_id_seq OWNED BY public.food_items.id;
+
+
+--
+-- Name: journal_extractions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.journal_extractions (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    entry_date date NOT NULL,
+    raw_entry text NOT NULL,
+    preprocessed_entry text,
+    overall_quality public.extraction_quality,
+    extraction_time_ms integer,
+    gemini_model character varying(50),
+    has_gaps boolean DEFAULT false,
+    gaps_resolved boolean DEFAULT false,
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now()
+);
+
+
+--
+-- Name: metric_types; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.metric_types (
+    id integer NOT NULL,
+    name character varying(50) NOT NULL,
+    display_name character varying(100) NOT NULL,
+    category_id integer,
+    unit character varying(20),
+    min_value double precision,
+    max_value double precision,
+    description text
+);
+
+
+--
+-- Name: metric_types_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.metric_types_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: metric_types_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.metric_types_id_seq OWNED BY public.metric_types.id;
+
+
+--
+-- Name: user_context_state; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.user_context_state (
+    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    user_id uuid,
+    current_mood_score integer,
+    current_energy_level integer,
+    current_stress_level integer,
+    sleep_quality_avg_7d numeric(4,2),
+    productivity_score_avg_7d numeric(4,2),
+    active_goals_count integer DEFAULT 0,
+    pending_tasks_count integer DEFAULT 0,
+    completed_tasks_today integer DEFAULT 0,
+    context_data jsonb,
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
+);
+
+
+--
+-- Name: TABLE user_context_state; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.user_context_state IS 'Real-time user context for fast API responses.';
+
+
+--
+-- Name: user_patterns; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.user_patterns (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    pattern_type character varying(50) NOT NULL,
+    day_of_week integer,
+    value double precision,
+    std_dev double precision,
+    sample_count integer DEFAULT 0,
+    confidence double precision DEFAULT 0.5,
+    metadata jsonb DEFAULT '{}'::jsonb,
+    last_updated timestamp with time zone DEFAULT now(),
+    created_at timestamp with time zone DEFAULT now(),
+    CONSTRAINT user_patterns_confidence_check CHECK (((confidence >= (0)::double precision) AND (confidence <= (1)::double precision))),
+    CONSTRAINT user_patterns_day_of_week_check CHECK (((day_of_week >= 0) AND (day_of_week <= 6)))
+);
+
+
+--
+-- Name: TABLE user_patterns; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.user_patterns IS 'Cached user patterns and baselines for fast context retrieval. Updated periodically.';
+
+
+--
+-- Name: users; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.users (
+    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    email character varying(255) NOT NULL,
+    username character varying(100) NOT NULL,
+    password_hash character varying(255) NOT NULL,
+    full_name character varying(255),
+    timezone character varying(50) DEFAULT 'UTC'::character varying,
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    last_login timestamp with time zone,
+    is_active boolean DEFAULT true,
+    is_verified boolean DEFAULT false
+);
+
+
+--
+-- Name: v_activity_summary; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.v_activity_summary AS
+ SELECT je.user_id,
+    je.entry_date,
+    COALESCE(at.canonical_name, ea.activity_raw) AS activity,
+    COALESCE(at.display_name, ea.activity_raw) AS activity_display,
+    c.name AS category,
+    ea.duration_minutes,
+    ea.time_of_day,
+    ea.intensity,
+    ea.satisfaction,
+    ea.calories_burned,
+    at.is_physical,
+    at.is_screen_time
+   FROM (((public.extraction_activities ea
+     JOIN public.journal_extractions je ON ((ea.extraction_id = je.id)))
+     LEFT JOIN public.activity_types at ON ((ea.activity_type_id = at.id)))
+     LEFT JOIN public.categories c ON ((at.category_id = c.id)));
+
+
+--
+-- Name: v_daily_nutrition; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.v_daily_nutrition AS
+ SELECT je.user_id,
+    je.entry_date,
+    count(*) FILTER (WHERE ((ec.consumption_type)::text = 'meal'::text)) AS meals_count,
+    sum(ec.calories) AS total_calories,
+    sum(ec.protein_g) AS total_protein,
+    sum(ec.carbs_g) AS total_carbs,
+    sum(ec.fat_g) AS total_fat,
+    count(*) FILTER (WHERE (ec.is_healthy = true)) AS healthy_items,
+    count(*) FILTER (WHERE (ec.is_home_cooked = true)) AS home_cooked
+   FROM (public.extraction_consumptions ec
+     JOIN public.journal_extractions je ON ((ec.extraction_id = je.id)))
+  GROUP BY je.user_id, je.entry_date;
+
+
+--
+-- Name: v_dow_mood_patterns; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.v_dow_mood_patterns AS
+ SELECT je.user_id,
+    EXTRACT(dow FROM je.entry_date) AS day_of_week,
+    avg(em.value) AS avg_mood,
+    stddev(em.value) AS stddev_mood,
+    count(*) AS sample_count
+   FROM ((public.journal_extractions je
+     JOIN public.extraction_metrics em ON ((je.id = em.extraction_id)))
+     JOIN public.metric_types mt ON ((em.metric_type_id = mt.id)))
+  WHERE ((mt.name)::text = 'mood_score'::text)
+  GROUP BY je.user_id, (EXTRACT(dow FROM je.entry_date));
+
+
+--
+-- Name: v_pending_gaps; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.v_pending_gaps AS
+ SELECT je.user_id,
+    eg.id AS gap_id,
+    je.entry_date,
+    eg.field_category,
+    eg.question,
+    eg.context,
+    eg.priority,
+    eg.created_at
+   FROM (public.extraction_gaps eg
+     JOIN public.journal_extractions je ON ((eg.extraction_id = je.id)))
+  WHERE (eg.status = 'pending'::public.data_gap_status)
+  ORDER BY eg.priority, eg.created_at;
+
+
+--
+-- Name: v_rolling_averages; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.v_rolling_averages AS
+ SELECT je.user_id,
+    je.entry_date,
+    avg(em.value) FILTER (WHERE ((mt.name)::text = 'mood_score'::text)) OVER (PARTITION BY je.user_id ORDER BY je.entry_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS avg_mood_7d,
+    avg(em.value) FILTER (WHERE ((mt.name)::text = 'energy_level'::text)) OVER (PARTITION BY je.user_id ORDER BY je.entry_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS avg_energy_7d,
+    avg(em.value) FILTER (WHERE ((mt.name)::text = 'sleep_duration'::text)) OVER (PARTITION BY je.user_id ORDER BY je.entry_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS avg_sleep_7d,
+    avg(em.value) FILTER (WHERE ((mt.name)::text = 'stress_level'::text)) OVER (PARTITION BY je.user_id ORDER BY je.entry_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS avg_stress_7d
+   FROM ((public.journal_extractions je
+     JOIN public.extraction_metrics em ON ((je.id = em.extraction_id)))
+     JOIN public.metric_types mt ON ((em.metric_type_id = mt.id)));
+
+
+--
+-- Name: activity_aliases id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.activity_aliases ALTER COLUMN id SET DEFAULT nextval('public.activity_aliases_id_seq'::regclass);
+
+
+--
+-- Name: activity_types id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.activity_types ALTER COLUMN id SET DEFAULT nextval('public.activity_types_id_seq'::regclass);
+
+
+--
+-- Name: categories id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.categories ALTER COLUMN id SET DEFAULT nextval('public.categories_id_seq'::regclass);
+
+
+--
+-- Name: food_aliases id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.food_aliases ALTER COLUMN id SET DEFAULT nextval('public.food_aliases_id_seq'::regclass);
+
+
+--
+-- Name: food_items id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.food_items ALTER COLUMN id SET DEFAULT nextval('public.food_items_id_seq'::regclass);
+
+
+--
+-- Name: metric_types id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.metric_types ALTER COLUMN id SET DEFAULT nextval('public.metric_types_id_seq'::regclass);
+
+
+--
+-- Name: activity_aliases activity_aliases_alias_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.activity_aliases
+    ADD CONSTRAINT activity_aliases_alias_key UNIQUE (alias);
+
+
+--
+-- Name: activity_aliases activity_aliases_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.activity_aliases
+    ADD CONSTRAINT activity_aliases_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: activity_types activity_types_canonical_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.activity_types
+    ADD CONSTRAINT activity_types_canonical_name_key UNIQUE (canonical_name);
+
+
+--
+-- Name: activity_types activity_types_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.activity_types
+    ADD CONSTRAINT activity_types_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: categories categories_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.categories
+    ADD CONSTRAINT categories_name_key UNIQUE (name);
+
+
+--
+-- Name: categories categories_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.categories
+    ADD CONSTRAINT categories_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: extraction_activities extraction_activities_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.extraction_activities
+    ADD CONSTRAINT extraction_activities_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: extraction_consumptions extraction_consumptions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.extraction_consumptions
+    ADD CONSTRAINT extraction_consumptions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: extraction_gaps extraction_gaps_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.extraction_gaps
+    ADD CONSTRAINT extraction_gaps_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: extraction_health extraction_health_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.extraction_health
+    ADD CONSTRAINT extraction_health_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: extraction_locations extraction_locations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.extraction_locations
+    ADD CONSTRAINT extraction_locations_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: extraction_metrics extraction_metrics_extraction_id_metric_type_id_time_of_day_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.extraction_metrics
+    ADD CONSTRAINT extraction_metrics_extraction_id_metric_type_id_time_of_day_key UNIQUE (extraction_id, metric_type_id, time_of_day);
+
+
+--
+-- Name: extraction_metrics extraction_metrics_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.extraction_metrics
+    ADD CONSTRAINT extraction_metrics_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: extraction_notes extraction_notes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.extraction_notes
+    ADD CONSTRAINT extraction_notes_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: extraction_sleep extraction_sleep_extraction_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.extraction_sleep
+    ADD CONSTRAINT extraction_sleep_extraction_id_key UNIQUE (extraction_id);
+
+
+--
+-- Name: extraction_sleep extraction_sleep_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.extraction_sleep
+    ADD CONSTRAINT extraction_sleep_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: extraction_social extraction_social_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.extraction_social
+    ADD CONSTRAINT extraction_social_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: extraction_weather extraction_weather_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.extraction_weather
+    ADD CONSTRAINT extraction_weather_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: extraction_work extraction_work_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.extraction_work
+    ADD CONSTRAINT extraction_work_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: food_aliases food_aliases_alias_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.food_aliases
+    ADD CONSTRAINT food_aliases_alias_key UNIQUE (alias);
+
+
+--
+-- Name: food_aliases food_aliases_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.food_aliases
+    ADD CONSTRAINT food_aliases_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: food_items food_items_canonical_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.food_items
+    ADD CONSTRAINT food_items_canonical_name_key UNIQUE (canonical_name);
+
+
+--
+-- Name: food_items food_items_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.food_items
+    ADD CONSTRAINT food_items_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: journal_extractions journal_extractions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.journal_extractions
+    ADD CONSTRAINT journal_extractions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: journal_extractions journal_extractions_user_id_entry_date_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.journal_extractions
+    ADD CONSTRAINT journal_extractions_user_id_entry_date_key UNIQUE (user_id, entry_date);
+
+
+--
+-- Name: metric_types metric_types_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.metric_types
+    ADD CONSTRAINT metric_types_name_key UNIQUE (name);
+
+
+--
+-- Name: metric_types metric_types_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.metric_types
+    ADD CONSTRAINT metric_types_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: user_context_state user_context_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_context_state
+    ADD CONSTRAINT user_context_state_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: user_context_state user_context_state_user_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_context_state
+    ADD CONSTRAINT user_context_state_user_id_key UNIQUE (user_id);
+
+
+--
+-- Name: user_patterns user_patterns_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_patterns
+    ADD CONSTRAINT user_patterns_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: user_patterns user_patterns_user_id_pattern_type_day_of_week_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_patterns
+    ADD CONSTRAINT user_patterns_user_id_pattern_type_day_of_week_key UNIQUE (user_id, pattern_type, day_of_week);
+
+
+--
+-- Name: users users_email_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_email_key UNIQUE (email);
+
+
+--
+-- Name: users users_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: users users_username_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_username_key UNIQUE (username);
+
+
+--
+-- Name: idx_activities_category; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_activities_category ON public.extraction_activities USING btree (activity_category);
+
+
+--
+-- Name: idx_activities_date_cat; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_activities_date_cat ON public.extraction_activities USING btree (extraction_id, activity_category);
+
+
+--
+-- Name: idx_activities_extraction; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_activities_extraction ON public.extraction_activities USING btree (extraction_id);
+
+
+--
+-- Name: idx_activities_raw; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_activities_raw ON public.extraction_activities USING btree (activity_raw);
+
+
+--
+-- Name: idx_activities_time; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_activities_time ON public.extraction_activities USING btree (time_of_day);
+
+
+--
+-- Name: idx_activities_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_activities_type ON public.extraction_activities USING btree (activity_type_id);
+
+
+--
+-- Name: idx_activity_types_category; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_activity_types_category ON public.activity_types USING btree (category_id);
+
+
+--
+-- Name: idx_activity_types_search; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_activity_types_search ON public.activity_types USING gin (search_vector);
+
+
+--
+-- Name: idx_aliases_alias; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_aliases_alias ON public.activity_aliases USING btree (alias);
+
+
+--
+-- Name: idx_aliases_trgm; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_aliases_trgm ON public.activity_aliases USING gin (alias public.gin_trgm_ops);
+
+
+--
+-- Name: idx_categories_name; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_categories_name ON public.categories USING btree (name);
+
+
+--
+-- Name: idx_categories_parent; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_categories_parent ON public.categories USING btree (parent_id);
+
+
+--
+-- Name: idx_consumptions_category; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_consumptions_category ON public.extraction_consumptions USING btree (food_category);
+
+
+--
+-- Name: idx_consumptions_date_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_consumptions_date_type ON public.extraction_consumptions USING btree (extraction_id, food_category);
+
+
+--
+-- Name: idx_consumptions_extraction; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_consumptions_extraction ON public.extraction_consumptions USING btree (extraction_id);
+
+
+--
+-- Name: idx_consumptions_meal_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_consumptions_meal_type ON public.extraction_consumptions USING btree (meal_type);
+
+
+--
+-- Name: idx_consumptions_raw; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_consumptions_raw ON public.extraction_consumptions USING btree (item_raw);
+
+
+--
+-- Name: idx_consumptions_time; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_consumptions_time ON public.extraction_consumptions USING btree (time_of_day);
+
+
+--
+-- Name: idx_consumptions_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_consumptions_type ON public.extraction_consumptions USING btree (consumption_type);
+
+
+--
+-- Name: idx_extractions_user_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_extractions_user_date ON public.journal_extractions USING btree (user_id, entry_date);
+
+
+--
+-- Name: idx_food_items_category; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_food_items_category ON public.food_items USING btree (category);
+
+
+--
+-- Name: idx_gaps_extraction; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_gaps_extraction ON public.extraction_gaps USING btree (extraction_id);
+
+
+--
+-- Name: idx_gaps_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_gaps_status ON public.extraction_gaps USING btree (status);
+
+
+--
+-- Name: idx_health_extraction; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_health_extraction ON public.extraction_health USING btree (extraction_id);
+
+
+--
+-- Name: idx_health_symptom; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_health_symptom ON public.extraction_health USING btree (symptom_type);
+
+
+--
+-- Name: idx_journal_entry_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_journal_entry_date ON public.journal_extractions USING btree (entry_date);
+
+
+--
+-- Name: idx_journal_user_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_journal_user_date ON public.journal_extractions USING btree (user_id, entry_date);
+
+
+--
+-- Name: idx_journal_user_entry; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_journal_user_entry ON public.journal_extractions USING btree (user_id, entry_date);
+
+
+--
+-- Name: idx_locations_extraction; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_locations_extraction ON public.extraction_locations USING btree (extraction_id);
+
+
+--
+-- Name: idx_locations_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_locations_type ON public.extraction_locations USING btree (location_type);
+
+
+--
+-- Name: idx_metrics_extraction; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_metrics_extraction ON public.extraction_metrics USING btree (extraction_id);
+
+
+--
+-- Name: idx_metrics_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_metrics_type ON public.extraction_metrics USING btree (metric_type_id);
+
+
+--
+-- Name: idx_notes_extraction; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_notes_extraction ON public.extraction_notes USING btree (extraction_id);
+
+
+--
+-- Name: idx_notes_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_notes_type ON public.extraction_notes USING btree (note_type);
+
+
+--
+-- Name: idx_social_conflict; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_social_conflict ON public.extraction_social USING btree (conflict_level);
+
+
+--
+-- Name: idx_social_emotional_impact; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_social_emotional_impact ON public.extraction_social USING btree (emotional_impact);
+
+
+--
+-- Name: idx_social_extraction; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_social_extraction ON public.extraction_social USING btree (extraction_id);
+
+
+--
+-- Name: idx_social_person; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_social_person ON public.extraction_social USING btree (person_name);
+
+
+--
+-- Name: idx_social_relationship; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_social_relationship ON public.extraction_social USING btree (relationship);
+
+
+--
+-- Name: idx_social_relationship_category; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_social_relationship_category ON public.extraction_social USING btree (relationship_category);
+
+
+--
+-- Name: idx_social_sentiment; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_social_sentiment ON public.extraction_social USING btree (sentiment);
+
+
+--
+-- Name: idx_user_patterns_dow; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_user_patterns_dow ON public.user_patterns USING btree (day_of_week);
+
+
+--
+-- Name: idx_user_patterns_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_user_patterns_type ON public.user_patterns USING btree (pattern_type);
+
+
+--
+-- Name: idx_user_patterns_user; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_user_patterns_user ON public.user_patterns USING btree (user_id);
+
+
+--
+-- Name: idx_users_email; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_users_email ON public.users USING btree (email);
+
+
+--
+-- Name: idx_users_username; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_users_username ON public.users USING btree (username);
+
+
+--
+-- Name: idx_weather_condition; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_weather_condition ON public.extraction_weather USING btree (weather_condition);
+
+
+--
+-- Name: idx_weather_extraction; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_weather_extraction ON public.extraction_weather USING btree (extraction_id);
+
+
+--
+-- Name: idx_work_extraction; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_work_extraction ON public.extraction_work USING btree (extraction_id);
+
+
+--
+-- Name: idx_work_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_work_type ON public.extraction_work USING btree (work_type);
+
+
+--
+-- Name: users update_users_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON public.users FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+
+--
+-- Name: activity_aliases activity_aliases_activity_type_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.activity_aliases
+    ADD CONSTRAINT activity_aliases_activity_type_id_fkey FOREIGN KEY (activity_type_id) REFERENCES public.activity_types(id);
+
+
+--
+-- Name: activity_types activity_types_category_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.activity_types
+    ADD CONSTRAINT activity_types_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.categories(id);
+
+
+--
+-- Name: categories categories_parent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.categories
+    ADD CONSTRAINT categories_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.categories(id);
+
+
+--
+-- Name: extraction_activities extraction_activities_activity_type_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.extraction_activities
+    ADD CONSTRAINT extraction_activities_activity_type_id_fkey FOREIGN KEY (activity_type_id) REFERENCES public.activity_types(id);
+
+
+--
+-- Name: extraction_activities extraction_activities_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.extraction_activities
+    ADD CONSTRAINT extraction_activities_extraction_id_fkey FOREIGN KEY (extraction_id) REFERENCES public.journal_extractions(id) ON DELETE CASCADE;
+
+
+--
+-- Name: extraction_consumptions extraction_consumptions_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.extraction_consumptions
+    ADD CONSTRAINT extraction_consumptions_extraction_id_fkey FOREIGN KEY (extraction_id) REFERENCES public.journal_extractions(id) ON DELETE CASCADE;
+
+
+--
+-- Name: extraction_consumptions extraction_consumptions_food_item_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.extraction_consumptions
+    ADD CONSTRAINT extraction_consumptions_food_item_id_fkey FOREIGN KEY (food_item_id) REFERENCES public.food_items(id);
+
+
+--
+-- Name: extraction_gaps extraction_gaps_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.extraction_gaps
+    ADD CONSTRAINT extraction_gaps_extraction_id_fkey FOREIGN KEY (extraction_id) REFERENCES public.journal_extractions(id) ON DELETE CASCADE;
+
+
+--
+-- Name: extraction_health extraction_health_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.extraction_health
+    ADD CONSTRAINT extraction_health_extraction_id_fkey FOREIGN KEY (extraction_id) REFERENCES public.journal_extractions(id) ON DELETE CASCADE;
+
+
+--
+-- Name: extraction_locations extraction_locations_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.extraction_locations
+    ADD CONSTRAINT extraction_locations_extraction_id_fkey FOREIGN KEY (extraction_id) REFERENCES public.journal_extractions(id) ON DELETE CASCADE;
+
+
+--
+-- Name: extraction_metrics extraction_metrics_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.extraction_metrics
+    ADD CONSTRAINT extraction_metrics_extraction_id_fkey FOREIGN KEY (extraction_id) REFERENCES public.journal_extractions(id) ON DELETE CASCADE;
+
+
+--
+-- Name: extraction_metrics extraction_metrics_metric_type_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.extraction_metrics
+    ADD CONSTRAINT extraction_metrics_metric_type_id_fkey FOREIGN KEY (metric_type_id) REFERENCES public.metric_types(id);
+
+
+--
+-- Name: extraction_notes extraction_notes_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.extraction_notes
+    ADD CONSTRAINT extraction_notes_extraction_id_fkey FOREIGN KEY (extraction_id) REFERENCES public.journal_extractions(id) ON DELETE CASCADE;
+
+
+--
+-- Name: extraction_sleep extraction_sleep_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.extraction_sleep
+    ADD CONSTRAINT extraction_sleep_extraction_id_fkey FOREIGN KEY (extraction_id) REFERENCES public.journal_extractions(id) ON DELETE CASCADE;
+
+
+--
+-- Name: extraction_social extraction_social_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.extraction_social
+    ADD CONSTRAINT extraction_social_extraction_id_fkey FOREIGN KEY (extraction_id) REFERENCES public.journal_extractions(id) ON DELETE CASCADE;
+
+
+--
+-- Name: extraction_weather extraction_weather_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.extraction_weather
+    ADD CONSTRAINT extraction_weather_extraction_id_fkey FOREIGN KEY (extraction_id) REFERENCES public.journal_extractions(id) ON DELETE CASCADE;
+
+
+--
+-- Name: extraction_work extraction_work_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.extraction_work
+    ADD CONSTRAINT extraction_work_extraction_id_fkey FOREIGN KEY (extraction_id) REFERENCES public.journal_extractions(id) ON DELETE CASCADE;
+
+
+--
+-- Name: food_aliases food_aliases_food_item_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.food_aliases
+    ADD CONSTRAINT food_aliases_food_item_id_fkey FOREIGN KEY (food_item_id) REFERENCES public.food_items(id);
+
+
+--
+-- Name: metric_types metric_types_category_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.metric_types
+    ADD CONSTRAINT metric_types_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.categories(id);
+
+
+--
+-- Name: user_context_state user_context_state_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_context_state
+    ADD CONSTRAINT user_context_state_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
+-- PostgreSQL database dump complete
+--
+
