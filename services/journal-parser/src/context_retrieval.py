@@ -79,6 +79,12 @@ class ContextRetrievalEngine:
             # Get 7-day averages
             seven_day_avgs = await self._get_seven_day_averages(user_id, entry_date)
 
+            # Get user's vocabulary for Gemini to reuse
+            vocabulary = await self.get_user_vocabulary(user_id)
+            logger.info(
+                f"Vocabulary fetched: {len(vocabulary.get('activities', []))} activities, {len(vocabulary.get('foods', []))} foods"
+            )
+
             context = {
                 "baseline": {
                     "mood_score": baseline.mood_score,
@@ -98,10 +104,12 @@ class ContextRetrievalEngine:
                 "known_aliases": {},
                 "seven_day_averages": seven_day_avgs,
                 "entries_count": len(recent_activities),
+                "vocabulary": vocabulary,
             }
 
             logger.info(
-                f"Full context retrieved for user {user_id}: baseline sample_count={baseline.sample_count}"
+                f"Full context retrieved for user {user_id}: baseline sample_count={baseline.sample_count}, "
+                f"vocab: {len(vocabulary.get('activities', []))} activities, {len(vocabulary.get('foods', []))} foods"
             )
             return context
 
@@ -227,9 +235,9 @@ class ContextRetrievalEngine:
             query = text(
                 """
                 SELECT
-                    ea.canonical_name as activity_name,
+                    ea.activity_raw as activity_name,
                     ea.duration_minutes,
-                    ea.category,
+                    ea.activity_category as category,
                     je.entry_date
                 FROM extraction_activities ea
                 JOIN journal_extractions je ON ea.extraction_id = je.id
@@ -442,7 +450,170 @@ class ContextRetrievalEngine:
             "known_aliases": {},
             "seven_day_averages": {},
             "entries_count": 0,
+            "vocabulary": {
+                "activity_categories": [],
+                "activities": [],
+                "food_categories": [],
+                "foods": [],
+                "meal_types": [],
+            },
         }
+
+    async def get_user_vocabulary(self, user_id: UUID) -> Dict[str, Any]:
+        """
+        Get user's existing vocabulary (categories, activities, foods).
+        This helps Gemini reuse existing terms for consistency.
+        """
+        try:
+            logger.info(f"Fetching vocabulary for user {user_id}")
+
+            # Get activity categories the user has used
+            categories_query = text(
+                """
+                SELECT DISTINCT ea.activity_category, ea.activity_subcategory
+                FROM extraction_activities ea
+                JOIN journal_extractions je ON ea.extraction_id = je.id
+                WHERE je.user_id = :user_id
+                  AND ea.activity_category IS NOT NULL
+                ORDER BY ea.activity_category
+            """
+            )
+
+            categories_result = await self.session.execute(
+                categories_query, {"user_id": user_id}
+            )
+
+            activity_categories = []
+            subcategories_by_category = {}
+            for row in categories_result:
+                if row.activity_category not in [
+                    c["name"] for c in activity_categories
+                ]:
+                    activity_categories.append({"name": row.activity_category})
+                if row.activity_subcategory:
+                    cat = row.activity_category
+                    if cat not in subcategories_by_category:
+                        subcategories_by_category[cat] = set()
+                    subcategories_by_category[cat].add(row.activity_subcategory)
+
+            # Add subcategories to categories
+            for cat in activity_categories:
+                cat["subcategories"] = list(
+                    subcategories_by_category.get(cat["name"], [])
+                )
+
+            # Get specific activities the user has done (top 50 by frequency)
+            activities_query = text(
+                """
+                SELECT ea.activity_raw, ea.activity_category, COUNT(*) as freq
+                FROM extraction_activities ea
+                JOIN journal_extractions je ON ea.extraction_id = je.id
+                WHERE je.user_id = :user_id
+                  AND ea.activity_raw IS NOT NULL
+                GROUP BY ea.activity_raw, ea.activity_category
+                ORDER BY freq DESC
+                LIMIT 50
+            """
+            )
+
+            activities_result = await self.session.execute(
+                activities_query, {"user_id": user_id}
+            )
+
+            activities = [
+                {"name": row.activity_raw, "category": row.activity_category}
+                for row in activities_result
+            ]
+
+            # Get food categories the user has consumed
+            food_cat_query = text(
+                """
+                SELECT DISTINCT ec.food_category
+                FROM extraction_consumptions ec
+                JOIN journal_extractions je ON ec.extraction_id = je.id
+                WHERE je.user_id = :user_id
+                  AND ec.food_category IS NOT NULL
+                ORDER BY ec.food_category
+            """
+            )
+
+            food_cat_result = await self.session.execute(
+                food_cat_query, {"user_id": user_id}
+            )
+
+            food_categories = [row.food_category for row in food_cat_result]
+
+            # Get specific foods the user has consumed (top 50 by frequency)
+            foods_query = text(
+                """
+                SELECT ec.item_raw, ec.food_category, ec.meal_type, COUNT(*) as freq
+                FROM extraction_consumptions ec
+                JOIN journal_extractions je ON ec.extraction_id = je.id
+                WHERE je.user_id = :user_id
+                  AND ec.item_raw IS NOT NULL
+                GROUP BY ec.item_raw, ec.food_category, ec.meal_type
+                ORDER BY freq DESC
+                LIMIT 50
+            """
+            )
+
+            foods_result = await self.session.execute(foods_query, {"user_id": user_id})
+
+            foods = [
+                {
+                    "name": row.item_raw,
+                    "category": row.food_category,
+                    "typical_meal": row.meal_type,
+                }
+                for row in foods_result
+            ]
+
+            # Get meal types the user has used
+            meal_types_query = text(
+                """
+                SELECT DISTINCT ec.meal_type
+                FROM extraction_consumptions ec
+                JOIN journal_extractions je ON ec.extraction_id = je.id
+                WHERE je.user_id = :user_id
+                  AND ec.meal_type IS NOT NULL
+                ORDER BY ec.meal_type
+            """
+            )
+
+            meal_types_result = await self.session.execute(
+                meal_types_query, {"user_id": user_id}
+            )
+
+            meal_types = [row.meal_type for row in meal_types_result]
+
+            result = {
+                "activity_categories": activity_categories,
+                "activities": activities,
+                "food_categories": food_categories,
+                "foods": foods,
+                "meal_types": meal_types,
+            }
+
+            logger.info(
+                f"Vocabulary result: {len(activity_categories)} categories, "
+                f"{len(activities)} activities, {len(foods)} foods"
+            )
+
+            return result
+
+        except Exception as e:
+            logger.warning(f"Error fetching user vocabulary: {e}", exc_info=True)
+            try:
+                await self.session.rollback()
+            except Exception:
+                pass
+            return {
+                "activity_categories": [],
+                "activities": [],
+                "food_categories": [],
+                "foods": [],
+                "meal_types": [],
+            }
 
 
 # ============================================================================

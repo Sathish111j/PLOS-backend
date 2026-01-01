@@ -59,7 +59,8 @@ class NormalizedActivity:
 
     canonical_name: Optional[str]  # From controlled vocabulary (None if unknown)
     raw_name: str  # Original user text
-    category: str  # physical, mental, leisure, etc.
+    category: str  # sports, fitness, programming, entertainment, etc.
+    subcategory: Optional[str] = None  # ball_sports, competitive_programming, etc.
     duration_minutes: Optional[int] = None
     time_of_day: Optional[TimeOfDay] = None
     start_time: Optional[str] = None  # HH:MM
@@ -564,6 +565,7 @@ EXTRACTION_SCHEMA = """
     {
       "activity_name": "SPECIFIC activity (jogging, leetcode, badminton - NOT normalized)",
       "activity_category": "sports|fitness|programming|entertainment|learning|work|creative|social|other",
+      "activity_subcategory": "optional subcategory (ball_sports, racquet_sports, competitive_programming, etc.)",
       "duration_minutes": "int (REQUIRED - estimate if not explicit)",
       "time_of_day": "morning|afternoon|evening|night",
       "start_time": "HH:MM if mentioned",
@@ -838,18 +840,23 @@ HEALTH SYMPTOM EXTRACTION:
 
 ACTIVITY EXTRACTION (CRITICAL FOR QUERYING):
 - "activity_name": Store the SPECIFIC activity mentioned (jogging, leetcode, badminton)
-- "activity_category": Group into categories for aggregation:
-  * sports: badminton, cricket, football, tennis, swimming, etc.
+- "activity_category": Broad category for rollup queries:
+  * sports: ANY sport (badminton, cricket, football, tennis, swimming, volleyball, etc.)
   * fitness: gym, running, jogging, cycling, yoga, exercise, workout
-  * programming: coding, leetcode, codeforces, programming, debugging
+  * programming: coding, leetcode, codeforces, hackerrank, programming, debugging
   * entertainment: netflix, youtube, gaming, social_media, streaming
   * learning: reading, studying, course, tutorial
   * work: office_work, meetings, emails
   * creative: writing, drawing, music, photography
   * social: hangout, party, call, chat
+- "activity_subcategory": Optional more specific grouping (can be null):
+  * For sports: ball_sports, racquet_sports, water_sports, combat_sports, etc.
+  * For fitness: cardio, strength_training, flexibility, etc.
+  * For programming: competitive_programming, web_dev, debugging, etc.
+  * For entertainment: video_streaming, gaming, social_media, etc.
 - DO NOT normalize away specificity - "jogging" stays "jogging", "leetcode" stays "leetcode"
-- This allows queries like: "total time jogging" AND "total time in fitness category"
-- Keep sport names EXACTLY as mentioned: badminton, cricket, football, tennis, etc.
+- This enables: "total sports time" AND "total ball_sports time" AND "just cricket time"
+- Keep activity names EXACTLY as mentioned: badminton, cricket, football, tennis, etc.
 
 DO NOT EXTRACT AS ACTIVITIES:
 - Sleep-related: "going to bed", "sleeping", "waking up", "woke up", "going to sleep", "getting up", "got up"
@@ -890,33 +897,86 @@ TIME OF DAY:
                     # Pydantic model
                     avg_sleep = getattr(baseline, "sleep_hours", "?")
                     avg_mood = getattr(baseline, "mood_score", "?")
+                    avg_energy = getattr(baseline, "energy_level", "?")
+                    avg_stress = getattr(baseline, "stress_level", "?")
                     common_activities = getattr(baseline, "common_activities", []) or []
                 else:
-                    # Dict format
-                    avg_sleep = (
-                        baseline.get("avg_sleep_hours", "?")
-                        if isinstance(baseline, dict)
-                        else "?"
-                    )
-                    avg_mood = (
-                        baseline.get("avg_mood_score", "?")
-                        if isinstance(baseline, dict)
-                        else "?"
-                    )
-                    common_activities = (
-                        baseline.get("common_activities", [])
-                        if isinstance(baseline, dict)
-                        else []
-                    )
+                    # Dict format - keys match context_retrieval.py output
+                    avg_sleep = baseline.get("sleep_hours", "?")
+                    avg_mood = baseline.get("mood_score", "?")
+                    avg_energy = baseline.get("energy_level", "?")
+                    avg_stress = baseline.get("stress_level", "?")
+                    common_activities = baseline.get("common_activities", []) or []
 
+                logger.debug(
+                    f"Baseline context: sleep={avg_sleep}, mood={avg_mood}, "
+                    f"energy={avg_energy}, stress={avg_stress}"
+                )
                 parts.append(f"- Typical sleep: {avg_sleep} hours\n")
                 parts.append(f"- Typical mood: {avg_mood}/10\n")
+                parts.append(f"- Typical energy: {avg_energy}/10\n")
+                parts.append(f"- Typical stress: {avg_stress}/10\n")
                 if common_activities:
                     parts.append(
                         f"- Common activities: {', '.join(common_activities)}\n\n"
                     )
                 else:
                     parts.append("\n")
+
+            # Add vocabulary context for consistency
+            vocabulary = user_context.get("vocabulary", {})
+            if vocabulary:
+                parts.append("## USER'S EXISTING VOCABULARY (REUSE FOR CONSISTENCY)\n")
+                parts.append(
+                    "**IMPORTANT**: Match existing activity/food names EXACTLY when applicable. Only create NEW entries if truly different.\n\n"
+                )
+
+                # Activity hierarchy: Categories → Subcategories → Activities
+                activity_cats = vocabulary.get("activity_categories", [])
+                activities = vocabulary.get("activities", [])
+
+                if activity_cats or activities:
+                    parts.append("### Activity Hierarchy:\n")
+                    parts.append("```\n")
+                    # Build hierarchical view
+                    cat_map = {}
+                    for cat in activity_cats[:15]:
+                        cat_name = cat["name"]
+                        cat_map[cat_name] = {
+                            "subcategories": set(cat.get("subcategories", [])),
+                            "activities": [],
+                        }
+
+                    # Add activities to categories
+                    for act in activities[:40]:
+                        cat = act.get("category", "other")
+                        if cat not in cat_map:
+                            cat_map[cat] = {"subcategories": set(), "activities": []}
+                        cat_map[cat]["activities"].append(act["name"])
+
+                    # Print hierarchy
+                    for cat, data in sorted(cat_map.items()):
+                        parts.append(f"{cat}/\n")
+                        if data["subcategories"]:
+                            for subcat in sorted(data["subcategories"])[:5]:
+                                parts.append(f"  ├─ {subcat}/\n")
+                        if data["activities"]:
+                            for activity in data["activities"][:8]:
+                                parts.append(f"  │  • {activity}\n")
+                    parts.append("```\n\n")
+
+                # Food vocabulary: Categories → Foods → Meal types
+                food_cats = vocabulary.get("food_categories", [])
+                foods = vocabulary.get("foods", [])
+                meal_types = vocabulary.get("meal_types", [])
+
+                if foods:
+                    parts.append("### Food Vocabulary:\n")
+                    parts.append("**Categories**: " + ", ".join(food_cats[:10]) + "\n")
+                    parts.append("**Meal Types**: " + ", ".join(meal_types) + "\n")
+                    parts.append("**Known Foods** (reuse exact names): ")
+                    food_names = [f["name"] for f in foods[:25]]
+                    parts.append(", ".join(food_names) + "\n\n")
 
         parts.append("## JOURNAL ENTRY\n")
         parts.append(f'"""\n{journal_text}\n"""\n\n')
@@ -928,6 +988,7 @@ TIME OF DAY:
             """## RESPONSE
 Return ONLY valid JSON. Include ONLY fields that have data.
 For ambiguous items, generate a helpful clarification question.
+IMPORTANT: Reuse activity names and categories from the vocabulary above when applicable.
 """
         )
 
@@ -966,8 +1027,9 @@ For ambiguous items, generate a helpful clarification question.
             if not raw_name:
                 continue
 
-            # Get category from Gemini response, fallback to our normalization
+            # Get category and subcategory from Gemini response, fallback to our normalization
             gemini_category = act.get("activity_category")
+            gemini_subcategory = act.get("activity_subcategory")
             canonical, fallback_category = normalize_activity_name(raw_name)
             category = gemini_category or fallback_category
 
@@ -991,6 +1053,7 @@ For ambiguous items, generate a helpful clarification question.
                     canonical_name=raw_name,  # Use raw_name as canonical for specific queries
                     raw_name=raw_name,
                     category=category,
+                    subcategory=gemini_subcategory,  # Subcategory from Gemini
                     duration_minutes=duration,
                     time_of_day=time_of_day,
                     start_time=act.get("start_time"),
@@ -1139,18 +1202,31 @@ For ambiguous items, generate a helpful clarification question.
 
         # Normalize metrics
         metrics = {}
-        for metric_name, metric_data in raw.get("metrics", {}).items():
-            if isinstance(metric_data, dict):
-                metrics[metric_name] = {
-                    "value": metric_data.get("value"),
-                    "time_of_day": metric_data.get("time_of_day"),
-                    "confidence": 0.7,
-                }
-            elif isinstance(metric_data, (int, float)):
-                metrics[metric_name] = {
-                    "value": metric_data,
-                    "confidence": 0.7,
-                }
+        raw_metrics = raw.get("metrics", {})
+        # Handle case where Gemini returns a list instead of dict
+        if isinstance(raw_metrics, list):
+            # Convert list to dict if possible
+            for item in raw_metrics:
+                if isinstance(item, dict) and "name" in item:
+                    name = item.get("name", "unknown")
+                    metrics[name] = {
+                        "value": item.get("value"),
+                        "time_of_day": item.get("time_of_day"),
+                        "confidence": 0.7,
+                    }
+        elif isinstance(raw_metrics, dict):
+            for metric_name, metric_data in raw_metrics.items():
+                if isinstance(metric_data, dict):
+                    metrics[metric_name] = {
+                        "value": metric_data.get("value"),
+                        "time_of_day": metric_data.get("time_of_day"),
+                        "confidence": 0.7,
+                    }
+                elif isinstance(metric_data, (int, float)):
+                    metrics[metric_name] = {
+                        "value": metric_data,
+                        "confidence": 0.7,
+                    }
 
         # Social interactions
         social = []

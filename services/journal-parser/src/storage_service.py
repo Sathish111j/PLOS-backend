@@ -27,17 +27,20 @@ logger = get_logger(__name__)
 
 class StorageService:
     """
-    Stores extraction data in normalized tables with controlled vocabulary.
+    Stores extraction data in normalized tables with organic vocabulary.
 
     Tables used:
-    - journal_entries: Base entry record
+    - journal_extractions: Base extraction record
     - extraction_metrics: Numeric scores (mood, energy, stress, etc.)
-    - extraction_activities: Activities linked to activity_types vocabulary
-    - extraction_consumptions: Food/drinks linked to food_items vocabulary
+    - extraction_activities: Activities with organic categories and subcategories
+    - extraction_consumptions: Food/drinks with organic categories
     - extraction_social: Social interactions
     - extraction_notes: Goals, gratitude, symptoms, thoughts
     - extraction_sleep: Sleep data
     - extraction_gaps: Clarification questions
+
+    Note: Vocabulary is organic (no pre-seeded reference tables).
+    Gemini receives existing terms and can reuse or create new ones.
     """
 
     def __init__(
@@ -320,13 +323,6 @@ class StorageService:
         )
 
         for activity in activities:
-            # Resolve activity type from vocabulary (returns int, not UUID)
-            activity_type_id = await self._resolve_activity_type(
-                activity.canonical_name or activity.raw_name,
-                activity.raw_name,
-                activity.category,
-            )
-
             time_of_day = None
             if activity.time_of_day:
                 time_of_day = activity.time_of_day.value
@@ -334,15 +330,17 @@ class StorageService:
             query = text(
                 """
                 INSERT INTO extraction_activities
-                    (extraction_id, activity_type_id, activity_raw, activity_category, duration_minutes,
-                     time_of_day, start_time, end_time, intensity, satisfaction,
-                     calories_burned, confidence, raw_mention, needs_clarification,
-                     is_outdoor, with_others, location, mood_before, mood_after)
+                    (extraction_id, activity_raw, activity_category,
+                     activity_subcategory, duration_minutes, time_of_day, start_time,
+                     end_time, intensity, satisfaction, calories_burned, confidence,
+                     raw_mention, needs_clarification, is_outdoor, with_others,
+                     location, mood_before, mood_after)
                 VALUES
-                    (:extraction_id, :activity_type_id, :activity_raw, :activity_category, :duration,
-                     CAST(:time_of_day AS time_of_day), :start_time, :end_time, :intensity,
-                     :satisfaction, :calories, :confidence, :raw_mention, :needs_clarification,
-                     :is_outdoor, :with_others, :location, :mood_before, :mood_after)
+                    (:extraction_id, :activity_raw, :activity_category,
+                     :activity_subcategory, :duration, CAST(:time_of_day AS time_of_day),
+                     :start_time, :end_time, :intensity, :satisfaction, :calories,
+                     :confidence, :raw_mention, :needs_clarification, :is_outdoor,
+                     :with_others, :location, :mood_before, :mood_after)
             """
             )
 
@@ -350,9 +348,11 @@ class StorageService:
                 query,
                 {
                     "extraction_id": extraction_id,
-                    "activity_type_id": activity_type_id,
                     "activity_raw": activity.raw_name,  # Always store raw activity name
                     "activity_category": activity.category,  # Store category for aggregation
+                    "activity_subcategory": getattr(
+                        activity, "subcategory", None
+                    ),  # Store subcategory
                     "duration": activity.duration_minutes,
                     "time_of_day": time_of_day,
                     "start_time": self._parse_time_string(activity.start_time),
@@ -370,139 +370,6 @@ class StorageService:
                     "mood_after": activity.mood_after,
                 },
             )
-
-    async def _resolve_activity_type(
-        self, name: str, raw_name: str, category: str
-    ) -> Optional[int]:
-        """Resolve activity name to activity_type using vocabulary and aliases."""
-        name_lower = name.lower()
-
-        # 1. Try exact match on canonical_name
-        result = await self.db.execute(
-            text("SELECT id FROM activity_types WHERE canonical_name = :name"),
-            {"name": name_lower},
-        )
-        row = result.fetchone()
-        if row:
-            return row[0]
-
-        # 2. Try alias lookup
-        result = await self.db.execute(
-            text(
-                """
-                SELECT at.id FROM activity_types at
-                JOIN activity_aliases aa ON at.id = aa.activity_type_id
-                WHERE aa.alias = :alias
-            """
-            ),
-            {"alias": name_lower},
-        )
-        row = result.fetchone()
-        if row:
-            return row[0]
-
-        # 3. Try fuzzy match (requires pg_trgm extension)
-        result = await self.db.execute(
-            text(
-                """
-                SELECT id, canonical_name, similarity(canonical_name, :name) as sim
-                FROM activity_types
-                WHERE canonical_name % :name
-                ORDER BY sim DESC
-                LIMIT 1
-            """
-            ),
-            {"name": name_lower},
-        )
-        row = result.fetchone()
-        if row and row[2] > 0.3:  # threshold
-            # Learn this alias for future
-            await self._learn_activity_alias(name_lower, row[0])
-            return row[0]
-
-        # 4. Create new activity type
-        return await self._create_activity_type(name_lower, raw_name, category)
-
-    async def _create_activity_type(
-        self, canonical_name: str, display_name: str, category: str
-    ) -> int:
-        """Create new activity type in vocabulary."""
-        # Get or create category
-        category_id = await self._get_or_create_category(category, "activities")
-
-        result = await self.db.execute(
-            text(
-                """
-                INSERT INTO activity_types
-                    (canonical_name, display_name, category_id)
-                VALUES
-                    (:canonical, :display, :category_id)
-                ON CONFLICT (canonical_name) DO UPDATE SET canonical_name = EXCLUDED.canonical_name
-                RETURNING id
-            """
-            ),
-            {
-                "canonical": canonical_name,
-                "display": display_name.title(),
-                "category_id": category_id,
-            },
-        )
-        row = result.fetchone()
-
-        logger.info(f"Created new activity type: {canonical_name}")
-        return row[0]
-
-    async def _learn_activity_alias(self, alias: str, activity_type_id: int) -> None:
-        """Learn a new alias for an activity type."""
-        await self.db.execute(
-            text(
-                """
-                INSERT INTO activity_aliases (alias, activity_type_id, source)
-                VALUES (:alias, :type_id, 'auto_learned')
-                ON CONFLICT (alias) DO NOTHING
-            """
-            ),
-            {"alias": alias, "type_id": activity_type_id},
-        )
-        logger.info(f"Learned activity alias: {alias}")
-
-    async def _get_or_create_category(self, name: str, parent_name: str) -> int:
-        """Get or create a category."""
-        # Try to find existing
-        result = await self.db.execute(
-            text("SELECT id FROM categories WHERE name = :name"), {"name": name}
-        )
-        row = result.fetchone()
-        if row:
-            return row[0]
-
-        # Get parent
-        parent_id = None
-        result = await self.db.execute(
-            text("SELECT id FROM categories WHERE name = :name"), {"name": parent_name}
-        )
-        row = result.fetchone()
-        if row:
-            parent_id = row[0]
-
-        # Create new category
-        result = await self.db.execute(
-            text(
-                """
-                INSERT INTO categories (name, display_name, parent_id)
-                VALUES (:name, :display, :parent_id)
-                ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
-                RETURNING id
-            """
-            ),
-            {
-                "name": name,
-                "display": name.title(),
-                "parent_id": parent_id,
-            },
-        )
-        row = result.fetchone()
-        return row[0]
 
     # ========================================================================
     # CONSUMPTIONS
@@ -524,11 +391,6 @@ class StorageService:
         )
 
         for item in consumptions:
-            # Resolve food item from vocabulary (for canonical name tracking)
-            food_item_id = await self._resolve_food_item(
-                item.canonical_name or item.raw_name, item.raw_name
-            )
-
             # Use nutrition from Gemini extraction directly
             calories = item.calories
             protein = item.protein_g
@@ -545,13 +407,13 @@ class StorageService:
             query = text(
                 """
                 INSERT INTO extraction_consumptions
-                    (extraction_id, food_item_id, item_raw, food_category, consumption_type, meal_type,
+                    (extraction_id, item_raw, food_category, consumption_type, meal_type,
                      time_of_day, consumption_time, quantity, unit,
                      calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, sodium_mg,
                      caffeine_mg, alcohol_units, is_processed, water_ml,
                      is_healthy, is_home_cooked, confidence, raw_mention)
                 VALUES
-                    (:extraction_id, :food_id, :item_raw, :food_category, :type, :meal_type,
+                    (:extraction_id, :item_raw, :food_category, :type, :meal_type,
                      CAST(:time_of_day AS time_of_day), :time, :quantity, :unit,
                      :calories, :protein, :carbs, :fat, :fiber, :sugar, :sodium,
                      :caffeine_mg, :alcohol_units, :is_processed, :water_ml,
@@ -563,7 +425,6 @@ class StorageService:
                 query,
                 {
                     "extraction_id": extraction_id,
-                    "food_id": food_item_id,
                     "item_raw": item.raw_name,  # Always store raw item name
                     "food_category": getattr(
                         item, "food_category", None
@@ -591,62 +452,6 @@ class StorageService:
                     "raw_mention": item.raw_mention,
                 },
             )
-
-    async def _resolve_food_item(self, name: str, raw_name: str) -> Optional[int]:
-        """Resolve food name to food_items vocabulary (for tracking, not nutrition)."""
-        name_lower = name.lower()
-
-        # 1. Try exact match
-        result = await self.db.execute(
-            text("SELECT id FROM food_items WHERE canonical_name = :name"),
-            {"name": name_lower},
-        )
-        row = result.fetchone()
-        if row:
-            return row[0]
-
-        # 2. Try alias lookup
-        result = await self.db.execute(
-            text(
-                """
-                SELECT fi.id FROM food_items fi
-                JOIN food_aliases fa ON fi.id = fa.food_item_id
-                WHERE fa.alias = :alias
-            """
-            ),
-            {"alias": name_lower},
-        )
-        row = result.fetchone()
-        if row:
-            return row[0]
-
-        # 3. Create new food item
-        food_id = await self._create_food_item(name_lower, raw_name)
-        return food_id
-
-    async def _create_food_item(self, canonical_name: str, display_name: str) -> int:
-        """Create new food item in vocabulary."""
-        result = await self.db.execute(
-            text(
-                """
-                INSERT INTO food_items
-                    (canonical_name, display_name, category)
-                VALUES
-                    (:canonical, :display, :category)
-                ON CONFLICT (canonical_name) DO UPDATE SET canonical_name = EXCLUDED.canonical_name
-                RETURNING id
-            """
-            ),
-            {
-                "canonical": canonical_name,
-                "display": display_name.title(),
-                "category": "other",
-            },
-        )
-        row = result.fetchone()
-
-        logger.info(f"Created new food item: {canonical_name}")
-        return row[0]
 
     # ========================================================================
     # SOCIAL
@@ -1096,17 +901,15 @@ class StorageService:
         """Get user activities with optional filters."""
         query = """
             SELECT
-                at.canonical_name as activity,
-                at.display_name,
-                c.name as category,
+                ea.activity_raw as activity,
+                ea.activity_category as category,
+                ea.activity_subcategory,
                 ea.duration_minutes,
                 ea.time_of_day,
                 ea.intensity,
                 ea.calories_burned,
                 je.entry_date
             FROM extraction_activities ea
-            JOIN activity_types at ON ea.activity_type_id = at.id
-            JOIN categories c ON at.category_id = c.id
             JOIN journal_extractions je ON ea.extraction_id = je.id
             WHERE je.user_id = :user_id
         """
@@ -1119,7 +922,7 @@ class StorageService:
             query += " AND je.entry_date <= :end_date"
             params["end_date"] = end_date
         if category:
-            query += " AND c.name = :category"
+            query += " AND ea.activity_category = :category"
             params["category"] = category
 
         query += " ORDER BY je.entry_date DESC, ea.time_of_day"
@@ -1137,19 +940,17 @@ class StorageService:
             text(
                 """
                 SELECT
-                    at.canonical_name as activity,
-                    c.name as category,
+                    ea.activity_raw as activity,
+                    ea.activity_category as category,
                     COUNT(*) as count,
                     SUM(ea.duration_minutes) as total_minutes,
                     AVG(ea.duration_minutes) as avg_minutes,
                     SUM(ea.calories_burned) as total_calories
                 FROM extraction_activities ea
-                JOIN activity_types at ON ea.activity_type_id = at.id
-                JOIN categories c ON at.category_id = c.id
                 JOIN journal_extractions je ON ea.extraction_id = je.id
                 WHERE je.user_id = :user_id
                   AND je.entry_date >= CURRENT_DATE - :days
-                GROUP BY at.canonical_name, c.name
+                GROUP BY ea.activity_raw, ea.activity_category
                 ORDER BY count DESC
             """
             ),
@@ -1187,11 +988,10 @@ class StorageService:
                     question,
                     context,
                     original_mention,
-                    priority,
-                    suggested_options
+                    priority
                 FROM extraction_gaps
                 WHERE extraction_id = :entry_id
-                  AND resolved = false
+                  AND status = 'pending'
                 ORDER BY priority ASC
             """
             ),
@@ -1201,14 +1001,6 @@ class StorageService:
         gaps = []
         for row in result.fetchall():
             gap = dict(row._mapping)
-            # Parse JSONB suggested_options
-            if gap.get("suggested_options"):
-                if isinstance(gap["suggested_options"], str):
-                    import json
-
-                    gap["suggested_options"] = json.loads(gap["suggested_options"])
-            else:
-                gap["suggested_options"] = []
             gaps.append(gap)
 
         return gaps
@@ -1231,9 +1023,9 @@ class StorageService:
             text(
                 """
                 SELECT
-                    at.canonical_name,
                     ea.activity_raw,
-                    c.name as category,
+                    ea.activity_category as category,
+                    ea.activity_subcategory,
                     ea.duration_minutes,
                     ea.time_of_day,
                     ea.start_time,
@@ -1245,8 +1037,6 @@ class StorageService:
                     ea.raw_mention,
                     ea.needs_clarification
                 FROM extraction_activities ea
-                LEFT JOIN activity_types at ON ea.activity_type_id = at.id
-                LEFT JOIN categories c ON at.category_id = c.id
                 WHERE ea.extraction_id = :entry_id
             """
             ),
@@ -1264,9 +1054,10 @@ class StorageService:
 
             activities.append(
                 NormalizedActivity(
-                    canonical_name=r.get("canonical_name"),
-                    raw_name=r.get("activity_raw") or r.get("canonical_name") or "",
+                    canonical_name=None,
+                    raw_name=r.get("activity_raw") or "",
                     category=r.get("category", "other"),
+                    subcategory=r.get("activity_subcategory"),
                     duration_minutes=r.get("duration_minutes"),
                     time_of_day=time_of_day,
                     start_time=str(r["start_time"]) if r.get("start_time") else None,
@@ -1286,8 +1077,8 @@ class StorageService:
             text(
                 """
                 SELECT
-                    fi.canonical_name,
-                    ec.food_raw,
+                    ec.item_raw as food_raw,
+                    ec.food_category,
                     ec.consumption_type,
                     ec.meal_type,
                     ec.time_of_day,
@@ -1299,7 +1090,6 @@ class StorageService:
                     ec.is_home_cooked,
                     ec.confidence
                 FROM extraction_consumptions ec
-                LEFT JOIN food_items fi ON ec.food_item_id = fi.id
                 WHERE ec.extraction_id = :entry_id
             """
             ),
@@ -1317,8 +1107,9 @@ class StorageService:
 
             consumptions.append(
                 NormalizedConsumption(
-                    canonical_name=r.get("canonical_name"),
-                    raw_name=r.get("food_raw") or r.get("canonical_name") or "",
+                    canonical_name=None,
+                    raw_name=r.get("food_raw") or "",
+                    food_category=r.get("food_category"),
                     consumption_type=r.get("consumption_type", "meal"),
                     meal_type=r.get("meal_type"),
                     time_of_day=time_of_day,
@@ -1409,7 +1200,7 @@ class StorageService:
         # Get gap count
         result = await self.db.execute(
             text(
-                "SELECT COUNT(*) FROM extraction_gaps WHERE extraction_id = :entry_id AND resolved = false"
+                "SELECT COUNT(*) FROM extraction_gaps WHERE extraction_id = :entry_id AND status = 'pending'"
             ),
             {"entry_id": entry_id},
         )
@@ -1450,10 +1241,10 @@ class StorageService:
                 text(
                     """
                     UPDATE extraction_gaps
-                    SET resolved = true, resolved_at = NOW()
+                    SET status = 'answered', resolved_at = NOW()
                     WHERE id IN (
                         SELECT id FROM extraction_gaps
-                        WHERE extraction_id = :entry_id AND resolved = false
+                        WHERE extraction_id = :entry_id AND status = 'pending'
                         ORDER BY priority ASC
                         LIMIT :count
                     )
@@ -1465,7 +1256,7 @@ class StorageService:
         # Update has_gaps flag on main extraction
         result = await self.db.execute(
             text(
-                "SELECT COUNT(*) FROM extraction_gaps WHERE extraction_id = :entry_id AND resolved = false"
+                "SELECT COUNT(*) FROM extraction_gaps WHERE extraction_id = :entry_id AND status = 'pending'"
             ),
             {"entry_id": entry_id},
         )
