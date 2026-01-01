@@ -7,22 +7,23 @@ version: '3.9'
 
 services:
   # ==========================================================================
-  # INFRASTRUCTURE LAYER
+  # INFRASTRUCTURE LAYER - SUPABASE
   # ==========================================================================
 
-  # PostgreSQL Database (Primary OLTP + TimescaleDB)
-  postgres:
-    image: postgres:15-alpine
-    container_name: plos-postgres
+  # Supabase PostgreSQL Database
+  supabase-db:
+    image: supabase/postgres:15.8.1.060
+    container_name: plos-supabase-db
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-plos_db_secure_2025}
       POSTGRES_DB: ${POSTGRES_DB:-plos}
-      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.UTF-8"
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-token-with-at-least-32-characters-long}
+      JWT_EXP: ${JWT_EXP:-3600}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - supabase_db_data:/var/lib/postgresql/data
       - ./infrastructure/database/init.sql:/docker-entrypoint-initdb.d/01-init.sql
       - ./infrastructure/database/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql
     networks:
@@ -41,7 +42,88 @@ services:
         max-size: "50m"
         max-file: "5"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-plos}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Supabase Studio - Database Management UI
+  supabase-studio:
+    image: supabase/studio:20241202-71e5240
+    container_name: plos-supabase-studio
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    environment:
+      STUDIO_PG_META_URL: http://supabase-meta:8080
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-plos_db_secure_2025}
+      DEFAULT_ORGANIZATION_NAME: PLOS
+      DEFAULT_PROJECT_NAME: "Personal Life OS"
+      SUPABASE_URL: http://localhost:8000
+      SUPABASE_PUBLIC_URL: http://localhost:8000
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU}
+      NEXT_PUBLIC_ENABLE_LOGS: "true"
+      NEXT_ANALYTICS_BACKEND_PROVIDER: postgres
+    ports:
+      - "${SUPABASE_STUDIO_PORT:-3000}:3000"
+    networks:
+      - plos-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/profile"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  # Supabase Meta - Required for Studio
+  supabase-meta:
+    image: supabase/postgres-meta:v0.84.2
+    container_name: plos-supabase-meta
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    environment:
+      PG_META_PORT: 8080
+      PG_META_DB_HOST: supabase-db
+      PG_META_DB_PORT: 5432
+      PG_META_DB_NAME: ${POSTGRES_DB:-plos}
+      PG_META_DB_USER: ${POSTGRES_USER:-postgres}
+      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD:-plos_db_secure_2025}
+    ports:
+      - "${META_PORT:-8085}:8080"
+    networks:
+      - plos-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -163,15 +245,9 @@ services:
       context: .
       dockerfile: ./services/api-gateway/Dockerfile
     container_name: plos-api-gateway
-    depends_on:
-      postgres:
-        condition: service_healthy
     environment:
-      KONG_DATABASE: postgres
-      KONG_PG_HOST: postgres
-      KONG_PG_USER: ${POSTGRES_USER:-postgres}
-      KONG_PG_PASSWORD: ${POSTGRES_PASSWORD:-plos_db_secure_2025}
-      KONG_PG_DATABASE: kong
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /etc/kong/kong.yml
       KONG_PROXY_ACCESS_LOG: /dev/stdout
       KONG_ADMIN_ACCESS_LOG: /dev/stdout
       KONG_PROXY_ERROR_LOG: /dev/stderr
@@ -200,7 +276,7 @@ services:
       dockerfile: ./services/context-broker/Dockerfile
     container_name: plos-context-broker
     depends_on:
-      postgres:
+      supabase-db:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -209,7 +285,7 @@ services:
     environment:
       SERVICE_NAME: context-broker
       SERVICE_PORT: 8001
-      POSTGRES_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-plos_db_secure_2025}@postgres:5432/${POSTGRES_DB:-plos}
+      POSTGRES_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-plos_db_secure_2025}@supabase-db:5432/${POSTGRES_DB:-plos}
       REDIS_URL: redis://:${REDIS_PASSWORD:-plos_redis_secure_2025}@redis:6379/0
       KAFKA_BROKERS: kafka:9092
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
@@ -253,7 +329,7 @@ services:
       dockerfile: ./services/journal-parser/Dockerfile
     container_name: plos-journal-parser
     depends_on:
-      postgres:
+      supabase-db:
         condition: service_healthy
       kafka:
         condition: service_healthy
@@ -262,7 +338,7 @@ services:
     environment:
       SERVICE_NAME: journal-parser
       SERVICE_PORT: 8002
-      POSTGRES_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-plos_db_secure_2025}@postgres:5432/${POSTGRES_DB:-plos}
+      POSTGRES_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-plos_db_secure_2025}@supabase-db:5432/${POSTGRES_DB:-plos}
       KAFKA_BROKERS: kafka:9092
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
@@ -309,7 +385,7 @@ services:
       dockerfile: ./services/knowledge-system/Dockerfile
     container_name: plos-knowledge-system
     depends_on:
-      postgres:
+      supabase-db:
         condition: service_healthy
       kafka:
         condition: service_healthy
@@ -318,7 +394,7 @@ services:
     environment:
       SERVICE_NAME: knowledge-system
       SERVICE_PORT: 8003
-      POSTGRES_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-plos_db_secure_2025}@postgres:5432/${POSTGRES_DB:-plos}
+      POSTGRES_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-plos_db_secure_2025}@supabase-db:5432/${POSTGRES_DB:-plos}
       KAFKA_BROKERS: kafka:9092
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       QDRANT_URL: http://qdrant:6333
@@ -396,24 +472,7 @@ services:
   # MONITORING & OBSERVABILITY
   # ==========================================================================
 
-  # pgAdmin - PostgreSQL/TimescaleDB Web UI (like Supabase Studio)
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: plos-pgadmin
-    depends_on:
-      - postgres
-    environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@example.com}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin123}
-      PGADMIN_CONFIG_SERVER_MODE: "False"
-      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
-    ports:
-      - "${PGADMIN_PORT:-5050}:80"
-    volumes:
-      - pgadmin_data:/var/lib/pgadmin
-    networks:
-      - plos-network
-    restart: unless-stopped
+  # NOTE: pgAdmin removed - Use Supabase Studio at http://localhost:3000 instead
 
   # Redis Commander - Redis Web UI
   redis-commander:
@@ -467,7 +526,7 @@ services:
     image: metabase/metabase:latest
     container_name: plos-metabase
     depends_on:
-      postgres:
+      supabase-db:
         condition: service_healthy
     environment:
       MB_DB_TYPE: postgres
@@ -475,7 +534,7 @@ services:
       MB_DB_PORT: 5432
       MB_DB_USER: ${POSTGRES_USER:-postgres}
       MB_DB_PASS: ${POSTGRES_PASSWORD:-plos_db_secure_2025}
-      MB_DB_HOST: postgres
+      MB_DB_HOST: supabase-db
       JAVA_OPTS: -Xmx1g
     ports:
       - "${METABASE_PORT:-3001}:3000"
@@ -518,7 +577,7 @@ networks:
 # ============================================================================
 
 volumes:
-  postgres_data:
+  supabase_db_data:
     driver: local
   redis_data:
     driver: local
@@ -533,8 +592,6 @@ volumes:
   grafana_data:
     driver: local
   qdrant_data:
-    driver: local
-  pgadmin_data:
     driver: local
   metabase_data:
     driver: local

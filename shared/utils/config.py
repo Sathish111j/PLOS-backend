@@ -38,8 +38,8 @@ class Settings(BaseSettings):
     gemini_api_key_rotation_max_retries: int = 3
     gemini_api_key_rotation_backoff_seconds: int = 60
 
-    # PostgreSQL
-    postgres_url: str = "postgresql://postgres:postgres@localhost:5432/plos"
+    # Supabase PostgreSQL
+    postgres_url: str = "postgresql://postgres:postgres@supabase-db:5432/plos"
 
     @property
     def postgres_async_url(self) -> str:

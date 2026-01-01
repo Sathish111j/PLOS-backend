@@ -9,7 +9,7 @@ Write-Host ""
 # Step 1: Verify Infrastructure
 Write-Host "[1/3] Verifying infrastructure..." -ForegroundColor Yellow
 
-$infraRunning = docker-compose ps postgres redis kafka --format json 2>$null
+$infraRunning = docker-compose ps supabase-db redis kafka --format json 2>$null
 if ($LASTEXITCODE -ne 0 -or -not $infraRunning) {
     Write-Host "Infrastructure is not running!" -ForegroundColor Red
     Write-Host "Please run: ./scripts/start-infrastructure.ps1" -ForegroundColor Yellow
