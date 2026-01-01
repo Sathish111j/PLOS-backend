@@ -85,7 +85,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:15-alpine
+        image: supabase/postgres:15.8.1.060
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: test_password
