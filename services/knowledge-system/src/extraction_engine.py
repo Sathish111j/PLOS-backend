@@ -9,14 +9,14 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import httpx
-import structlog
 from bs4 import BeautifulSoup
 from google.genai import types
 from src.vector_store import VectorStore
 
 from shared.gemini import ResilientGeminiClient, TaskType
+from shared.utils.logger import get_logger
 
-logger = structlog.get_logger(__name__)
+logger = get_logger(__name__)
 
 
 class KnowledgeExtractor:
@@ -44,9 +44,7 @@ class KnowledgeExtractor:
         self.http_client = httpx.AsyncClient(timeout=30.0)
 
         logger.info(
-            "knowledge_extractor_initialized",
-            model=self.model,
-            client_type="ResilientGeminiClient",
+            f"Knowledge extractor initialized - model={self.model} client_type=ResilientGeminiClient"
         )
 
     async def extract_from_url(
@@ -64,7 +62,7 @@ class KnowledgeExtractor:
             Dictionary with extraction results
         """
         try:
-            logger.info("extracting_from_url", url=url, user_id=user_id)
+            logger.info(f"Extracting from URL: {url} user_id={user_id}")
 
             # Fetch webpage content
             response = await self.http_client.get(url, follow_redirects=True)
@@ -155,10 +153,7 @@ Extract and return as valid JSON:
             )
 
             logger.info(
-                "url_extraction_completed",
-                knowledge_id=knowledge_id,
-                title=extracted_data.get("title"),
-                url=url,
+                f"URL extraction completed - knowledge_id={knowledge_id} title={extracted_data.get('title')} url={url}"
             )
 
             return {
@@ -172,7 +167,7 @@ Extract and return as valid JSON:
             }
 
         except Exception as e:
-            logger.error("url_extraction_failed", url=url, error=str(e))
+            logger.error(f"URL extraction failed: {url} error={e}")
             return {"success": False, "error": str(e), "url": url}
 
     async def extract_from_pdf(
@@ -195,7 +190,7 @@ Extract and return as valid JSON:
             Dictionary with extraction results
         """
         try:
-            logger.info("extracting_from_pdf", file_path=file_path, user_id=user_id)
+            logger.info(f"Extracting from PDF: {file_path} user_id={user_id}")
 
             # Get raw client for file operations
             raw_client = await self.gemini_client.raw_client
@@ -284,10 +279,7 @@ Analyze this PDF document and extract as valid JSON:
             raw_client.files.delete(pdf_file.name)
 
             logger.info(
-                "pdf_extraction_completed",
-                knowledge_id=knowledge_id,
-                title=extracted_data["title"],
-                filename=filename,
+                f"PDF extraction completed - knowledge_id={knowledge_id} title={extracted_data['title']} filename={filename}"
             )
 
             return {
@@ -301,7 +293,7 @@ Analyze this PDF document and extract as valid JSON:
             }
 
         except Exception as e:
-            logger.error("pdf_extraction_failed", file_path=file_path, error=str(e))
+            logger.error(f"PDF extraction failed: {file_path} error={e}")
             return {"success": False, "error": str(e), "file_path": file_path}
 
     async def extract_from_image(
@@ -324,7 +316,7 @@ Analyze this PDF document and extract as valid JSON:
             Dictionary with extraction results
         """
         try:
-            logger.info("extracting_from_image", file_path=file_path, user_id=user_id)
+            logger.info(f"Extracting from image: {file_path} user_id={user_id}")
 
             # Get raw client for file operations
             raw_client = await self.gemini_client.raw_client
@@ -403,10 +395,7 @@ Analyze this image and extract any useful knowledge as valid JSON:
             raw_client.files.delete(image_file.name)
 
             logger.info(
-                "image_extraction_completed",
-                knowledge_id=knowledge_id,
-                title=extracted_data.get("title"),
-                filename=filename,
+                f"Image extraction completed - knowledge_id={knowledge_id} title={extracted_data.get('title')} filename={filename}"
             )
 
             return {
@@ -419,7 +408,7 @@ Analyze this image and extract any useful knowledge as valid JSON:
             }
 
         except Exception as e:
-            logger.error("image_extraction_failed", file_path=file_path, error=str(e))
+            logger.error(f"Image extraction failed: {file_path} error={e}")
             return {"success": False, "error": str(e), "file_path": file_path}
 
     async def extract_from_text(
@@ -442,7 +431,7 @@ Analyze this image and extract any useful knowledge as valid JSON:
             Dictionary with storage results
         """
         try:
-            logger.info("processing_text", user_id=user_id)
+            logger.info(f"Processing text: user_id={user_id}")
 
             # If no title provided, use Gemini to generate one
             if not title:
@@ -467,16 +456,16 @@ Analyze this image and extract any useful knowledge as valid JSON:
             )
 
             logger.info(
-                "text_processing_completed", knowledge_id=knowledge_id, title=title
+                f"Text processing completed - knowledge_id={knowledge_id} title={title}"
             )
 
             return {"success": True, "knowledge_id": knowledge_id, "title": title}
 
         except Exception as e:
-            logger.error("text_processing_failed", error=str(e))
+            logger.error(f"Text processing failed: {e}")
             return {"success": False, "error": str(e)}
 
     async def close(self):
         """Clean up resources"""
         await self.http_client.aclose()
-        logger.info("knowledge_extractor_closed")
+        logger.info("Knowledge extractor closed")

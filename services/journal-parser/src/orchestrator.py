@@ -67,6 +67,7 @@ class JournalParserOrchestrator:
         user_id: UUID,
         entry_text: str,
         entry_date: Optional[date] = None,
+        detect_gaps: bool = True,
         require_complete: bool = False,
     ) -> Dict[str, Any]:
         """
@@ -76,6 +77,7 @@ class JournalParserOrchestrator:
             user_id: User UUID
             entry_text: Raw journal text
             entry_date: Date of the entry (defaults to today)
+            detect_gaps: If True, detects ambiguous data and generates clarification questions
             require_complete: If True, do not store data until all gaps are resolved
 
         Returns:
@@ -86,6 +88,9 @@ class JournalParserOrchestrator:
 
         safe_user_id = str(user_id).replace("\n", "")
         logger.info(f"Processing journal for user {safe_user_id} on {entry_date}")
+        logger.info(
+            f"Options: detect_gaps={detect_gaps}, require_complete={require_complete}"
+        )
 
         try:
             # ================================================================
@@ -129,11 +134,13 @@ class JournalParserOrchestrator:
             logger.info("STAGE 3: GEMINI EXTRACTION + NORMALIZATION")
             logger.info("=" * 60)
             logger.info("Calling Gemini AI for extraction...")
+            logger.info(f"Gap detection: {'ENABLED' if detect_gaps else 'DISABLED'}")
 
             extraction: ExtractionResult = await self.extractor.extract_all(
                 journal_text=preprocessed_text,
                 user_context=user_context,
                 entry_date=entry_date,
+                detect_gaps=detect_gaps,
             )
 
             logger.info("Extraction complete!")
@@ -195,9 +202,29 @@ class JournalParserOrchestrator:
             # Format gaps as questions for user
             clarification_questions = []
             if extraction.gaps:
-                clarification_questions = self.gap_resolver.format_gaps_for_user(
-                    extraction.gaps
-                )
+                if stored and entry_id:
+                    # Get gaps from database with their IDs
+                    stored_gaps = await self.storage.get_entry_gaps(entry_id)
+                    clarification_questions = [
+                        {
+                            "gap_id": str(gap["gap_id"]),
+                            "question": gap["question"],
+                            "context": gap["context"],
+                            "category": gap["field_category"],
+                            "priority": (
+                                "high"
+                                if gap.get("priority") == 1
+                                else "medium" if gap.get("priority") == 2 else "low"
+                            ),
+                            # Add suggestions if available
+                        }
+                        for gap in stored_gaps
+                    ]
+                else:
+                    # Use format without IDs for non-stored entries
+                    clarification_questions = self.gap_resolver.format_gaps_for_user(
+                        extraction.gaps
+                    )
                 logger.info(
                     f"Generated {len(clarification_questions)} clarification questions"
                 )
@@ -282,6 +309,7 @@ class JournalParserOrchestrator:
                 "metadata": {
                     "processing_time_ms": processing_time_ms,
                     "preprocessing": preprocessing_data,
+                    "detect_gaps": detect_gaps,
                     "require_complete": require_complete,
                 },
             }
@@ -318,10 +346,10 @@ class JournalParserOrchestrator:
         Returns:
             Updated extraction data
         """
+        logger.info(f"ORCHESTRATOR: Starting gap resolution for {gap_id}")
         try:
             # Update the gap in storage
             await self.storage.resolve_gap(gap_id, user_response)
-
             logger.info(f"Resolved gap {gap_id} for user {user_id}")
 
             return {
@@ -331,7 +359,7 @@ class JournalParserOrchestrator:
             }
 
         except Exception as e:
-            logger.error(f"Error resolving gap: {e}")
+            logger.error(f"Error resolving gap {gap_id}: {e}", exc_info=True)
             raise
 
     async def resolve_gaps_with_paragraph(

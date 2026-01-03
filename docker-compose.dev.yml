@@ -1,0 +1,73 @@
+# ============================================================================
+# PLOS - Development Override
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+# ============================================================================
+# Features:
+# - Live code reloading with volume mounts
+# - Auto-restart on code changes
+# - Debug logging enabled
+# - Simplified builds without optimization
+# ============================================================================
+
+version: '3.9'
+
+services:
+  context-broker:
+    build:
+      context: .
+      dockerfile: ./services/context-broker/Dockerfile
+      target: development  # If multi-stage, use dev stage
+    volumes:
+      # Mount source code for live reload
+      - ./services/context-broker/src:/app/src:rw
+      - ./shared:/app/shared:rw
+    environment:
+      LOG_LEVEL: DEBUG
+      PYTHONUNBUFFERED: 1
+      WATCHFILES_FORCE_POLLING: "true"  # For Windows compatibility
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8001 --reload --reload-dir /app/src --reload-dir /app/shared
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+
+  journal-parser:
+    build:
+      context: .
+      dockerfile: ./services/journal-parser/Dockerfile
+      target: development
+    volumes:
+      # Mount source code for live reload
+      - ./services/journal-parser/src:/app/src:rw
+      - ./shared:/app/shared:rw
+    environment:
+      LOG_LEVEL: DEBUG
+      PYTHONUNBUFFERED: 1
+      WATCHFILES_FORCE_POLLING: "true"
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8002 --reload --reload-dir /app/src --reload-dir /app/shared
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+
+  knowledge-system:
+    build:
+      context: .
+      dockerfile: ./services/knowledge-system/Dockerfile
+      target: development
+    volumes:
+      # Mount source code for live reload
+      - ./services/knowledge-system/src:/app/src:rw
+      - ./shared:/app/shared:rw
+    environment:
+      LOG_LEVEL: DEBUG
+      PYTHONUNBUFFERED: 1
+      WATCHFILES_FORCE_POLLING: "true"
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8003 --reload --reload-dir /app/src --reload-dir /app/shared
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G

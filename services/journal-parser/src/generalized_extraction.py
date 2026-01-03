@@ -405,7 +405,9 @@ def estimate_calories(activity: str, duration_minutes: Optional[int]) -> Optiona
 # ============================================================================
 
 
-def detect_gaps(raw_text: str, extraction: Dict[str, Any]) -> List[DataGap]:
+def detect_gaps_from_patterns(
+    raw_text: str, extraction: Dict[str, Any]
+) -> List[DataGap]:
     """
     Detect gaps in extraction that need user clarification.
     Skip if the activity is already extracted clearly.
@@ -752,6 +754,7 @@ class GeminiExtractor:
         journal_text: str,
         user_context: Optional[Dict[str, Any]] = None,
         entry_date: Optional[date] = None,
+        detect_gaps: bool = True,
     ) -> ExtractionResult:
         """
         Extract all data from journal entry with normalization and gap detection.
@@ -760,13 +763,15 @@ class GeminiExtractor:
             journal_text: The journal entry text
             user_context: Optional user baseline data for context
             entry_date: Date of the journal entry
+            detect_gaps: If True, includes gap detection in prompt and result
 
         Returns:
-            ExtractionResult with normalized data and any gaps
+            ExtractionResult with normalized data and any gaps (if detect_gaps=True)
         """
-        prompt = self._build_prompt(journal_text, user_context, entry_date)
+        prompt = self._build_prompt(journal_text, user_context, entry_date, detect_gaps)
 
         logger.debug(f"Extraction prompt length: {len(prompt)} chars")
+        logger.debug(f"Gap detection: {'ENABLED' if detect_gaps else 'DISABLED'}")
 
         try:
             response = await self.gemini_client.generate_content(
@@ -777,7 +782,9 @@ class GeminiExtractor:
             raw_extraction = self._parse_response(response)
 
             # Normalize and detect gaps
-            result = self._normalize_extraction(raw_extraction, journal_text)
+            result = self._normalize_extraction(
+                raw_extraction, journal_text, detect_gaps
+            )
 
             # Log summary
             self._log_summary(result)
@@ -801,6 +808,7 @@ class GeminiExtractor:
         journal_text: str,
         user_context: Optional[Dict[str, Any]],
         entry_date: Optional[date],
+        detect_gaps: bool = True,
     ) -> str:
         """Build extraction prompt with instructions."""
         parts = []
@@ -984,13 +992,45 @@ TIME OF DAY:
         parts.append("## EXTRACTION SCHEMA\n")
         parts.append(f"```json\n{EXTRACTION_SCHEMA}\n```\n\n")
 
-        parts.append(
-            """## RESPONSE
-Return ONLY valid JSON. Include ONLY fields that have data.
-For ambiguous items, generate a helpful clarification question.
+        if detect_gaps:
+            parts.append(
+                """## CRITICAL: AMBIGUOUS DATA HANDLING
+
+ALWAYS add entries to the "ambiguous" array when you encounter:
+1. **Vague quantities**: "some", "a bit of", "a little", "a few"
+2. **Missing specifics**: "a pill" (which pill?), "someone" (who?), "a workout" (what type?)
+3. **Unclear durations**: "slept okay" (how long?), "worked for a while" (how long?)
+4. **Generic names**: "food", "exercise", "meeting" without specifics
+5. **Missing context**: Names without relationships, activities without duration, food without quantity
+
+EXAMPLES OF AMBIGUOUS DATA:
+- "had some chicken" → ambiguous: {"text": "some chicken", "question": "How much chicken did you eat? (e.g., 100g, 2 pieces, half a breast)", "field_category": "meal"}
+- "did a workout" → ambiguous: {"text": "a workout", "question": "What type of workout did you do? (e.g., cardio, strength training, yoga)", "field_category": "activity"}
+- "took a pill" → ambiguous: {"text": "a pill", "question": "What pill did you take? (e.g., aspirin, ibuprofen, vitamin)", "field_category": "health"}
+- "met someone" → ambiguous: {"text": "someone", "question": "Who did you meet? (name or relationship)", "field_category": "social"}
+- "slept okay I guess" → ambiguous: {"text": "slept okay", "question": "How many hours did you sleep approximately?", "field_category": "sleep"}
+
+IMPORTANT RULES:
+1. STILL extract what you can (e.g., "chicken" as a consumption) but ALSO flag it as ambiguous
+2. Each ambiguous entry should have: text (the vague mention), question (specific clarification needed), field_category, and optional suggestions
+3. Be specific in your questions - don't just ask "can you clarify?" but ask exactly what information is missing
+4. Provide 2-3 concrete suggestions when possible to help the user answer quickly
+
+## RESPONSE
+Return ONLY valid JSON. Include ALL fields from the schema.
+Use the "ambiguous" array to flag ANY vague, incomplete, or unclear mentions.
 IMPORTANT: Reuse activity names and categories from the vocabulary above when applicable.
 """
-        )
+            )
+        else:
+            parts.append(
+                """## RESPONSE
+Return ONLY valid JSON. Include ALL fields from the schema.
+Extract data as accurately as possible based on what's mentioned.
+Do NOT include the "ambiguous" field - extract what you can with best estimates.
+IMPORTANT: Reuse activity names and categories from the vocabulary above when applicable.
+"""
+            )
 
         return "".join(parts)
 
@@ -1011,7 +1051,7 @@ IMPORTANT: Reuse activity names and categories from the vocabulary above when ap
             return {}
 
     def _normalize_extraction(
-        self, raw: Dict[str, Any], journal_text: str
+        self, raw: Dict[str, Any], journal_text: str, detect_gaps: bool = True
     ) -> ExtractionResult:
         """Normalize raw extraction to controlled vocabulary."""
 
@@ -1243,33 +1283,38 @@ IMPORTANT: Reuse activity names and categories from the vocabulary above when ap
         # Sleep
         sleep = raw.get("sleep")
 
-        # Detect gaps from ambiguous section
+        # Detect gaps from ambiguous section (only if detect_gaps is True)
         gaps = []
-        for amb in raw.get("ambiguous", []):
-            if isinstance(amb, dict):
-                gaps.append(
-                    DataGap(
-                        field_category=amb.get("field_category", "other"),
-                        question=amb.get("question", "Can you clarify?"),
-                        context=f"You mentioned: '{amb.get('text', '')}'",
-                        original_mention=amb.get("text", ""),
-                        priority=GapPriority.MEDIUM,
-                        suggested_options=amb.get("suggestions", []),
+        if detect_gaps:
+            for amb in raw.get("ambiguous", []):
+                if isinstance(amb, dict):
+                    gaps.append(
+                        DataGap(
+                            field_category=amb.get("field_category", "other"),
+                            question=amb.get("question", "Can you clarify?"),
+                            context=f"You mentioned: '{amb.get('text', '')}'",
+                            original_mention=amb.get("text", ""),
+                            priority=GapPriority.MEDIUM,
+                            suggested_options=amb.get("suggestions", []),
+                        )
                     )
-                )
 
-        # Additional gap detection from patterns
-        additional_gaps = detect_gaps(journal_text, raw)
-        gaps.extend(additional_gaps)
+            # Additional gap detection from patterns
+            additional_gaps = detect_gaps_from_patterns(journal_text, raw)
+            gaps.extend(additional_gaps)
 
-        # Remove duplicate gaps
-        seen = set()
-        unique_gaps = []
-        for gap in gaps:
-            key = (gap.field_category, gap.original_mention)
-            if key not in seen:
-                seen.add(key)
-                unique_gaps.append(gap)
+            # Remove duplicate gaps
+            seen = set()
+            unique_gaps = []
+            for gap in gaps:
+                key = (gap.field_category, gap.original_mention)
+                if key not in seen:
+                    seen.add(key)
+                    unique_gaps.append(gap)
+            gaps = unique_gaps
+        else:
+            logger.debug("Gap detection DISABLED - skipping ambiguous data processing")
+            unique_gaps = []
 
         # Locations
         locations = []

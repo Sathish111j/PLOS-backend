@@ -4,7 +4,7 @@ Real-time user state and context models
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -73,67 +73,3 @@ class ContextUpdate(BaseModel):
                 "timestamp": "2025-01-15T10:30:00Z",
             }
         }
-
-
-class HealthMetrics(BaseModel):
-    """Health metrics data point"""
-
-    user_id: UUID
-    timestamp: datetime
-    sleep_hours: Optional[float] = Field(None, ge=0, le=24)
-    sleep_quality: Optional[int] = Field(None, ge=1, le=10)
-    energy_level: Optional[int] = Field(None, ge=1, le=10)
-    stress_level: Optional[int] = Field(None, ge=1, le=10)
-    weight_kg: Optional[float] = None
-    heart_rate_bpm: Optional[int] = None
-    symptoms: List[str] = Field(default_factory=list)
-    notes: Optional[str] = None
-
-
-class MoodEntry(BaseModel):
-    """Mood tracking entry"""
-
-    user_id: UUID
-    timestamp: datetime
-    mood_score: int = Field(..., ge=1, le=10)
-    mood_labels: List[str] = Field(default_factory=list)
-    notes: Optional[str] = None
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "user_id": "123e4567-e89b-12d3-a456-426614174000",
-                "timestamp": "2025-01-15T10:30:00Z",
-                "mood_score": 7,
-                "mood_labels": ["happy", "focused", "energetic"],
-                "notes": "Had a great morning workout",
-            }
-        }
-
-
-class NutritionEntry(BaseModel):
-    """Nutrition tracking entry"""
-
-    user_id: UUID
-    timestamp: datetime
-    meal_type: Optional[str] = None  # breakfast, lunch, dinner, snack
-    food_items: List[str] = Field(default_factory=list)
-    calories: Optional[int] = None
-    protein_g: Optional[float] = None
-    carbs_g: Optional[float] = None
-    fat_g: Optional[float] = None
-    water_ml: Optional[int] = None
-    notes: Optional[str] = None
-
-
-class ExerciseEntry(BaseModel):
-    """Exercise tracking entry"""
-
-    user_id: UUID
-    timestamp: datetime
-    exercise_type: str
-    duration_minutes: int
-    intensity: Optional[str] = None  # low, moderate, high
-    calories_burned: Optional[int] = None
-    distance_km: Optional[float] = None
-    notes: Optional[str] = None

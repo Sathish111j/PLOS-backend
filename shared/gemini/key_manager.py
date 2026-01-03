@@ -4,7 +4,6 @@ Manages API key rotation based on quota usage and error detection
 """
 
 import asyncio
-import logging
 import os
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
@@ -14,8 +13,9 @@ from shared.gemini.exceptions import (
     InvalidKeyConfigError,
     NoValidKeysError,
 )
+from shared.utils.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass

@@ -7,7 +7,6 @@ import os
 from contextlib import asynccontextmanager
 from typing import List, Optional
 
-import structlog
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import PlainTextResponse
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
@@ -16,15 +15,12 @@ from src.extraction_engine import KnowledgeExtractor
 from src.vector_store import VectorStore
 
 from shared.gemini import ResilientGeminiClient
+from shared.utils.logger import get_logger
+from shared.utils.logging_config import setup_logging
 
-# Configure structured logging
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.JSONRenderer(),
-    ]
-)
-logger = structlog.get_logger(__name__)
+# Setup structured logging using shared configuration
+setup_logging("knowledge-system", log_level="INFO", json_logs=True)
+logger = get_logger(__name__)
 
 # Prometheus metrics
 KNOWLEDGE_ITEMS_ADDED = Counter(
@@ -59,18 +55,16 @@ async def lifespan(app: FastAPI):
     """Application lifespan context manager"""
     global vector_store, extractor, gemini_client
 
-    logger.info("knowledge_system_starting")
+    logger.info("Knowledge system starting")
 
     # Initialize centralized Gemini client with API key rotation
     try:
         gemini_client = ResilientGeminiClient()
         logger.info(
-            "gemini_client_initialized",
-            client_type="ResilientGeminiClient",
-            rotation_enabled=gemini_client.rotation_enabled,
+            f"Gemini client initialized - client_type=ResilientGeminiClient rotation_enabled={gemini_client.rotation_enabled}"
         )
     except Exception as e:
-        logger.error("gemini_client_init_failed", error=str(e))
+        logger.error(f"Gemini client initialization failed: {e}")
         raise
 
     # Initialize Vector Store with shared Gemini client
@@ -80,9 +74,9 @@ async def lifespan(app: FastAPI):
             qdrant_api_key=os.getenv("QDRANT_API_KEY", ""),
             gemini_client=gemini_client,
         )
-        logger.info("vector_store_initialized")
+        logger.info("Vector store initialized")
     except Exception as e:
-        logger.error("vector_store_init_failed", error=str(e))
+        logger.error(f"Vector store initialization failed: {e}")
         raise
 
     # Initialize Knowledge Extractor with shared Gemini client
@@ -92,12 +86,12 @@ async def lifespan(app: FastAPI):
             gemini_client=gemini_client,
             model=os.getenv("GEMINI_DEFAULT_MODEL"),  # Uses config default if None
         )
-        logger.info("knowledge_extractor_initialized")
+        logger.info("Knowledge extractor initialized")
     except Exception as e:
-        logger.error("extractor_init_failed", error=str(e))
+        logger.error(f"Extractor initialization failed: {e}")
         raise
 
-    logger.info("knowledge_system_ready")
+    logger.info("Knowledge system ready")
 
     yield
 
@@ -208,7 +202,7 @@ async def health_check():
             "total_knowledge_items": stats.get("total_items", 0),
         }
     except Exception as e:
-        logger.error("health_check_failed", error=str(e))
+        logger.error(f"Health check failed: {e}")
         return {"status": "unhealthy", "error": str(e)}
 
 
@@ -244,7 +238,7 @@ async def add_knowledge_item(item: KnowledgeItemCreate):
         }
 
     except Exception as e:
-        logger.error("add_knowledge_failed", error=str(e))
+        logger.error(f"Add knowledge failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -271,7 +265,7 @@ async def extract_from_url(request: URLExtractionRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("url_extraction_failed", error=str(e))
+        logger.error(f"URL extraction failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -321,7 +315,7 @@ async def extract_from_pdf(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("pdf_extraction_failed", error=str(e))
+        logger.error(f"PDF extraction failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -371,7 +365,7 @@ async def extract_from_image(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("image_extraction_failed", error=str(e))
+        logger.error(f"Image extraction failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -400,7 +394,7 @@ async def extract_from_text(request: TextKnowledgeRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("text_extraction_failed", error=str(e))
+        logger.error(f"Text extraction failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -449,7 +443,7 @@ async def search_knowledge(request: SearchRequest):
         )
 
     except Exception as e:
-        logger.error("search_failed", error=str(e))
+        logger.error(f"Search failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -462,7 +456,7 @@ async def delete_knowledge_item(knowledge_id: str):
         return {"success": success, "message": "Knowledge item deleted successfully"}
 
     except Exception as e:
-        logger.error("delete_failed", error=str(e))
+        logger.error(f"Delete failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -475,7 +469,7 @@ async def get_knowledge_stats():
         return {"success": True, "stats": stats}
 
     except Exception as e:
-        logger.error("stats_failed", error=str(e))
+        logger.error(f"Stats failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

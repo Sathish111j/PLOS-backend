@@ -65,7 +65,7 @@ jobs:
           pip install -r services/context-broker/requirements.txt
           pip install -r services/journal-parser/requirements.txt
           pip install -r services/knowledge-system/requirements.txt
-          safety check --json || true
+          safety check || echo "Safety check completed with warnings"
 
       - name: Run Bandit (security linter)
         run: bandit -r services/ shared/ -f json -o bandit-report.json || true
@@ -85,7 +85,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: supabase/postgres:15.8.1.060
+        image: postgres:15-alpine
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: test_password
@@ -93,7 +93,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -121,18 +121,31 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pytest-asyncio pytest-cov httpx
+          pip install pytest pytest-asyncio pytest-cov httpx psycopg2-binary
           pip install -r services/context-broker/requirements.txt
           pip install -r services/journal-parser/requirements.txt
           pip install -r services/knowledge-system/requirements.txt
+
+      - name: Initialize database schema
+        env:
+          PGPASSWORD: test_password
+        run: |
+          sudo apt-get update && sudo apt-get install -y postgresql-client
+          psql -h localhost -U postgres -d plos_test -f infrastructure/database/init.sql || echo "Schema initialization attempted"
 
       - name: Run tests
         env:
           POSTGRES_URL: postgresql://postgres:test_password@localhost:5432/plos_test
           REDIS_URL: redis://localhost:6379/0
           GEMINI_API_KEY: test_key
+          DATABASE_URL: postgresql://postgres:test_password@localhost:5432/plos_test
         run: |
-          pytest services/ shared/ -v --cov --cov-report=xml --cov-report=html || echo "No tests found yet"
+          if find services/ shared/ -name 'test_*.py' | grep -q .; then
+            pytest services/ shared/ -v --cov --cov-report=xml --cov-report=html
+          else
+            echo "No tests found - skipping test execution"
+            exit 0
+          fi
 
       - name: Upload coverage reports
         uses: codecov/codecov-action@v4

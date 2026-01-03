@@ -5,7 +5,6 @@ Uses the new google-genai SDK (not the deprecated google-generativeai)
 """
 
 import asyncio
-import logging
 import os
 from typing import Any, Dict, List, Optional, Union
 
@@ -15,8 +14,9 @@ from google.genai import types
 from shared.gemini.config import TaskType, get_gemini_config, get_task_config
 from shared.gemini.exceptions import GeminiAPICallError
 from shared.gemini.key_manager import GeminiKeyManager
+from shared.utils.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class ResilientGeminiClient:

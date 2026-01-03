@@ -49,6 +49,11 @@ class ProcessJournalRequest(BaseModel):
     entry_date: Optional[date] = Field(
         default=None, description="Entry date (defaults to today)"
     )
+    detect_gaps: bool = Field(
+        default=True,
+        description="If True, detects ambiguous data and generates clarification questions. "
+        "Set to False to skip gap detection and process as-is.",
+    )
     require_complete: bool = Field(
         default=False,
         description="If True, requires all clarification questions to be answered before storing. "
@@ -86,10 +91,14 @@ class ConsumptionResponse(BaseModel):
 class ClarificationQuestion(BaseModel):
     """A question for the user to clarify ambiguous data"""
 
+    gap_id: Optional[str] = Field(
+        default=None,
+        description="Unique gap identifier for resolution (present when the entry is stored)",
+    )
     question: str
     context: Optional[str] = None
     category: str
-    priority: str
+    priority: str | int
     suggestions: Optional[List[str]] = None
 
 
@@ -237,23 +246,35 @@ async def process_journal_entry(
     """
     try:
         safe_user_id = str(request.user_id).replace("\n", "")
-        logger.info(f"Processing journal for user {safe_user_id}")
+        logger.info(f"API /journal/process - START for user {safe_user_id}")
+        logger.info(
+            f"Request details: entry_text_length={len(request.entry_text)}, entry_date={request.entry_date}, detect_gaps={request.detect_gaps}, require_complete={request.require_complete}"
+        )
+        logger.info(f"Entry preview: {request.entry_text[:150]}...")
 
         # Create orchestrator
+        logger.info("Creating JournalParserOrchestrator")
         orchestrator = JournalParserOrchestrator(
             db_session=db, kafka_producer=kafka, gemini_client=gemini
         )
+        logger.info("Orchestrator created successfully")
 
         # Process entry
+        logger.info("Starting orchestrator.process_journal_entry()")
         result = await orchestrator.process_journal_entry(
             user_id=request.user_id,
             entry_text=request.entry_text,
             entry_date=request.entry_date,
+            detect_gaps=request.detect_gaps,
             require_complete=request.require_complete,
+        )
+        logger.info(
+            f"Orchestrator completed: entry_id={result.get('entry_id')}, stored={result.get('stored')}, has_gaps={result.get('has_gaps')}"
         )
 
         # Build response
-        return ExtractionResponse(
+        logger.info("Building ExtractionResponse")
+        response = ExtractionResponse(
             entry_id=result["entry_id"],
             user_id=result["user_id"],
             entry_date=result["entry_date"],
@@ -275,8 +296,22 @@ async def process_journal_entry(
             processing_time_ms=result["metadata"]["processing_time_ms"],
         )
 
+        logger.info(
+            f"API /journal/process - SUCCESS: processed in {result['metadata']['processing_time_ms']}ms"
+        )
+        logger.info(
+            f"Response summary: activities={len(response.activities)}, consumptions={len(response.consumptions)}, gaps={len(response.clarification_questions)}"
+        )
+        JOURNAL_PROCESS_COUNT.labels(status="success").inc()
+        return response
+
+    except HTTPException:
+        logger.error("HTTP exception during journal processing")
+        JOURNAL_PROCESS_COUNT.labels(status="error").inc()
+        raise
     except Exception as e:
-        logger.error(f"Error processing journal entry: {e}", exc_info=True)
+        logger.error(f"API /journal/process - FAILED: {e}", exc_info=True)
+        JOURNAL_PROCESS_COUNT.labels(status="error").inc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to process journal entry: {str(e)}",

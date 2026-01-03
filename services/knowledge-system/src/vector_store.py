@@ -7,7 +7,6 @@ import hashlib
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-import structlog
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     Distance,
@@ -20,8 +19,9 @@ from qdrant_client.models import (
 )
 
 from shared.gemini import ResilientGeminiClient
+from shared.utils.logger import get_logger
 
-logger = structlog.get_logger(__name__)
+logger = get_logger(__name__)
 
 
 class VectorStore:
@@ -53,14 +53,14 @@ class VectorStore:
             self.client = QdrantClient(
                 url=qdrant_url, api_key=qdrant_api_key, timeout=30
             )
-            logger.info("qdrant_client_initialized", url=qdrant_url)
+            logger.info(f"Qdrant client initialized: {qdrant_url}")
         except Exception as e:
-            logger.error("qdrant_client_init_failed", error=str(e))
+            logger.error(f"Qdrant client initialization failed: {e}")
             raise
 
         # Use centralized Gemini client with API key rotation
         self.gemini_client = gemini_client or ResilientGeminiClient()
-        logger.info("gemini_client_initialized", client_type="ResilientGeminiClient")
+        logger.info("Gemini client initialized: ResilientGeminiClient")
 
         # Ensure collection exists
         self._ensure_collection_exists()
@@ -82,17 +82,13 @@ class VectorStore:
                     ),
                 )
                 logger.info(
-                    "qdrant_collection_created",
-                    collection=self.collection_name,
-                    vector_size=self.vector_size,
+                    f"Qdrant collection created: {self.collection_name} vector_size={self.vector_size}"
                 )
             else:
-                logger.info("qdrant_collection_exists", collection=self.collection_name)
+                logger.info(f"Qdrant collection exists: {self.collection_name}")
         except Exception as e:
             logger.error(
-                "collection_creation_failed",
-                collection=self.collection_name,
-                error=str(e),
+                f"Collection creation failed: {self.collection_name} error={e}"
             )
             raise
 
@@ -240,12 +236,12 @@ class VectorStore:
             # Batch upsert
             self.client.upsert(collection_name=self.collection_name, points=points)
 
-            logger.info("batch_knowledge_items_added", count=len(knowledge_ids))
+            logger.info(f"Batch knowledge items added: count={len(knowledge_ids)}")
 
             return knowledge_ids
 
         except Exception as e:
-            logger.error("batch_add_failed", error=str(e))
+            logger.error(f"Batch add failed: {e}")
             raise
 
     async def semantic_search(
@@ -335,7 +331,7 @@ class VectorStore:
             return results
 
         except Exception as e:
-            logger.error("semantic_search_failed", query=query[:50], error=str(e))
+            logger.error(f"Semantic search failed: query='{query[:50]}' error={e}")
             raise
 
     def delete_knowledge_item(self, knowledge_id: str) -> bool:
@@ -354,13 +350,11 @@ class VectorStore:
                 points_selector=[self._hash_to_id(knowledge_id)],
             )
 
-            logger.info("knowledge_item_deleted", knowledge_id=knowledge_id)
+            logger.info(f"Knowledge item deleted: {knowledge_id}")
             return True
 
         except Exception as e:
-            logger.error(
-                "delete_knowledge_item_failed", knowledge_id=knowledge_id, error=str(e)
-            )
+            logger.error(f"Delete knowledge item failed: {knowledge_id} error={e}")
             raise
 
     def get_collection_stats(self) -> Dict[str, Any]:
@@ -381,11 +375,11 @@ class VectorStore:
                 "status": collection_info.status,
             }
 
-            logger.info("collection_stats_retrieved", stats=stats)
+            logger.info(f"Collection stats retrieved: {stats}")
             return stats
 
         except Exception as e:
-            logger.error("get_collection_stats_failed", error=str(e))
+            logger.error(f"Get collection stats failed: {e}")
             raise
 
     def _hash_to_id(self, string_id: str) -> int:

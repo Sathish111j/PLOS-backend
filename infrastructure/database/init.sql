@@ -24,7 +24,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public;
 
 
 --
--- Name: EXTENSION pg_trgm; Type: COMMENT; Schema: -; Owner: 
+-- Name: EXTENSION pg_trgm; Type: COMMENT; Schema: -; Owner: -
 --
 
 COMMENT ON EXTENSION pg_trgm IS 'text similarity measurement and index searching based on trigrams';
@@ -38,7 +38,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
 
 
 --
--- Name: EXTENSION pgcrypto; Type: COMMENT; Schema: -; Owner: 
+-- Name: EXTENSION pgcrypto; Type: COMMENT; Schema: -; Owner: -
 --
 
 COMMENT ON EXTENSION pgcrypto IS 'cryptographic functions';
@@ -52,14 +52,14 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA public;
 
 
 --
--- Name: EXTENSION "uuid-ossp"; Type: COMMENT; Schema: -; Owner: 
+-- Name: EXTENSION "uuid-ossp"; Type: COMMENT; Schema: -; Owner: -
 --
 
 COMMENT ON EXTENSION "uuid-ossp" IS 'generate universally unique identifiers (UUIDs)';
 
 
 --
--- Name: data_gap_status; Type: TYPE; Schema: public; Owner: postgres
+-- Name: data_gap_status; Type: TYPE; Schema: public; Owner: -
 --
 
 CREATE TYPE public.data_gap_status AS ENUM (
@@ -70,10 +70,8 @@ CREATE TYPE public.data_gap_status AS ENUM (
 );
 
 
-ALTER TYPE public.data_gap_status OWNER TO postgres;
-
 --
--- Name: extraction_quality; Type: TYPE; Schema: public; Owner: postgres
+-- Name: extraction_quality; Type: TYPE; Schema: public; Owner: -
 --
 
 CREATE TYPE public.extraction_quality AS ENUM (
@@ -83,10 +81,8 @@ CREATE TYPE public.extraction_quality AS ENUM (
 );
 
 
-ALTER TYPE public.extraction_quality OWNER TO postgres;
-
 --
--- Name: time_of_day; Type: TYPE; Schema: public; Owner: postgres
+-- Name: time_of_day; Type: TYPE; Schema: public; Owner: -
 --
 
 CREATE TYPE public.time_of_day AS ENUM (
@@ -99,10 +95,8 @@ CREATE TYPE public.time_of_day AS ENUM (
 );
 
 
-ALTER TYPE public.time_of_day OWNER TO postgres;
-
 --
--- Name: update_updated_at_column(); Type: FUNCTION; Schema: public; Owner: postgres
+-- Name: update_updated_at_column(); Type: FUNCTION; Schema: public; Owner: -
 --
 
 CREATE FUNCTION public.update_updated_at_column() RETURNS trigger
@@ -115,14 +109,12 @@ END;
 $$;
 
 
-ALTER FUNCTION public.update_updated_at_column() OWNER TO postgres;
-
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
 
 --
--- Name: extraction_activities; Type: TABLE; Schema: public; Owner: postgres
+-- Name: extraction_activities; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.extraction_activities (
@@ -154,10 +146,8 @@ CREATE TABLE public.extraction_activities (
 );
 
 
-ALTER TABLE public.extraction_activities OWNER TO postgres;
-
 --
--- Name: extraction_consumptions; Type: TABLE; Schema: public; Owner: postgres
+-- Name: extraction_consumptions; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.extraction_consumptions (
@@ -192,10 +182,8 @@ CREATE TABLE public.extraction_consumptions (
 );
 
 
-ALTER TABLE public.extraction_consumptions OWNER TO postgres;
-
 --
--- Name: extraction_gaps; Type: TABLE; Schema: public; Owner: postgres
+-- Name: extraction_gaps; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.extraction_gaps (
@@ -213,17 +201,15 @@ CREATE TABLE public.extraction_gaps (
 );
 
 
-ALTER TABLE public.extraction_gaps OWNER TO postgres;
-
 --
--- Name: TABLE extraction_gaps; Type: COMMENT; Schema: public; Owner: postgres
+-- Name: TABLE extraction_gaps; Type: COMMENT; Schema: public; Owner: -
 --
 
 COMMENT ON TABLE public.extraction_gaps IS 'Questions that need user clarification. LLM generates these when data is ambiguous.';
 
 
 --
--- Name: extraction_health; Type: TABLE; Schema: public; Owner: postgres
+-- Name: extraction_health; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.extraction_health (
@@ -246,10 +232,8 @@ CREATE TABLE public.extraction_health (
 );
 
 
-ALTER TABLE public.extraction_health OWNER TO postgres;
-
 --
--- Name: extraction_locations; Type: TABLE; Schema: public; Owner: postgres
+-- Name: extraction_locations; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.extraction_locations (
@@ -265,10 +249,8 @@ CREATE TABLE public.extraction_locations (
 );
 
 
-ALTER TABLE public.extraction_locations OWNER TO postgres;
-
 --
--- Name: extraction_metrics; Type: TABLE; Schema: public; Owner: postgres
+-- Name: extraction_metrics; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.extraction_metrics (
@@ -283,10 +265,8 @@ CREATE TABLE public.extraction_metrics (
 );
 
 
-ALTER TABLE public.extraction_metrics OWNER TO postgres;
-
 --
--- Name: extraction_notes; Type: TABLE; Schema: public; Owner: postgres
+-- Name: extraction_notes; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.extraction_notes (
@@ -301,10 +281,8 @@ CREATE TABLE public.extraction_notes (
 );
 
 
-ALTER TABLE public.extraction_notes OWNER TO postgres;
-
 --
--- Name: extraction_sleep; Type: TABLE; Schema: public; Owner: postgres
+-- Name: extraction_sleep; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.extraction_sleep (
@@ -328,10 +306,8 @@ CREATE TABLE public.extraction_sleep (
 );
 
 
-ALTER TABLE public.extraction_sleep OWNER TO postgres;
-
 --
--- Name: extraction_social; Type: TABLE; Schema: public; Owner: postgres
+-- Name: extraction_social; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.extraction_social (
@@ -365,66 +341,64 @@ CREATE TABLE public.extraction_social (
 );
 
 
-ALTER TABLE public.extraction_social OWNER TO postgres;
-
 --
--- Name: COLUMN extraction_social.relationship; Type: COMMENT; Schema: public; Owner: postgres
+-- Name: COLUMN extraction_social.relationship; Type: COMMENT; Schema: public; Owner: -
 --
 
 COMMENT ON COLUMN public.extraction_social.relationship IS 'Specific: mom, dad, girlfriend, boyfriend, boss, colleague, classmate, teacher, student, neighbor, etc.';
 
 
 --
--- Name: COLUMN extraction_social.relationship_category; Type: COMMENT; Schema: public; Owner: postgres
+-- Name: COLUMN extraction_social.relationship_category; Type: COMMENT; Schema: public; Owner: -
 --
 
 COMMENT ON COLUMN public.extraction_social.relationship_category IS 'family|romantic|professional|friend|acquaintance|other';
 
 
 --
--- Name: COLUMN extraction_social.mood_before; Type: COMMENT; Schema: public; Owner: postgres
+-- Name: COLUMN extraction_social.mood_before; Type: COMMENT; Schema: public; Owner: -
 --
 
 COMMENT ON COLUMN public.extraction_social.mood_before IS 'Mood 1-10 before interaction';
 
 
 --
--- Name: COLUMN extraction_social.mood_after; Type: COMMENT; Schema: public; Owner: postgres
+-- Name: COLUMN extraction_social.mood_after; Type: COMMENT; Schema: public; Owner: -
 --
 
 COMMENT ON COLUMN public.extraction_social.mood_after IS 'Mood 1-10 after interaction';
 
 
 --
--- Name: COLUMN extraction_social.interaction_outcome; Type: COMMENT; Schema: public; Owner: postgres
+-- Name: COLUMN extraction_social.interaction_outcome; Type: COMMENT; Schema: public; Owner: -
 --
 
 COMMENT ON COLUMN public.extraction_social.interaction_outcome IS 'resolved|ongoing|escalated|positive|negative|neutral';
 
 
 --
--- Name: COLUMN extraction_social.conflict_level; Type: COMMENT; Schema: public; Owner: postgres
+-- Name: COLUMN extraction_social.conflict_level; Type: COMMENT; Schema: public; Owner: -
 --
 
 COMMENT ON COLUMN public.extraction_social.conflict_level IS '0=no conflict, 10=major fight';
 
 
 --
--- Name: COLUMN extraction_social.emotional_impact; Type: COMMENT; Schema: public; Owner: postgres
+-- Name: COLUMN extraction_social.emotional_impact; Type: COMMENT; Schema: public; Owner: -
 --
 
 COMMENT ON COLUMN public.extraction_social.emotional_impact IS 'energized|drained|supported|stressed|happy|sad|frustrated|calm|anxious';
 
 
 --
--- Name: COLUMN extraction_social.initiated_by; Type: COMMENT; Schema: public; Owner: postgres
+-- Name: COLUMN extraction_social.initiated_by; Type: COMMENT; Schema: public; Owner: -
 --
 
 COMMENT ON COLUMN public.extraction_social.initiated_by IS 'user|other|mutual';
 
 
 --
--- Name: extraction_weather; Type: TABLE; Schema: public; Owner: postgres
+-- Name: extraction_weather; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.extraction_weather (
@@ -438,10 +412,8 @@ CREATE TABLE public.extraction_weather (
 );
 
 
-ALTER TABLE public.extraction_weather OWNER TO postgres;
-
 --
--- Name: extraction_work; Type: TABLE; Schema: public; Owner: postgres
+-- Name: extraction_work; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.extraction_work (
@@ -462,10 +434,8 @@ CREATE TABLE public.extraction_work (
 );
 
 
-ALTER TABLE public.extraction_work OWNER TO postgres;
-
 --
--- Name: journal_extractions; Type: TABLE; Schema: public; Owner: postgres
+-- Name: journal_extractions; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.journal_extractions (
@@ -484,10 +454,8 @@ CREATE TABLE public.journal_extractions (
 );
 
 
-ALTER TABLE public.journal_extractions OWNER TO postgres;
-
 --
--- Name: metric_types; Type: TABLE; Schema: public; Owner: postgres
+-- Name: metric_types; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.metric_types (
@@ -502,10 +470,8 @@ CREATE TABLE public.metric_types (
 );
 
 
-ALTER TABLE public.metric_types OWNER TO postgres;
-
 --
--- Name: metric_types_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+-- Name: metric_types_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
 CREATE SEQUENCE public.metric_types_id_seq
@@ -517,17 +483,15 @@ CREATE SEQUENCE public.metric_types_id_seq
     CACHE 1;
 
 
-ALTER TABLE public.metric_types_id_seq OWNER TO postgres;
-
 --
--- Name: metric_types_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+-- Name: metric_types_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
 --
 
 ALTER SEQUENCE public.metric_types_id_seq OWNED BY public.metric_types.id;
 
 
 --
--- Name: user_context_state; Type: TABLE; Schema: public; Owner: postgres
+-- Name: user_context_state; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.user_context_state (
@@ -546,17 +510,15 @@ CREATE TABLE public.user_context_state (
 );
 
 
-ALTER TABLE public.user_context_state OWNER TO postgres;
-
 --
--- Name: TABLE user_context_state; Type: COMMENT; Schema: public; Owner: postgres
+-- Name: TABLE user_context_state; Type: COMMENT; Schema: public; Owner: -
 --
 
 COMMENT ON TABLE public.user_context_state IS 'Real-time user context for fast API responses.';
 
 
 --
--- Name: users; Type: TABLE; Schema: public; Owner: postgres
+-- Name: users; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.users (
@@ -574,17 +536,15 @@ CREATE TABLE public.users (
 );
 
 
-ALTER TABLE public.users OWNER TO postgres;
-
 --
--- Name: metric_types id; Type: DEFAULT; Schema: public; Owner: postgres
+-- Name: metric_types id; Type: DEFAULT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.metric_types ALTER COLUMN id SET DEFAULT nextval('public.metric_types_id_seq'::regclass);
 
 
 --
--- Name: extraction_activities extraction_activities_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: extraction_activities extraction_activities_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.extraction_activities
@@ -592,7 +552,7 @@ ALTER TABLE ONLY public.extraction_activities
 
 
 --
--- Name: extraction_consumptions extraction_consumptions_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: extraction_consumptions extraction_consumptions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.extraction_consumptions
@@ -600,7 +560,7 @@ ALTER TABLE ONLY public.extraction_consumptions
 
 
 --
--- Name: extraction_gaps extraction_gaps_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: extraction_gaps extraction_gaps_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.extraction_gaps
@@ -608,7 +568,7 @@ ALTER TABLE ONLY public.extraction_gaps
 
 
 --
--- Name: extraction_health extraction_health_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: extraction_health extraction_health_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.extraction_health
@@ -616,7 +576,7 @@ ALTER TABLE ONLY public.extraction_health
 
 
 --
--- Name: extraction_locations extraction_locations_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: extraction_locations extraction_locations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.extraction_locations
@@ -624,7 +584,7 @@ ALTER TABLE ONLY public.extraction_locations
 
 
 --
--- Name: extraction_metrics extraction_metrics_extraction_id_metric_type_id_time_of_day_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: extraction_metrics extraction_metrics_extraction_id_metric_type_id_time_of_day_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.extraction_metrics
@@ -632,7 +592,7 @@ ALTER TABLE ONLY public.extraction_metrics
 
 
 --
--- Name: extraction_metrics extraction_metrics_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: extraction_metrics extraction_metrics_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.extraction_metrics
@@ -640,7 +600,7 @@ ALTER TABLE ONLY public.extraction_metrics
 
 
 --
--- Name: extraction_notes extraction_notes_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: extraction_notes extraction_notes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.extraction_notes
@@ -648,7 +608,7 @@ ALTER TABLE ONLY public.extraction_notes
 
 
 --
--- Name: extraction_sleep extraction_sleep_extraction_id_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: extraction_sleep extraction_sleep_extraction_id_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.extraction_sleep
@@ -656,7 +616,7 @@ ALTER TABLE ONLY public.extraction_sleep
 
 
 --
--- Name: extraction_sleep extraction_sleep_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: extraction_sleep extraction_sleep_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.extraction_sleep
@@ -664,7 +624,7 @@ ALTER TABLE ONLY public.extraction_sleep
 
 
 --
--- Name: extraction_social extraction_social_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: extraction_social extraction_social_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.extraction_social
@@ -672,7 +632,7 @@ ALTER TABLE ONLY public.extraction_social
 
 
 --
--- Name: extraction_weather extraction_weather_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: extraction_weather extraction_weather_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.extraction_weather
@@ -680,7 +640,7 @@ ALTER TABLE ONLY public.extraction_weather
 
 
 --
--- Name: extraction_work extraction_work_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: extraction_work extraction_work_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.extraction_work
@@ -688,7 +648,7 @@ ALTER TABLE ONLY public.extraction_work
 
 
 --
--- Name: journal_extractions journal_extractions_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: journal_extractions journal_extractions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.journal_extractions
@@ -696,15 +656,7 @@ ALTER TABLE ONLY public.journal_extractions
 
 
 --
--- Name: journal_extractions journal_extractions_user_id_entry_date_key; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.journal_extractions
-    ADD CONSTRAINT journal_extractions_user_id_entry_date_key UNIQUE (user_id, entry_date);
-
-
---
--- Name: metric_types metric_types_name_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: metric_types metric_types_name_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.metric_types
@@ -712,7 +664,7 @@ ALTER TABLE ONLY public.metric_types
 
 
 --
--- Name: metric_types metric_types_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: metric_types metric_types_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.metric_types
@@ -720,7 +672,7 @@ ALTER TABLE ONLY public.metric_types
 
 
 --
--- Name: user_context_state user_context_state_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: user_context_state user_context_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.user_context_state
@@ -728,7 +680,7 @@ ALTER TABLE ONLY public.user_context_state
 
 
 --
--- Name: user_context_state user_context_state_user_id_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: user_context_state user_context_state_user_id_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.user_context_state
@@ -736,7 +688,7 @@ ALTER TABLE ONLY public.user_context_state
 
 
 --
--- Name: users users_email_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: users users_email_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.users
@@ -744,7 +696,7 @@ ALTER TABLE ONLY public.users
 
 
 --
--- Name: users users_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: users users_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.users
@@ -752,7 +704,7 @@ ALTER TABLE ONLY public.users
 
 
 --
--- Name: users users_username_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: users users_username_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.users
@@ -760,301 +712,301 @@ ALTER TABLE ONLY public.users
 
 
 --
--- Name: idx_activities_cat_subcat; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_activities_cat_subcat; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_activities_cat_subcat ON public.extraction_activities USING btree (activity_category, activity_subcategory);
 
 
 --
--- Name: idx_activities_category; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_activities_category; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_activities_category ON public.extraction_activities USING btree (activity_category);
 
 
 --
--- Name: idx_activities_date_cat; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_activities_date_cat; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_activities_date_cat ON public.extraction_activities USING btree (extraction_id, activity_category);
 
 
 --
--- Name: idx_activities_extraction; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_activities_extraction; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_activities_extraction ON public.extraction_activities USING btree (extraction_id);
 
 
 --
--- Name: idx_activities_raw; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_activities_raw; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_activities_raw ON public.extraction_activities USING btree (activity_raw);
 
 
 --
--- Name: idx_activities_subcategory; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_activities_subcategory; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_activities_subcategory ON public.extraction_activities USING btree (activity_subcategory);
 
 
 --
--- Name: idx_activities_time; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_activities_time; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_activities_time ON public.extraction_activities USING btree (time_of_day);
 
 
 --
--- Name: idx_consumptions_category; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_consumptions_category; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_consumptions_category ON public.extraction_consumptions USING btree (food_category);
 
 
 --
--- Name: idx_consumptions_date_type; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_consumptions_date_type; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_consumptions_date_type ON public.extraction_consumptions USING btree (extraction_id, food_category);
 
 
 --
--- Name: idx_consumptions_extraction; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_consumptions_extraction; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_consumptions_extraction ON public.extraction_consumptions USING btree (extraction_id);
 
 
 --
--- Name: idx_consumptions_meal_type; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_consumptions_meal_type; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_consumptions_meal_type ON public.extraction_consumptions USING btree (meal_type);
 
 
 --
--- Name: idx_consumptions_raw; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_consumptions_raw; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_consumptions_raw ON public.extraction_consumptions USING btree (item_raw);
 
 
 --
--- Name: idx_consumptions_time; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_consumptions_time; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_consumptions_time ON public.extraction_consumptions USING btree (time_of_day);
 
 
 --
--- Name: idx_consumptions_type; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_consumptions_type; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_consumptions_type ON public.extraction_consumptions USING btree (consumption_type);
 
 
 --
--- Name: idx_extractions_user_date; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_extractions_user_date; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_extractions_user_date ON public.journal_extractions USING btree (user_id, entry_date);
 
 
 --
--- Name: idx_gaps_extraction; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_gaps_extraction; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_gaps_extraction ON public.extraction_gaps USING btree (extraction_id);
 
 
 --
--- Name: idx_gaps_status; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_gaps_status; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_gaps_status ON public.extraction_gaps USING btree (status);
 
 
 --
--- Name: idx_health_extraction; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_health_extraction; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_health_extraction ON public.extraction_health USING btree (extraction_id);
 
 
 --
--- Name: idx_health_symptom; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_health_symptom; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_health_symptom ON public.extraction_health USING btree (symptom_type);
 
 
 --
--- Name: idx_journal_entry_date; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_journal_entry_date; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_journal_entry_date ON public.journal_extractions USING btree (entry_date);
 
 
 --
--- Name: idx_journal_user_date; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_journal_user_date; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_journal_user_date ON public.journal_extractions USING btree (user_id, entry_date);
 
 
 --
--- Name: idx_journal_user_entry; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_journal_user_entry; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_journal_user_entry ON public.journal_extractions USING btree (user_id, entry_date);
 
 
 --
--- Name: idx_locations_extraction; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_locations_extraction; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_locations_extraction ON public.extraction_locations USING btree (extraction_id);
 
 
 --
--- Name: idx_locations_type; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_locations_type; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_locations_type ON public.extraction_locations USING btree (location_type);
 
 
 --
--- Name: idx_metrics_extraction; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_metrics_extraction; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_metrics_extraction ON public.extraction_metrics USING btree (extraction_id);
 
 
 --
--- Name: idx_metrics_type; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_metrics_type; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_metrics_type ON public.extraction_metrics USING btree (metric_type_id);
 
 
 --
--- Name: idx_notes_extraction; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_notes_extraction; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_notes_extraction ON public.extraction_notes USING btree (extraction_id);
 
 
 --
--- Name: idx_notes_type; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_notes_type; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_notes_type ON public.extraction_notes USING btree (note_type);
 
 
 --
--- Name: idx_social_conflict; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_social_conflict; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_social_conflict ON public.extraction_social USING btree (conflict_level);
 
 
 --
--- Name: idx_social_emotional_impact; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_social_emotional_impact; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_social_emotional_impact ON public.extraction_social USING btree (emotional_impact);
 
 
 --
--- Name: idx_social_extraction; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_social_extraction; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_social_extraction ON public.extraction_social USING btree (extraction_id);
 
 
 --
--- Name: idx_social_person; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_social_person; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_social_person ON public.extraction_social USING btree (person_name);
 
 
 --
--- Name: idx_social_relationship; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_social_relationship; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_social_relationship ON public.extraction_social USING btree (relationship);
 
 
 --
--- Name: idx_social_relationship_category; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_social_relationship_category; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_social_relationship_category ON public.extraction_social USING btree (relationship_category);
 
 
 --
--- Name: idx_social_sentiment; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_social_sentiment; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_social_sentiment ON public.extraction_social USING btree (sentiment);
 
 
 --
--- Name: idx_users_email; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_users_email; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_users_email ON public.users USING btree (email);
 
 
 --
--- Name: idx_users_username; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_users_username; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_users_username ON public.users USING btree (username);
 
 
 --
--- Name: idx_weather_condition; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_weather_condition; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_weather_condition ON public.extraction_weather USING btree (weather_condition);
 
 
 --
--- Name: idx_weather_extraction; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_weather_extraction; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_weather_extraction ON public.extraction_weather USING btree (extraction_id);
 
 
 --
--- Name: idx_work_extraction; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_work_extraction; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_work_extraction ON public.extraction_work USING btree (extraction_id);
 
 
 --
--- Name: idx_work_type; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_work_type; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_work_type ON public.extraction_work USING btree (work_type);
 
 
 --
--- Name: users update_users_updated_at; Type: TRIGGER; Schema: public; Owner: postgres
+-- Name: users update_users_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
 CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON public.users FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 
 --
--- Name: extraction_activities extraction_activities_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: extraction_activities extraction_activities_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.extraction_activities
@@ -1062,7 +1014,7 @@ ALTER TABLE ONLY public.extraction_activities
 
 
 --
--- Name: extraction_consumptions extraction_consumptions_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: extraction_consumptions extraction_consumptions_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.extraction_consumptions
@@ -1070,7 +1022,7 @@ ALTER TABLE ONLY public.extraction_consumptions
 
 
 --
--- Name: extraction_gaps extraction_gaps_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: extraction_gaps extraction_gaps_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.extraction_gaps
@@ -1078,7 +1030,7 @@ ALTER TABLE ONLY public.extraction_gaps
 
 
 --
--- Name: extraction_health extraction_health_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: extraction_health extraction_health_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.extraction_health
@@ -1086,7 +1038,7 @@ ALTER TABLE ONLY public.extraction_health
 
 
 --
--- Name: extraction_locations extraction_locations_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: extraction_locations extraction_locations_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.extraction_locations
@@ -1094,7 +1046,7 @@ ALTER TABLE ONLY public.extraction_locations
 
 
 --
--- Name: extraction_metrics extraction_metrics_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: extraction_metrics extraction_metrics_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.extraction_metrics
@@ -1102,7 +1054,7 @@ ALTER TABLE ONLY public.extraction_metrics
 
 
 --
--- Name: extraction_metrics extraction_metrics_metric_type_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: extraction_metrics extraction_metrics_metric_type_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.extraction_metrics
@@ -1110,7 +1062,7 @@ ALTER TABLE ONLY public.extraction_metrics
 
 
 --
--- Name: extraction_notes extraction_notes_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: extraction_notes extraction_notes_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.extraction_notes
@@ -1118,7 +1070,7 @@ ALTER TABLE ONLY public.extraction_notes
 
 
 --
--- Name: extraction_sleep extraction_sleep_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: extraction_sleep extraction_sleep_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.extraction_sleep
@@ -1126,7 +1078,7 @@ ALTER TABLE ONLY public.extraction_sleep
 
 
 --
--- Name: extraction_social extraction_social_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: extraction_social extraction_social_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.extraction_social
@@ -1134,7 +1086,7 @@ ALTER TABLE ONLY public.extraction_social
 
 
 --
--- Name: extraction_weather extraction_weather_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: extraction_weather extraction_weather_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.extraction_weather
@@ -1142,7 +1094,7 @@ ALTER TABLE ONLY public.extraction_weather
 
 
 --
--- Name: extraction_work extraction_work_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: extraction_work extraction_work_extraction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.extraction_work
@@ -1150,7 +1102,7 @@ ALTER TABLE ONLY public.extraction_work
 
 
 --
--- Name: user_context_state user_context_state_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: user_context_state user_context_state_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.user_context_state

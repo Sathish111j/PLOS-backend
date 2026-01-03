@@ -78,13 +78,7 @@ def setup_logging(
     if json_logs:
         # JSON formatter for production
         formatter = CustomJsonFormatter(
-            fmt="%(timestamp)s %(level)s %(name)s %(message)s",
-            rename_fields={
-                "levelname": "level",
-                "name": "logger",
-                "pathname": "file",
-                "lineno": "line",
-            },
+            fmt="%(timestamp)s %(level)s %(name)s %(message)s"
         )
     else:
         # Human-readable formatter for development

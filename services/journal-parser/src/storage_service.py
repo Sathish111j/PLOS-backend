@@ -92,7 +92,15 @@ class StorageService:
             extraction_id: UUID of the journal extraction record
         """
         try:
+            logger.info(
+                f"StorageService.store_extraction - START for user {user_id}, date {entry_date}"
+            )
+            logger.info(
+                f"Extraction summary: quality={extraction.quality}, has_gaps={extraction.has_gaps}, activities={len(extraction.activities)}, consumptions={len(extraction.consumptions)}"
+            )
+
             # 1. Insert/update base journal extraction
+            logger.info("Step 1: Upserting journal entry to journal_extractions table")
             extraction_id = await self._upsert_journal_entry(
                 user_id=user_id,
                 entry_date=entry_date,
@@ -102,67 +110,133 @@ class StorageService:
                 extraction_time_ms=extraction_time_ms,
                 gemini_model=gemini_model,
             )
+            logger.info(
+                f"Journal entry created/updated with extraction_id: {extraction_id}"
+            )
 
             # 2. Store metrics (mood, energy, stress, etc.)
+            logger.info(
+                f"Step 2: Storing metrics (count: {len(extraction.metrics) if extraction.metrics else 0})"
+            )
             await self._store_metrics(extraction_id, extraction.metrics)
+            logger.info("Metrics stored successfully")
 
             # 3. Store activities with vocabulary resolution
+            logger.info(
+                f"Step 3: Storing activities (count: {len(extraction.activities)})"
+            )
             await self._store_activities(extraction_id, extraction.activities)
+            logger.info(f"Activities stored: {len(extraction.activities)} items")
 
             # 4. Store consumptions (food/drinks)
+            logger.info(
+                f"Step 4: Storing consumptions (count: {len(extraction.consumptions)})"
+            )
             await self._store_consumptions(extraction_id, extraction.consumptions)
+            logger.info(f"Consumptions stored: {len(extraction.consumptions)} items")
 
             # 5. Store social interactions
+            logger.info(
+                f"Step 5: Storing social interactions (count: {len(extraction.social) if extraction.social else 0})"
+            )
             await self._store_social(extraction_id, extraction.social)
+            logger.info("Social interactions stored")
 
             # 6. Store notes (goals, gratitude, etc.)
+            logger.info(
+                f"Step 6: Storing notes (count: {len(extraction.notes) if extraction.notes else 0})"
+            )
             await self._store_notes(extraction_id, extraction.notes)
+            logger.info("Notes stored")
 
             # 7. Store sleep data
             if extraction.sleep:
+                logger.info(f"Step 7: Storing sleep data: {extraction.sleep}")
                 await self._store_sleep(extraction_id, extraction.sleep)
+                logger.info("Sleep data stored")
+            else:
+                logger.info("Step 7: No sleep data to store")
 
             # 8. Store locations
             if hasattr(extraction, "locations") and extraction.locations:
+                logger.info(
+                    f"Step 8: Storing locations (count: {len(extraction.locations)})"
+                )
                 await self._store_locations(extraction_id, extraction.locations)
+                logger.info("Locations stored")
+            else:
+                logger.info("Step 8: No location data to store")
 
             # 9. Store health symptoms
             if hasattr(extraction, "health") and extraction.health:
+                logger.info(
+                    f"Step 9: Storing health symptoms (count: {len(extraction.health)})"
+                )
                 await self._store_health(extraction_id, extraction.health)
+                logger.info("Health symptoms stored")
+            else:
+                logger.info("Step 9: No health data to store")
 
             # 10. Store work/productivity data
             if hasattr(extraction, "work") and extraction.work:
+                logger.info(f"Step 10: Storing work data: {extraction.work}")
                 await self._store_work(extraction_id, extraction.work)
+                logger.info("Work data stored")
+            else:
+                logger.info("Step 10: No work data to store")
 
             # 11. Store weather context
             if hasattr(extraction, "weather") and extraction.weather:
+                logger.info(f"Step 11: Storing weather data: {extraction.weather}")
                 await self._store_weather(extraction_id, extraction.weather)
+                logger.info("Weather data stored")
+            else:
+                logger.info("Step 11: No weather data to store")
 
             # 12. Store gaps for clarification
             if extraction.gaps:
+                logger.info(f"Step 12: Storing gaps (count: {len(extraction.gaps)})")
                 await self._store_gaps(extraction_id, extraction.gaps)
+                logger.info(
+                    f"Gaps stored: {len(extraction.gaps)} clarification questions"
+                )
+            else:
+                logger.info("Step 12: No gaps to store")
 
             # 13. Commit transaction
+            logger.info("Step 13: Committing database transaction")
             await self.db.commit()
+            logger.info("Transaction committed successfully")
 
             logger.info(
-                f"Stored extraction for user {user_id}, date {entry_date}: "
-                f"{len(extraction.activities)} activities, "
-                f"{len(extraction.consumptions)} consumptions, "
-                f"{len(extraction.gaps)} gaps"
+                f"STORAGE COMPLETE for extraction_id={extraction_id}: "
+                f"activities={len(extraction.activities)}, "
+                f"consumptions={len(extraction.consumptions)}, "
+                f"gaps={len(extraction.gaps)}, "
+                f"quality={extraction.quality}"
             )
 
-            # 10. Publish events to Kafka
+            # 14. Publish events to Kafka
             if self.kafka:
+                logger.info("Step 14: Publishing events to Kafka")
                 await self._publish_events(
                     extraction_id, user_id, entry_date, extraction
                 )
+                logger.info("Kafka events published successfully")
+            else:
+                logger.info("Step 14: Kafka not available, skipping event publishing")
 
+            logger.info(
+                f"StorageService.store_extraction - COMPLETE for extraction_id={extraction_id}"
+            )
             return extraction_id
 
         except Exception as e:
+            logger.error(
+                f"StorageService.store_extraction - FAILED: {e}", exc_info=True
+            )
             await self.db.rollback()
-            logger.error(f"Failed to store extraction: {e}")
+            logger.error("Database transaction rolled back")
             raise
 
     # ========================================================================
@@ -183,19 +257,11 @@ class StorageService:
         query = text(
             """
             INSERT INTO journal_extractions
-                (user_id, entry_date, raw_entry, overall_quality,
+                (id, user_id, entry_date, raw_entry, overall_quality,
                  has_gaps, extraction_time_ms, gemini_model)
             VALUES
-                (:user_id, :entry_date, :raw_entry, CAST(:quality AS extraction_quality),
+                (gen_random_uuid(), :user_id, :entry_date, :raw_entry, CAST(:quality AS extraction_quality),
                  :has_gaps, :time_ms, :model)
-            ON CONFLICT (user_id, entry_date)
-            DO UPDATE SET
-                raw_entry = EXCLUDED.raw_entry,
-                overall_quality = EXCLUDED.overall_quality,
-                has_gaps = EXCLUDED.has_gaps,
-                extraction_time_ms = EXCLUDED.extraction_time_ms,
-                gemini_model = EXCLUDED.gemini_model,
-                updated_at = NOW()
             RETURNING id
         """
         )
@@ -301,6 +367,8 @@ class StorageService:
             {"name": metric_name, "display": metric_name.replace("_", " ").title()},
         )
         row = result.fetchone()
+        if row is None:
+            raise ValueError(f"Failed to create metric type: {metric_name}")
         return row[0]
 
     # ========================================================================
@@ -709,6 +777,13 @@ class StorageService:
         )
 
         for symptom in health:
+            # Skip entries without symptom_type (required field)
+            if not symptom.get("symptom_type"):
+                logger.warning(
+                    f"Skipping health entry without symptom_type: {symptom.get('raw_mention')}"
+                )
+                continue
+
             time_of_day = symptom.get("time_of_day")
 
             query = text(
@@ -841,6 +916,36 @@ class StorageService:
         user_response: str,
     ) -> None:
         """Mark a gap as resolved with user's response."""
+        logger.info(
+            f"STORAGE: Resolving gap {gap_id} with response: {user_response[:50]}..."
+        )
+
+        # First verify the gap exists and is in pending status
+        check_result = await self.db.execute(
+            text(
+                """
+                SELECT id, status FROM extraction_gaps
+                WHERE id = :gap_id
+            """
+            ),
+            {"gap_id": gap_id},
+        )
+        existing_gap = check_result.fetchone()
+
+        if not existing_gap:
+            logger.error(f"STORAGE: Gap {gap_id} not found")
+            raise ValueError(f"Gap with ID {gap_id} not found")
+
+        if existing_gap.status != "pending":
+            logger.error(
+                f"STORAGE: Gap {gap_id} status is {existing_gap.status}, not pending"
+            )
+            raise ValueError(
+                f"Gap {gap_id} is already {existing_gap.status}, cannot resolve"
+            )
+
+        # Now update the gap
+        logger.info(f"STORAGE: Updating gap {gap_id} to answered status")
         await self.db.execute(
             text(
                 """
@@ -848,12 +953,14 @@ class StorageService:
                 SET status = 'answered',
                     user_response = :response,
                     resolved_at = NOW()
-                WHERE id = :gap_id
+                WHERE id = :gap_id AND status = 'pending'
             """
             ),
             {"gap_id": gap_id, "response": user_response},
         )
+
         await self.db.commit()
+        logger.info(f"STORAGE: Successfully resolved gap {gap_id}")
 
     async def get_pending_gaps(self, user_id: UUID) -> List[Dict[str, Any]]:
         """Get pending gaps for a user."""
@@ -1154,8 +1261,8 @@ class StorageService:
         result = await self.db.execute(
             text(
                 """
-                SELECT person_name, relationship_type, interaction_type,
-                       quality, duration_minutes, context
+                SELECT person_name, relationship, interaction_type,
+                       quality_score, duration_minutes, sentiment, topic
                 FROM extraction_social
                 WHERE extraction_id = :entry_id
             """
@@ -1170,7 +1277,7 @@ class StorageService:
         result = await self.db.execute(
             text(
                 """
-                SELECT note_type, content, importance
+                SELECT note_type, content, sentiment
                 FROM extraction_notes
                 WHERE extraction_id = :entry_id
             """
@@ -1185,7 +1292,7 @@ class StorageService:
         result = await self.db.execute(
             text(
                 """
-                SELECT hours, quality, bed_time, wake_time, interruptions, dreams_noted
+                SELECT duration_hours, quality, bedtime, waketime, disruptions
                 FROM extraction_sleep
                 WHERE extraction_id = :entry_id
             """
@@ -1195,7 +1302,6 @@ class StorageService:
         row = result.fetchone()
         if row:
             sleep = dict(row._mapping)
-            sleep["duration_hours"] = sleep.pop("hours", None)
 
         # Get gap count
         result = await self.db.execute(
