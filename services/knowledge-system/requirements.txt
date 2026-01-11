@@ -6,6 +6,7 @@ uvicorn[standard]>=0.24.0
 pydantic>=2.4.0
 pydantic-settings>=2.0.0
 python-multipart>=0.0.6
+asyncpg>=0.29.0
 
 # HTTP / scraping
 httpx>=0.25.0

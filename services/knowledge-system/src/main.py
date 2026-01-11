@@ -53,6 +53,16 @@ async def lifespan(app: FastAPI):
 
     logger.info("Knowledge system starting - Phase 2 Enhanced")
 
+    # Initialize Database
+    try:
+        from src.database import Database
+        await Database.connect()
+    except Exception as e:
+        logger.error(f"Database connection failed: {e}")
+        # We continue even if DB fails, as some features like raw extraction might work? 
+        # Actually better to fail fast or handle gracefully.
+        # For now, we log and continue.
+
     # Initialize Gemini client with API key rotation
     try:
         gemini_client = ResilientGeminiClient()
@@ -68,6 +78,8 @@ async def lifespan(app: FastAPI):
     yield
 
     logger.info("knowledge_system_shutdown")
+    from src.database import Database
+    await Database.disconnect()
 
 
 # ============================================================================
@@ -93,6 +105,7 @@ class URLExtractionRequest(BaseModel):
     url: str = Field(..., description="URL to extract content from")
     user_id: str = Field(..., description="User ID")
     tags: Optional[List[str]] = Field(None, description="Optional tags")
+    auto_create_bucket: Optional[bool] = Field(False, description="Auto-create bucket if needed")
 
 
 class TextKnowledgeRequest(BaseModel):
@@ -102,6 +115,7 @@ class TextKnowledgeRequest(BaseModel):
     title: Optional[str] = Field(None, description="Optional title")
     user_id: str = Field(..., description="User ID")
     tags: Optional[List[str]] = Field(None, description="Optional tags")
+    auto_create_bucket: Optional[bool] = Field(False, description="Auto-create bucket if needed")
 
 
 # ============================================================================
@@ -170,14 +184,16 @@ async def extract_from_pdf(
     user_id: str = Form(...),
     title: Optional[str] = Form(None),
     tags: Optional[str] = Form(None),
+    auto_create_bucket: bool = Form(False),
 ):
     """
-    Extract content from PDF using multi-pass extraction
     Extract content from PDF using multi-pass extraction
     Fallback chain: pdfplumber → RapidOCR (ONNX)
     """
     try:
         from src.ingestion_service import UnifiedIngestionService
+        from src.bucket_service import BucketService
+        from src.persistence_service import PersistenceService
 
         # Save temporarily
         temp_path = f"/tmp/{file.filename}"
@@ -198,9 +214,14 @@ async def extract_from_pdf(
         if os_module.path.exists(temp_path):
             os_module.remove(temp_path)
 
+        # Persist
+        bucket_service = BucketService(gemini_client=gemini_client)
+        persistence = PersistenceService(bucket_service)
+        saved = await persistence.persist_ingestion_result(user_id, result, auto_create_bucket)
+
         KNOWLEDGE_ITEMS_ADDED.labels(type="pdf").inc()
 
-        return {"success": True, "message": "PDF extracted successfully", **result}
+        return {"success": True, "message": "PDF extracted & saved", "data": saved}
 
     except Exception as e:
         logger.error(f"PDF extraction failed: {e}")
@@ -213,6 +234,7 @@ async def extract_from_image(
     user_id: str = Form(...),
     title: Optional[str] = Form(None),
     tags: Optional[str] = Form(None),
+    auto_create_bucket: bool = Form(False),
 ):
     """
     Extract text from image using RapidOCR (ONNX)
@@ -220,6 +242,8 @@ async def extract_from_image(
     """
     try:
         from src.ingestion_service import UnifiedIngestionService
+        from src.bucket_service import BucketService
+        from src.persistence_service import PersistenceService
 
         # Save temporarily
         temp_path = f"/tmp/{file.filename}"
@@ -240,13 +264,16 @@ async def extract_from_image(
         if os_module.path.exists(temp_path):
             os_module.remove(temp_path)
 
+        # Persist
+        bucket_service = BucketService(gemini_client=gemini_client)
+        persistence = PersistenceService(bucket_service)
+        saved = await persistence.persist_ingestion_result(
+            user_id, result, auto_create_bucket=auto_create_bucket
+        )
+
         KNOWLEDGE_ITEMS_ADDED.labels(type="image").inc()
 
-        return {
-            "success": True,
-            "message": "Image text extracted successfully",
-            **result,
-        }
+        return {"success": True, "message": "Image analyzed & saved", "data": saved}
 
     except Exception as e:
         logger.error(f"Image extraction failed: {e}")
@@ -311,7 +338,9 @@ async def extract_from_text(request: TextKnowledgeRequest):
     """
     try:
         from src.ingestion_service import UnifiedIngestionService
-
+        from src.bucket_service import BucketService
+        from src.persistence_service import PersistenceService
+        
         ingestion_service = UnifiedIngestionService(gemini_client=gemini_client)
         result = await ingestion_service.ingest_text(
             user_id=request.user_id,
@@ -320,9 +349,16 @@ async def extract_from_text(request: TextKnowledgeRequest):
             tags=request.tags,
         )
 
+        # Persist
+        bucket_service = BucketService(gemini_client=gemini_client)
+        persistence = PersistenceService(bucket_service)
+        saved = await persistence.persist_ingestion_result(
+            request.user_id, result, auto_create_bucket=request.auto_create_bucket
+        )
+
         KNOWLEDGE_ITEMS_ADDED.labels(type="text").inc()
 
-        return {"success": True, "message": "Text added successfully", **result}
+        return {"success": True, "message": "Text saved", "data": saved}
 
     except Exception as e:
         logger.error(f"Text processing failed: {e}")
@@ -338,6 +374,7 @@ async def extract_combined(
     url: Optional[str] = Form(None),
     title: Optional[str] = Form(None),
     tags: Optional[str] = Form(None),
+    auto_create_bucket: bool = Form(False),
 ):
     """
     🚀 POWERFUL: Combine multiple sources into one knowledge item
@@ -396,12 +433,74 @@ async def extract_combined(
             if os_module.path.exists(temp_path):
                 os_module.remove(temp_path)
 
+        # Persist Result (Phase 3 Integration)
+        from src.bucket_service import BucketService
+        from src.persistence_service import PersistenceService
+        
+        bucket_service = BucketService(gemini_client=gemini_client)
+        persistence_service = PersistenceService(bucket_service=bucket_service)
+        
+        saved_item = await persistence_service.persist_ingestion_result(
+            user_id=user_id,
+            ingestion_result=result,
+            auto_create_bucket=auto_create_bucket
+        )
+
         KNOWLEDGE_ITEMS_ADDED.labels(type="combined").inc()
 
-        return {"success": True, "message": "Combined ingestion complete", **result}
+        return {
+            "success": True, 
+            "message": "Combined ingestion complete & saved", 
+            "data": saved_item,
+            "raw_extraction_summary": {
+                "tags": result.get("tags"),
+                "file_count": len(pdf_paths + image_paths)
+            }
+        }
 
     except Exception as e:
         logger.error(f"Combined extraction failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/knowledge/buckets/tree")
+async def get_bucket_tree(user_id: str):
+    """Get the full folder structure as a nested JSON tree."""
+    try:
+        from src.bucket_service import BucketService
+        service = BucketService(gemini_client=gemini_client)
+        # Ensure system buckets first
+        await service.ensure_system_buckets(user_id)
+        return await service.get_bucket_tree(user_id)
+    except Exception as e:
+        logger.error(f"Bucket tree fetch failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class BucketAssignRequest(BaseModel):
+    user_id: str
+    text: str
+    title: str
+    auto_create: bool = False
+
+
+@app.post("/knowledge/buckets/assign")
+async def assign_bucket_endpoint(request: BucketAssignRequest):
+    """
+    🤖 Smart Bucket Assignment
+    Uses Gemini to analyze content and assign to best bucket (or suggest new).
+    """
+    try:
+        from src.bucket_service import BucketService
+        service = BucketService(gemini_client=gemini_client)
+        return await service.smart_assign_bucket(
+            user_id=request.user_id,
+            document_text=request.text,
+            document_title=request.title,
+            auto_create=request.auto_create
+        )
+    except Exception as e:
+        logger.error(f"Bucket assignment failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -430,6 +529,7 @@ async def root():
             "file_storage": "MinIO (integrated for raw files)",
             "deduplication": "Hash-based + semantic similarity",
             "chunking": "Smart sentence-aware splitting",
+            "organization": "3-Tier Bucket System With Smart AI Assignment",
         },
         "documentation": "/docs",
     }
