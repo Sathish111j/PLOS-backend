@@ -3,7 +3,7 @@
 # Focus: stability on WSL2 (smaller build context + fewer pip resolver passes)
 # ============================================================================
 
-FROM python:3.11-slim AS builder
+FROM python:3.14-slim AS builder
 
 WORKDIR /build
 
@@ -31,7 +31,7 @@ RUN pip install --upgrade pip setuptools wheel && \
 # ============================================================================
 # Stage 2: Production - Minimal runtime image
 # ============================================================================
-FROM python:3.11-slim AS production
+FROM python:3.14-slim AS production
 
 # Security: Create non-root user
 RUN groupadd --gid 1000 plos && \
