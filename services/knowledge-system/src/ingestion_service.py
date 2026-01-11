@@ -13,6 +13,7 @@ from minio import Minio
 from minio.error import S3Error
 
 from shared.gemini import ResilientGeminiClient
+from shared.gemini.config import TaskType
 from shared.utils.logger import get_logger
 
 from .auto_tagging_service import AutoTaggingService
@@ -69,7 +70,7 @@ class UnifiedIngestionService:
         # Auto-tagging service (keyword extraction by default, AI optional)
         self.auto_tagger = AutoTaggingService(
             gemini_client=self.gemini_client,
-            use_ai=False,  # Use fast keyword extraction by default
+            use_ai=True,  # Phase 2 Complete: AI tagging enabled
         )
 
         self._ensure_minio_bucket()
@@ -195,7 +196,7 @@ class UnifiedIngestionService:
 
         # Auto-generate tags if not provided
         if not tags:
-            tags = self.auto_tagger.generate_tags(
+            tags = await self.auto_tagger.generate_tags(
                 title=title,
                 content=combined_text[:2000],  # Use first 2000 chars for speed
                 max_tags=5,
@@ -369,7 +370,9 @@ class UnifiedIngestionService:
 
 Summary:"""
 
-            summary_text = await self.gemini_client.generate_content(
+            # Use task-specific configuration for better results
+            summary_text = await self.gemini_client.generate_for_task(
+                task=TaskType.DOCUMENT_SUMMARY,
                 prompt=prompt,
                 max_output_tokens=150,
             )

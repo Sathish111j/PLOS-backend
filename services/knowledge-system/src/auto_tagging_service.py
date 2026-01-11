@@ -114,7 +114,7 @@ class AutoTaggingService:
         self.gemini_client = gemini_client
         self.use_ai = use_ai
 
-    def generate_tags(
+    async def generate_tags(
         self, title: str, content: str, max_tags: int = 5, min_word_length: int = 3
     ) -> List[str]:
         """
@@ -132,7 +132,7 @@ class AutoTaggingService:
         # Try AI tagging if enabled and client available
         if self.use_ai and self.gemini_client:
             try:
-                tags = self._generate_tags_with_ai(title, content, max_tags)
+                tags = await self._generate_tags_with_ai(title, content, max_tags)
                 if tags:
                     logger.info(f"Generated {len(tags)} tags using AI")
                     return tags
@@ -184,7 +184,7 @@ class AutoTaggingService:
 
         return tags
 
-    def _generate_tags_with_ai(
+    async def _generate_tags_with_ai(
         self, title: str, content: str, max_tags: int
     ) -> List[str]:
         """
@@ -212,12 +212,12 @@ Return only the tags, separated by commas, lowercase, no explanations.
 
 Tags:"""
 
-        response = self.gemini_client.generate_content(
+        response_text = await self.gemini_client.generate_content(
             prompt=prompt, max_output_tokens=100
         )
 
         # Parse response
-        tags_text = response.text.strip()
+        tags_text = response_text.strip()
 
         # Split by comma and clean
         tags = [tag.strip().lower() for tag in tags_text.split(",") if tag.strip()]
@@ -225,7 +225,7 @@ Tags:"""
         # Limit to max_tags
         return tags[:max_tags]
 
-    def suggest_tags(
+    async def suggest_tags(
         self,
         existing_tags: List[str],
         title: str,
@@ -245,7 +245,7 @@ Tags:"""
             List of suggested tags (excluding existing ones)
         """
         # Generate potential tags
-        potential_tags = self.generate_tags(title, content, max_tags=10)
+        potential_tags = await self.generate_tags(title, content, max_tags=10)
 
         # Filter out existing tags
         existing_set = set(tag.lower() for tag in existing_tags)

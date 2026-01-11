@@ -140,7 +140,8 @@ async def metrics_endpoint():
 async def extract_from_url(request: URLExtractionRequest):
     """
     Extract content from a URL using enhanced web scraper
-    Fallback chain: Trafilatura → Playwright → Readability
+    Extract content from a URL using enhanced web scraper
+    Fallback chain: Trafilatura → DrissionPage → Readability
     """
     try:
         from src.ingestion_service import UnifiedIngestionService
@@ -172,7 +173,8 @@ async def extract_from_pdf(
 ):
     """
     Extract content from PDF using multi-pass extraction
-    Fallback chain: pdfplumber → Tesseract OCR → Paddle OCR
+    Extract content from PDF using multi-pass extraction
+    Fallback chain: pdfplumber → RapidOCR (ONNX)
     """
     try:
         from src.ingestion_service import UnifiedIngestionService
@@ -213,7 +215,7 @@ async def extract_from_image(
     tags: Optional[str] = Form(None),
 ):
     """
-    Extract text from image using Paddle OCR (96-98% accuracy)
+    Extract text from image using RapidOCR (ONNX)
     With automatic preprocessing for better results
     """
     try:
@@ -259,7 +261,7 @@ async def extract_from_images(
     tags: Optional[str] = Form(None),
 ):
     """
-    Extract text from multiple images in batch (Paddle OCR)
+    Extract text from multiple images in batch (RapidOCR)
     Perfect for scanned documents, screenshots, infographics
     """
     try:
@@ -421,11 +423,11 @@ async def root():
             "extract_combined": "/knowledge/extract/combined",
         },
         "features": {
-            "pdf_extraction": "Multi-pass: pdfplumber → Tesseract → Paddle OCR",
-            "web_scraping": "Trafilatura → Playwright → Readability",
-            "image_ocr": "Paddle OCR (96-98% accuracy)",
+            "pdf_extraction": "Multi-pass: pdfplumber → RapidOCR (ONNX)",
+            "web_scraping": "Trafilatura → DrissionPage → Readability",
+            "image_ocr": "RapidOCR (ONNX Runtime, 96-98% accuracy)",
             "combined_ingestion": "Mix PDFs + images + text + URL",
-            "file_storage": "MinIO (self-hosted S3-compatible)",
+            "file_storage": "MinIO (integrated for raw files)",
             "deduplication": "Hash-based + semantic similarity",
             "chunking": "Smart sentence-aware splitting",
         },
