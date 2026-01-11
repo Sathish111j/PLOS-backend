@@ -3,7 +3,6 @@ Unified Ingestion Service for PLOS Knowledge System
 Handles all content types: PDFs, images, text, URLs, and combinations
 """
 
-import asyncio
 import os
 import uuid
 from datetime import datetime
@@ -94,9 +93,7 @@ class UnifiedIngestionService:
         except S3Error as e:
             logger.warning(f"MinIO bucket check failed: {e}")
         except Exception as e:
-            logger.warning(
-                f"MinIO bucket check failed: {type(e).__name__}: {e}"
-            )
+            logger.warning(f"MinIO bucket check failed: {type(e).__name__}: {e}")
 
     async def ingest_combined(
         self,

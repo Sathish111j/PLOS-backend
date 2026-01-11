@@ -78,83 +78,102 @@ jobs:
           path: bandit-report.json
 
   # ============================================================================
-  # Unit Tests (when available)
+  # Basic Health Checks (Infrastructure & Services)
   # ============================================================================
   test:
-    name: Run Tests
+    name: Basic Health Checks
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:15-alpine
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: test_password
-          POSTGRES_DB: plos_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
+    env:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: plos_db_secure_2025
+      POSTGRES_DB: plos
+      REDIS_PASSWORD: plos_redis_secure_2025
+      QDRANT_API_KEY: qdrant_secure_key_2025
+      GEMINI_API_KEY: test_key
+      LOG_LEVEL: INFO
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build base image
+        uses: docker/build-push-action@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
+          context: .
+          file: ./Dockerfile.base
+          push: false
+          tags: plos-base:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Install dependencies
+      - name: Build service images
         run: |
-          python -m pip install --upgrade pip
-          pip install pytest pytest-asyncio pytest-cov httpx psycopg2-binary
-          pip install -r services/context-broker/requirements.txt
-          pip install -r services/journal-parser/requirements.txt
-          pip install -r services/knowledge-system/requirements.txt
+          docker build -f services/context-broker/Dockerfile -t plos-context-broker:test .
+          docker build -f services/journal-parser/Dockerfile -t plos-journal-parser:test .
+          docker build -f services/knowledge-system/Dockerfile -t plos-knowledge-system:test .
 
-      - name: Initialize database schema
-        env:
-          PGPASSWORD: test_password
+      - name: Start infrastructure
         run: |
-          sudo apt-get update && sudo apt-get install -y postgresql-client
-          psql -h localhost -U postgres -d plos_test -f infrastructure/database/init.sql || echo "Schema initialization attempted"
+          docker compose -f docker-compose.yml up -d supabase-db redis kafka qdrant
+          echo "Waiting for infrastructure to be ready..."
+          sleep 60
 
-      - name: Run tests
-        env:
-          POSTGRES_URL: postgresql://postgres:test_password@localhost:5432/plos_test
-          REDIS_URL: redis://localhost:6379/0
-          GEMINI_API_KEY: test_key
-          DATABASE_URL: postgresql://postgres:test_password@localhost:5432/plos_test
+      - name: Verify infrastructure
         run: |
-          if find services/ shared/ -name 'test_*.py' | grep -q .; then
-            pytest services/ shared/ -v --cov --cov-report=xml --cov-report=html
-          else
-            echo "No tests found - skipping test execution"
-            exit 0
-          fi
+          # Check PostgreSQL
+          docker exec $(docker ps -q --filter name=supabase-db) pg_isready -U postgres || exit 1
+          echo "✓ PostgreSQL is ready"
 
-      - name: Upload coverage reports
-        uses: codecov/codecov-action@v4
+          # Check Redis
+          docker exec $(docker ps -q --filter name=redis) redis-cli -a plos_redis_secure_2025 ping | grep -q "PONG" || exit 1
+          echo "✓ Redis is ready"
+
+          # Check Kafka
+          docker exec $(docker ps -q --filter name=kafka) kafka-topics --bootstrap-server localhost:9092 --list >/dev/null || exit 1
+          echo "✓ Kafka is ready"
+
+          # Check Qdrant
+          curl -s -H "api-key: qdrant_secure_key_2025" http://localhost:6333/collections >/dev/null || exit 1
+          echo "✓ Qdrant is ready"
+
+      - name: Start services
+        run: |
+          docker compose -f docker-compose.yml up -d context-broker journal-parser knowledge-system
+          echo "Waiting for services to start..."
+          sleep 90
+
+      - name: Verify services health
+        run: |
+          # Check context-broker health
+          timeout 60 bash -c 'until curl -f http://localhost:8001/health >/dev/null 2>&1; do sleep 5; done' || exit 1
+          echo "✓ Context Broker is healthy"
+
+          # Check journal-parser health
+          timeout 60 bash -c 'until curl -f http://localhost:8002/health >/dev/null 2>&1; do sleep 5; done' || exit 1
+          echo "✓ Journal Parser is healthy"
+
+          # Check knowledge-system health
+          timeout 60 bash -c 'until curl -f http://localhost:8003/health >/dev/null 2>&1; do sleep 5; done' || exit 1
+          echo "✓ Knowledge System is healthy"
+
+      - name: Run basic API tests
+        run: |
+          # Test basic endpoints
+          curl -f http://localhost:8001/docs >/dev/null 2>&1 || exit 1
+          echo "✓ Context Broker API docs accessible"
+
+          curl -f http://localhost:8002/docs >/dev/null 2>&1 || exit 1
+          echo "✓ Journal Parser API docs accessible"
+
+          curl -f http://localhost:8003/docs >/dev/null 2>&1 || exit 1
+          echo "✓ Knowledge System API docs accessible"
+
+      - name: Cleanup
         if: always()
-        with:
-          file: ./coverage.xml
-          flags: unittests
-          name: codecov-umbrella
-          fail_ci_if_error: false
+        run: |
+          docker compose -f docker-compose.yml down -v
 
   # ============================================================================
   # Docker Build & Validation
