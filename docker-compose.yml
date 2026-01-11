@@ -1,4 +1,4 @@
-version: '3.9'
+version: "3.9"
 
 # ============================================================================
 # PLOS - Personal Life Management System
@@ -24,25 +24,32 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - supabase_db_data:/var/lib/postgresql/data
-      - ./infrastructure/database/init.sql:/docker-entrypoint-initdb.d/01-init.sql
-      - ./infrastructure/database/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql
+      - ./infrastructure/database/00-supabase-admin.sh:/docker-entrypoint-initdb.d/00-supabase-admin.sh
+      - ./infrastructure/database/init.sql:/docker-entrypoint-initdb.d/zz-01-app-init.sql
+      - ./infrastructure/database/seed.sql:/docker-entrypoint-initdb.d/zz-02-seed.sql
+      - ./infrastructure/database/migrations:/docker-entrypoint-initdb.d/app-migrations
+      - ./infrastructure/database/zz-03-run-app-migrations.sh:/docker-entrypoint-initdb.d/zz-03-run-app-migrations.sh
     networks:
       - plos-network
     deploy:
       resources:
         limits:
-          cpus: '2.0'
-          memory: 1G
+          cpus: "1.5"
+          memory: 1.2G
         reservations:
-          cpus: '0.5'
-          memory: 256M
+          cpus: "0.5"
+          memory: 512M
     logging:
       driver: json-file
       options:
         max-size: "50m"
         max-file: "5"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-plos}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-plos}",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -52,6 +59,7 @@ services:
   supabase-studio:
     image: supabase/studio:20241202-71e5240
     container_name: plos-supabase-studio
+    profiles: ["studio"]
     depends_on:
       supabase-db:
         condition: service_healthy
@@ -73,10 +81,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.0'
+          cpus: "1.0"
           memory: 512M
         reservations:
-          cpus: '0.25'
+          cpus: "0.25"
           memory: 128M
     logging:
       driver: json-file
@@ -95,6 +103,7 @@ services:
   supabase-meta:
     image: supabase/postgres-meta:v0.84.2
     container_name: plos-supabase-meta
+    profiles: ["studio"]
     depends_on:
       supabase-db:
         condition: service_healthy
@@ -112,10 +121,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.5'
+          cpus: "0.5"
           memory: 256M
         reservations:
-          cpus: '0.1'
+          cpus: "0.1"
           memory: 64M
     logging:
       driver: json-file
@@ -148,10 +157,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.5'
+          cpus: "0.5"
           memory: 512M
         reservations:
-          cpus: '0.1'
+          cpus: "0.1"
           memory: 64M
     logging:
       driver: json-file
@@ -203,10 +212,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 1G
+          cpus: "0.8"
+          memory: 768M
         reservations:
-          cpus: '0.25'
+          cpus: "0.25"
           memory: 256M
     logging:
       driver: json-file
@@ -214,7 +223,13 @@ services:
         max-size: "20m"
         max-file: "3"
     healthcheck:
-      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      test:
+        [
+          "CMD",
+          "kafka-broker-api-versions",
+          "--bootstrap-server",
+          "localhost:9092",
+        ]
       interval: 10s
       timeout: 10s
       retries: 5
@@ -224,6 +239,7 @@ services:
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     container_name: plos-kafka-ui
+    profiles: ["ui"]
     depends_on:
       - kafka
     environment:
@@ -302,10 +318,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.0'
+          cpus: "1.0"
           memory: 512M
         reservations:
-          cpus: '0.25'
+          cpus: "0.25"
           memory: 128M
     security_opt:
       - no-new-privileges:true
@@ -358,10 +374,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '2.0'
+          cpus: "2.0"
           memory: 1G
         reservations:
-          cpus: '0.5'
+          cpus: "0.5"
           memory: 256M
     security_opt:
       - no-new-privileges:true
@@ -403,6 +419,9 @@ services:
       GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
       GEMINI_DEFAULT_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-2.5-flash}
       GEMINI_EMBEDDING_MODEL: ${GEMINI_EMBEDDING_MODEL:-text-embedding-004}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio:9000}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-plos_minio_admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-plos_minio_secure_2025}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
       - "${KNOWLEDGE_SYSTEM_PORT:-8003}:8003"
@@ -413,11 +432,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.5'
-          memory: 768M
+          cpus: "2.0"
+          memory: 1.5G
         reservations:
-          cpus: '0.25'
-          memory: 192M
+          cpus: "1.0"
+          memory: 512M
     security_opt:
       - no-new-privileges:true
     logging:
@@ -441,8 +460,8 @@ services:
       QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:-qdrant_secure_key_2025}
       QDRANT__SERVICE__ENABLE_TLS: "false"
     ports:
-      - "${QDRANT_REST_PORT:-6333}:6333"  # REST API
-      - "${QDRANT_GRPC_PORT:-6334}:6334"  # gRPC API
+      - "${QDRANT_REST_PORT:-6333}:6333" # REST API
+      - "${QDRANT_GRPC_PORT:-6334}:6334" # gRPC API
     volumes:
       - qdrant_data:/qdrant/storage
     networks:
@@ -450,10 +469,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 1G
+          cpus: "1.0"
+          memory: 512M
         reservations:
-          cpus: '0.25'
+          cpus: "0.25"
           memory: 256M
     logging:
       driver: json-file
@@ -468,6 +487,65 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # Meilisearch - Typo-tolerant Full-Text Search
+  meilisearch:
+    image: getmeili/meilisearch:v1.6
+    container_name: plos-meilisearch
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-meilisearch_secure_key_2025}
+      MEILI_ENV: development
+      MEILI_NO_ANALYTICS: "true"
+    ports:
+      - "${MEILISEARCH_PORT:-7700}:7700"
+    volumes:
+      - meilisearch_data:/meili_data
+    networks:
+      - plos-network
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # MinIO - Self-hosted Object Storage (S3-compatible)
+  minio:
+    image: minio/minio:latest
+    container_name: plos-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-plos_minio_admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-plos_minio_secure_2025}
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000" # API
+      - "${MINIO_CONSOLE_PORT:-9001}:9001" # Console
+    volumes:
+      - minio_data:/data
+    networks:
+      - plos-network
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
   # ==========================================================================
   # MONITORING & OBSERVABILITY
   # ==========================================================================
@@ -478,6 +556,7 @@ services:
   redis-commander:
     image: rediscommander/redis-commander:latest
     container_name: plos-redis-commander
+    profiles: ["ui"]
     depends_on:
       - redis
     environment:
@@ -492,14 +571,15 @@ services:
   prometheus:
     image: prom/prometheus:latest
     container_name: plos-prometheus
+    profiles: ["monitoring"]
     volumes:
       - ./infrastructure/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
     ports:
       - "${PROMETHEUS_PORT:-9090}:9090"
     command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
     networks:
       - plos-network
     restart: unless-stopped
@@ -508,6 +588,7 @@ services:
   grafana:
     image: grafana/grafana:latest
     container_name: plos-grafana
+    profiles: ["monitoring"]
     depends_on:
       - prometheus
     environment:
@@ -525,6 +606,7 @@ services:
   metabase:
     image: metabase/metabase:latest
     container_name: plos-metabase
+    profiles: ["bi"]
     depends_on:
       supabase-db:
         condition: service_healthy
@@ -545,10 +627,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.0'
+          cpus: "1.0"
           memory: 1G
         reservations:
-          cpus: '0.25'
+          cpus: "0.25"
           memory: 256M
     logging:
       driver: json-file
@@ -594,4 +676,8 @@ volumes:
   qdrant_data:
     driver: local
   metabase_data:
+    driver: local
+  meilisearch_data:
+    driver: local
+  minio_data:
     driver: local

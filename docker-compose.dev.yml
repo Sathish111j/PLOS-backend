@@ -16,7 +16,6 @@ services:
     build:
       context: .
       dockerfile: ./services/context-broker/Dockerfile
-      target: development  # If multi-stage, use dev stage
     volumes:
       # Mount source code for live reload
       - ./services/context-broker/src:/app/src:rw
@@ -36,7 +35,6 @@ services:
     build:
       context: .
       dockerfile: ./services/journal-parser/Dockerfile
-      target: development
     volumes:
       # Mount source code for live reload
       - ./services/journal-parser/src:/app/src:rw
@@ -56,7 +54,6 @@ services:
     build:
       context: .
       dockerfile: ./services/knowledge-system/Dockerfile
-      target: development
     volumes:
       # Mount source code for live reload
       - ./services/knowledge-system/src:/app/src:rw

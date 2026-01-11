@@ -105,3 +105,6 @@ secrets/
 # Data
 data/
 volumes/
+
+# Local test fixtures (Knowledge System)
+testfileforknowledgesystem/

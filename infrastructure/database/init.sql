@@ -495,7 +495,7 @@ ALTER SEQUENCE public.metric_types_id_seq OWNED BY public.metric_types.id;
 --
 
 CREATE TABLE public.user_context_state (
-    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
     user_id uuid,
     current_mood_score integer,
     current_energy_level integer,
@@ -522,7 +522,7 @@ COMMENT ON TABLE public.user_context_state IS 'Real-time user context for fast A
 --
 
 CREATE TABLE public.users (
-    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
     email character varying(255) NOT NULL,
     username character varying(100) NOT NULL,
     password_hash character varying(255) NOT NULL,

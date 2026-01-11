@@ -1,0 +1,4 @@
+-- Seed data (optional)
+--
+-- This file is intentionally safe to run on an empty database.
+-- Add INSERT statements here if you want predictable local demo data.

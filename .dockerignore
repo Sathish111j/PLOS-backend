@@ -1,0 +1,45 @@
+# Keep Docker build contexts small (especially on WSL2)
+
+# VCS
+.git
+.gitignore
+.gitattributes
+
+# Python caches
+**/__pycache__/
+**/*.py[cod]
+**/*.pyo
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.coverage
+**/.tox/
+
+# Virtual envs
+.venv/
+venv/
+ENV/
+
+# Node
+**/node_modules/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local data/logs
+**/*.log
+**/*.sqlite
+**/*.db
+
+# Docker/infra artifacts that are not needed for image builds
+infrastructure/
+monitoring/
+docs/
+
+# Repo metadata / exports
+*.zip
+*.tar
+*.gz

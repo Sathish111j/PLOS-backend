@@ -1,6 +1,6 @@
 """
-PLOS Knowledge System Service
-FastAPI application for semantic knowledge management with vector search
+PLOS Knowledge System Service - Phase 2 Enhanced
+FastAPI application with unified ingestion for all content types
 """
 
 import os
@@ -11,14 +11,12 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import PlainTextResponse
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from pydantic import BaseModel, Field
-from src.extraction_engine import KnowledgeExtractor
-from src.vector_store import VectorStore
 
 from shared.gemini import ResilientGeminiClient
 from shared.utils.logger import get_logger
 from shared.utils.logging_config import setup_logging
 
-# Setup structured logging using shared configuration
+# Setup structured logging
 setup_logging("knowledge-system", log_level="INFO", json_logs=True)
 logger = get_logger(__name__)
 
@@ -40,8 +38,6 @@ SEARCH_LATENCY = Histogram(
 # GLOBAL STATE
 # ============================================================================
 
-vector_store: Optional[VectorStore] = None
-extractor: Optional[KnowledgeExtractor] = None
 gemini_client: Optional[ResilientGeminiClient] = None
 
 
@@ -53,51 +49,23 @@ gemini_client: Optional[ResilientGeminiClient] = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan context manager"""
-    global vector_store, extractor, gemini_client
+    global gemini_client
 
-    logger.info("Knowledge system starting")
+    logger.info("Knowledge system starting - Phase 2 Enhanced")
 
-    # Initialize centralized Gemini client with API key rotation
+    # Initialize Gemini client with API key rotation
     try:
         gemini_client = ResilientGeminiClient()
         logger.info(
-            f"Gemini client initialized - client_type=ResilientGeminiClient rotation_enabled={gemini_client.rotation_enabled}"
+            f"Gemini client initialized - rotation_enabled={gemini_client.rotation_enabled}"
         )
     except Exception as e:
         logger.error(f"Gemini client initialization failed: {e}")
         raise
 
-    # Initialize Vector Store with shared Gemini client
-    try:
-        vector_store = VectorStore(
-            qdrant_url=os.getenv("QDRANT_URL", "http://qdrant:6333"),
-            qdrant_api_key=os.getenv("QDRANT_API_KEY", ""),
-            gemini_client=gemini_client,
-        )
-        logger.info("Vector store initialized")
-    except Exception as e:
-        logger.error(f"Vector store initialization failed: {e}")
-        raise
-
-    # Initialize Knowledge Extractor with shared Gemini client
-    try:
-        extractor = KnowledgeExtractor(
-            vector_store=vector_store,
-            gemini_client=gemini_client,
-            model=os.getenv("GEMINI_DEFAULT_MODEL"),  # Uses config default if None
-        )
-        logger.info("Knowledge extractor initialized")
-    except Exception as e:
-        logger.error(f"Extractor initialization failed: {e}")
-        raise
-
     logger.info("Knowledge system ready")
 
     yield
-
-    # Cleanup
-    if extractor:
-        await extractor.close()
 
     logger.info("knowledge_system_shutdown")
 
@@ -108,8 +76,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="PLOS Knowledge System",
-    description="Semantic knowledge management with vector search powered by Qdrant and Gemini",
-    version="1.0.0",
+    description="Unified ingestion system for PDFs, images, text, and URLs",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
@@ -117,19 +85,6 @@ app = FastAPI(
 # ============================================================================
 # PYDANTIC MODELS
 # ============================================================================
-
-
-class KnowledgeItemCreate(BaseModel):
-    """Request model for creating a knowledge item"""
-
-    title: str = Field(..., description="Title of the knowledge item")
-    content: str = Field(..., description="Main content text")
-    source_url: Optional[str] = Field(None, description="Source URL if applicable")
-    item_type: str = Field(
-        "article", description="Type of item (article, note, pdf, etc.)"
-    )
-    tags: Optional[List[str]] = Field(None, description="Tags for categorization")
-    user_id: str = Field(..., description="User ID who owns this item")
 
 
 class URLExtractionRequest(BaseModel):
@@ -149,40 +104,6 @@ class TextKnowledgeRequest(BaseModel):
     tags: Optional[List[str]] = Field(None, description="Optional tags")
 
 
-class SearchRequest(BaseModel):
-    """Request model for semantic search"""
-
-    query: str = Field(..., description="Search query")
-    user_id: str = Field(..., description="User ID to filter results")
-    top_k: int = Field(5, ge=1, le=50, description="Number of results to return")
-    item_type: Optional[str] = Field(None, description="Filter by item type")
-    tags: Optional[List[str]] = Field(None, description="Filter by tags")
-    score_threshold: float = Field(
-        0.5, ge=0.0, le=1.0, description="Minimum similarity score"
-    )
-
-
-class KnowledgeItemResponse(BaseModel):
-    """Response model for knowledge items"""
-
-    knowledge_id: str
-    title: str
-    content_preview: str
-    similarity_score: Optional[float] = None
-    source_url: Optional[str] = None
-    item_type: str
-    tags: List[str]
-    created_at: str
-
-
-class SearchResponse(BaseModel):
-    """Response model for search results"""
-
-    query: str
-    results_count: int
-    results: List[KnowledgeItemResponse]
-
-
 # ============================================================================
 # API ENDPOINTS
 # ============================================================================
@@ -192,14 +113,17 @@ class SearchResponse(BaseModel):
 async def health_check():
     """Health check endpoint"""
     try:
-        # Check vector store connection
-        stats = vector_store.get_collection_stats()
-
         return {
             "status": "healthy",
             "service": "knowledge-system",
-            "vector_db": "connected",
-            "total_knowledge_items": stats.get("total_items", 0),
+            "version": "2.0.0",
+            "features": [
+                "pdf_extraction",
+                "image_ocr",
+                "web_scraping",
+                "combined_ingestion",
+                "batch_processing",
+            ],
         }
     except Exception as e:
         logger.error(f"Health check failed: {e}")
@@ -212,58 +136,28 @@ async def metrics_endpoint():
     return PlainTextResponse(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
-@app.post("/knowledge/add")
-async def add_knowledge_item(item: KnowledgeItemCreate):
-    """
-    Add a new knowledge item directly
-
-    Use this for adding pre-processed content.
-    For URL/PDF extraction, use dedicated endpoints.
-    """
-    try:
-        knowledge_id = await vector_store.add_knowledge_item(
-            knowledge_id=f"manual_{hash(item.title)}_{item.user_id}",
-            title=item.title,
-            content=item.content,
-            source_url=item.source_url,
-            item_type=item.item_type,
-            user_id=item.user_id,
-            tags=item.tags or [],
-        )
-
-        return {
-            "success": True,
-            "message": "Knowledge item added successfully",
-            "knowledge_id": knowledge_id,
-        }
-
-    except Exception as e:
-        logger.error(f"Add knowledge failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @app.post("/knowledge/extract/url")
 async def extract_from_url(request: URLExtractionRequest):
     """
-    Extract content from a URL and add to knowledge base
-
-    This endpoint fetches the webpage, extracts key information using AI,
-    and stores it in the vector database for semantic search.
+    Extract content from a URL using enhanced web scraper
+    Fallback chain: Trafilatura → Playwright → Readability
     """
     try:
-        result = await extractor.extract_from_url(
-            url=request.url, user_id=request.user_id, tags=request.tags
+        from src.ingestion_service import UnifiedIngestionService
+
+        ingestion_service = UnifiedIngestionService(gemini_client=gemini_client)
+        result = await ingestion_service.ingest_url(
+            user_id=request.user_id, url=request.url, tags=request.tags
         )
 
-        if not result.get("success"):
-            raise HTTPException(
-                status_code=400, detail=result.get("error", "Extraction failed")
-            )
+        KNOWLEDGE_ITEMS_ADDED.labels(type="url").inc()
 
-        return result
+        return {
+            "success": True,
+            "message": "URL content extracted successfully",
+            **result,
+        }
 
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"URL extraction failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -273,47 +167,39 @@ async def extract_from_url(request: URLExtractionRequest):
 async def extract_from_pdf(
     file: UploadFile = File(...),
     user_id: str = Form(...),
+    title: Optional[str] = Form(None),
     tags: Optional[str] = Form(None),
 ):
     """
-    Extract content from an uploaded PDF file
-
-    Upload a PDF file and this endpoint will extract its content
-    using AI and store it in the knowledge base.
+    Extract content from PDF using multi-pass extraction
+    Fallback chain: pdfplumber → Tesseract OCR → Paddle OCR
     """
     try:
-        # Save uploaded file temporarily
-        temp_file_path = f"/tmp/{file.filename}"
-        with open(temp_file_path, "wb") as f:
+        from src.ingestion_service import UnifiedIngestionService
+
+        # Save temporarily
+        temp_path = f"/tmp/{file.filename}"
+        with open(temp_path, "wb") as f:
             content = await file.read()
             f.write(content)
 
-        # Parse tags if provided
         tag_list = tags.split(",") if tags else None
 
-        # Extract content
-        result = await extractor.extract_from_pdf(
-            file_path=temp_file_path,
-            user_id=user_id,
-            original_filename=file.filename,
-            tags=tag_list,
+        ingestion_service = UnifiedIngestionService(gemini_client=gemini_client)
+        result = await ingestion_service.ingest_pdf(
+            user_id=user_id, pdf_path=temp_path, title=title, tags=tag_list
         )
 
-        # Clean up temp file
+        # Cleanup
         import os as os_module
 
-        if os_module.path.exists(temp_file_path):
-            os_module.remove(temp_file_path)
+        if os_module.path.exists(temp_path):
+            os_module.remove(temp_path)
 
-        if not result.get("success"):
-            raise HTTPException(
-                status_code=400, detail=result.get("error", "Extraction failed")
-            )
+        KNOWLEDGE_ITEMS_ADDED.labels(type="pdf").inc()
 
-        return result
+        return {"success": True, "message": "PDF extracted successfully", **result}
 
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"PDF extraction failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -323,49 +209,95 @@ async def extract_from_pdf(
 async def extract_from_image(
     file: UploadFile = File(...),
     user_id: str = Form(...),
+    title: Optional[str] = Form(None),
     tags: Optional[str] = Form(None),
 ):
     """
-    Extract content from an uploaded image
-
-    Upload an image (infographic, screenshot, etc.) and this endpoint
-    will extract its content using AI vision.
+    Extract text from image using Paddle OCR (96-98% accuracy)
+    With automatic preprocessing for better results
     """
     try:
-        # Save uploaded file temporarily
-        temp_file_path = f"/tmp/{file.filename}"
-        with open(temp_file_path, "wb") as f:
+        from src.ingestion_service import UnifiedIngestionService
+
+        # Save temporarily
+        temp_path = f"/tmp/{file.filename}"
+        with open(temp_path, "wb") as f:
             content = await file.read()
             f.write(content)
 
-        # Parse tags if provided
         tag_list = tags.split(",") if tags else None
 
-        # Extract content
-        result = await extractor.extract_from_image(
-            file_path=temp_file_path,
-            user_id=user_id,
-            original_filename=file.filename,
-            tags=tag_list,
+        ingestion_service = UnifiedIngestionService(gemini_client=gemini_client)
+        result = await ingestion_service.ingest_images(
+            user_id=user_id, image_paths=[temp_path], title=title, tags=tag_list
         )
 
-        # Clean up temp file
+        # Cleanup
         import os as os_module
 
-        if os_module.path.exists(temp_file_path):
-            os_module.remove(temp_file_path)
+        if os_module.path.exists(temp_path):
+            os_module.remove(temp_path)
 
-        if not result.get("success"):
-            raise HTTPException(
-                status_code=400, detail=result.get("error", "Extraction failed")
-            )
+        KNOWLEDGE_ITEMS_ADDED.labels(type="image").inc()
 
-        return result
+        return {
+            "success": True,
+            "message": "Image text extracted successfully",
+            **result,
+        }
 
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Image extraction failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/knowledge/extract/images")
+async def extract_from_images(
+    files: List[UploadFile] = File(...),
+    user_id: str = Form(...),
+    title: Optional[str] = Form(None),
+    tags: Optional[str] = Form(None),
+):
+    """
+    Extract text from multiple images in batch (Paddle OCR)
+    Perfect for scanned documents, screenshots, infographics
+    """
+    try:
+        from src.ingestion_service import UnifiedIngestionService
+
+        # Save all files
+        temp_paths = []
+        for file in files:
+            temp_path = f"/tmp/{file.filename}"
+            with open(temp_path, "wb") as f:
+                content = await file.read()
+                f.write(content)
+            temp_paths.append(temp_path)
+
+        tag_list = tags.split(",") if tags else None
+
+        ingestion_service = UnifiedIngestionService(gemini_client=gemini_client)
+        result = await ingestion_service.ingest_images(
+            user_id=user_id, image_paths=temp_paths, title=title, tags=tag_list
+        )
+
+        # Cleanup
+        import os as os_module
+
+        for temp_path in temp_paths:
+            if os_module.path.exists(temp_path):
+                os_module.remove(temp_path)
+
+        KNOWLEDGE_ITEMS_ADDED.labels(type="images_batch").inc()
+
+        return {
+            "success": True,
+            "message": f"Extracted text from {len(files)} images",
+            **result,
+        }
+
+    except Exception as e:
+        logger.error(f"Images extraction failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -373,103 +305,101 @@ async def extract_from_image(
 async def extract_from_text(request: TextKnowledgeRequest):
     """
     Add raw text content to knowledge base
-
-    Use this for notes, highlights, or any plain text you want to save.
+    For notes, highlights, or any plain text
     """
     try:
-        result = await extractor.extract_from_text(
-            text=request.text,
+        from src.ingestion_service import UnifiedIngestionService
+
+        ingestion_service = UnifiedIngestionService(gemini_client=gemini_client)
+        result = await ingestion_service.ingest_text(
             user_id=request.user_id,
+            text=request.text,
             title=request.title,
             tags=request.tags,
         )
 
-        if not result.get("success"):
-            raise HTTPException(
-                status_code=400, detail=result.get("error", "Processing failed")
-            )
+        KNOWLEDGE_ITEMS_ADDED.labels(type="text").inc()
 
-        return result
+        return {"success": True, "message": "Text added successfully", **result}
 
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"Text extraction failed: {e}")
+        logger.error(f"Text processing failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/knowledge/search", response_model=SearchResponse)
-async def search_knowledge(request: SearchRequest):
+@app.post("/knowledge/extract/combined")
+async def extract_combined(
+    pdfs: Optional[List[UploadFile]] = File(None),
+    images: Optional[List[UploadFile]] = File(None),
+    user_id: str = Form(...),
+    text_content: Optional[str] = Form(None),
+    url: Optional[str] = Form(None),
+    title: Optional[str] = Form(None),
+    tags: Optional[str] = Form(None),
+):
     """
-    Semantic search across knowledge base
+    🚀 POWERFUL: Combine multiple sources into one knowledge item
 
-    Search for knowledge items using natural language.
-    Results are ranked by semantic similarity.
+    Upload any combination of:
+    - Multiple PDFs
+    - Multiple images
+    - Raw text
+    - A URL to scrape
 
-    Example queries:
-    - "How to improve sleep quality"
-    - "Machine learning tutorials"
-    - "Productivity tips"
+    Perfect for:
+    - Research: Paper PDFs + screenshots + your notes + source URL
+    - Learning: Article URL + slide images + summary text
+    - Documentation: Multiple sources consolidated into one searchable item
     """
     try:
-        results = await vector_store.semantic_search(
-            query=request.query,
-            top_k=request.top_k,
-            user_id=request.user_id,
-            item_type=request.item_type,
-            tags=request.tags,
-            score_threshold=request.score_threshold,
+        from src.ingestion_service import UnifiedIngestionService
+
+        # Save PDF files
+        pdf_paths = []
+        if pdfs:
+            for pdf in pdfs:
+                temp_path = f"/tmp/{pdf.filename}"
+                with open(temp_path, "wb") as f:
+                    content = await pdf.read()
+                    f.write(content)
+                pdf_paths.append(temp_path)
+
+        # Save image files
+        image_paths = []
+        if images:
+            for image in images:
+                temp_path = f"/tmp/{image.filename}"
+                with open(temp_path, "wb") as f:
+                    content = await image.read()
+                    f.write(content)
+                image_paths.append(temp_path)
+
+        tag_list = tags.split(",") if tags else None
+
+        ingestion_service = UnifiedIngestionService(gemini_client=gemini_client)
+        result = await ingestion_service.ingest_combined(
+            user_id=user_id,
+            pdf_files=pdf_paths if pdf_paths else None,
+            image_files=image_paths if image_paths else None,
+            text_content=text_content,
+            url=url,
+            title=title,
+            tags=tag_list,
         )
 
-        # Convert to response model
-        knowledge_items = [
-            KnowledgeItemResponse(
-                knowledge_id=r["knowledge_id"],
-                title=r["title"],
-                content_preview=r["content_preview"],
-                similarity_score=r["similarity_score"],
-                source_url=r.get("source_url"),
-                item_type=r["item_type"],
-                tags=r.get("tags", []),
-                created_at=r.get("created_at", ""),
-            )
-            for r in results
-        ]
+        # Cleanup
+        import os as os_module
 
-        return SearchResponse(
-            query=request.query,
-            results_count=len(knowledge_items),
-            results=knowledge_items,
-        )
+        for temp_path in pdf_paths + image_paths:
+            if os_module.path.exists(temp_path):
+                os_module.remove(temp_path)
+
+        KNOWLEDGE_ITEMS_ADDED.labels(type="combined").inc()
+
+        return {"success": True, "message": "Combined ingestion complete", **result}
 
     except Exception as e:
-        logger.error(f"Search failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.delete("/knowledge/{knowledge_id}")
-async def delete_knowledge_item(knowledge_id: str):
-    """Delete a knowledge item from the database"""
-    try:
-        success = vector_store.delete_knowledge_item(knowledge_id)
-
-        return {"success": success, "message": "Knowledge item deleted successfully"}
-
-    except Exception as e:
-        logger.error(f"Delete failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/knowledge/stats")
-async def get_knowledge_stats():
-    """Get statistics about the knowledge base"""
-    try:
-        stats = vector_store.get_collection_stats()
-
-        return {"success": True, "stats": stats}
-
-    except Exception as e:
-        logger.error(f"Stats failed: {e}")
+        logger.error(f"Combined extraction failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -478,18 +408,26 @@ async def root():
     """Root endpoint with API information"""
     return {
         "service": "PLOS Knowledge System",
-        "version": "1.0.0",
-        "description": "Semantic knowledge management with vector search",
+        "version": "2.0.0",
+        "description": "Unified ingestion for PDFs, images, text, and URLs",
+        "phase": "Phase 2 Complete",
         "endpoints": {
             "health": "/health",
-            "add_knowledge": "/knowledge/add",
             "extract_url": "/knowledge/extract/url",
             "extract_pdf": "/knowledge/extract/pdf",
             "extract_image": "/knowledge/extract/image",
+            "extract_images_batch": "/knowledge/extract/images",
             "extract_text": "/knowledge/extract/text",
-            "search": "/knowledge/search",
-            "delete": "/knowledge/{knowledge_id}",
-            "stats": "/knowledge/stats",
+            "extract_combined": "/knowledge/extract/combined",
+        },
+        "features": {
+            "pdf_extraction": "Multi-pass: pdfplumber → Tesseract → Paddle OCR",
+            "web_scraping": "Trafilatura → Playwright → Readability",
+            "image_ocr": "Paddle OCR (96-98% accuracy)",
+            "combined_ingestion": "Mix PDFs + images + text + URL",
+            "file_storage": "MinIO (self-hosted S3-compatible)",
+            "deduplication": "Hash-based + semantic similarity",
+            "chunking": "Smart sentence-aware splitting",
         },
         "documentation": "/docs",
     }
