@@ -25,7 +25,7 @@ asyncpg==0.29.0
 redis[hiredis]==5.0.1
 
 # Message Queue
-aiokafka==0.10.0
+aiokafka==0.13.0
 kafka-python==2.0.2
 
 # HTTP Client
