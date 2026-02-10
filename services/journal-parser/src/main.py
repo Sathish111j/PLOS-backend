@@ -8,10 +8,11 @@ from contextlib import asynccontextmanager
 import uvicorn
 from api import router as journal_router
 from db_pool import close_global_pool, initialize_global_pool
-from dependencies import initialize_dependencies, shutdown_dependencies
+from dependencies import get_db_session, initialize_dependencies, shutdown_dependencies
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from shared.auth.router import create_auth_router
 from shared.utils.config import get_settings
 from shared.utils.logger import get_logger
 from shared.utils.logging_config import setup_logging
@@ -84,19 +85,34 @@ app = FastAPI(
 
     ## API Endpoints
 
+    ### Authentication (Public)
+    - `POST /auth/register` - Create new user account
+    - `POST /auth/login` - Login and get JWT token
+    - `GET /auth/me` - Get current user profile (requires auth)
+    - `PATCH /auth/me` - Update user profile (requires auth)
+    - `POST /auth/change-password` - Change password (requires auth)
+
+    ### Journal Processing (Requires Authentication)
     - `POST /journal/process` - Process journal entry
     - `POST /journal/resolve-gap` - Resolve clarification gap
-    - `GET /journal/pending-gaps/{user_id}` - Get pending gaps
-    - `GET /journal/activities/{user_id}` - Get user activities
-    - `GET /journal/activity-summary/{user_id}` - Activity summary
+    - `POST /journal/resolve-paragraph` - Resolve gaps with paragraph
+    - `GET /journal/pending-gaps` - Get pending gaps
+    - `GET /journal/activities` - Get user activities
+    - `GET /journal/activity-summary` - Activity summary
+
+    ### Health & Monitoring
     - `GET /journal/health` - Service health check
-    - `GET /journal/metrics` - Service metrics
+    - `GET /journal/metrics` - Prometheus metrics
     """,
     version="1.0.0",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_tags=[
+        {
+            "name": "authentication",
+            "description": "User registration, login, and profile management",
+        },
         {
             "name": "journal-parser",
             "description": "Intelligent journal entry processing",
@@ -113,6 +129,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include authentication router
+auth_router = create_auth_router(get_db_session)
+app.include_router(auth_router)
 
 # Include journal router
 app.include_router(journal_router)

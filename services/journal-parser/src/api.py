@@ -15,6 +15,8 @@ from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.auth.dependencies import get_current_user
+from shared.auth.models import TokenData
 from shared.gemini.client import ResilientGeminiClient
 from shared.kafka.producer import KafkaProducerService
 from shared.utils.logger import get_logger
@@ -35,6 +37,26 @@ JOURNAL_PROCESS_LATENCY = Histogram(
 
 
 # ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+
+def verify_user_access(current_user: TokenData, target_user_id: UUID) -> None:
+    """
+    Verify that the authenticated user can access the target user's data.
+    For now, users can only access their own data.
+
+    Raises:
+        HTTPException 403 if access denied
+    """
+    if current_user.user_id != target_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only access your own data",
+        )
+
+
+# ============================================================================
 # REQUEST/RESPONSE MODELS
 # ============================================================================
 
@@ -42,7 +64,6 @@ JOURNAL_PROCESS_LATENCY = Histogram(
 class ProcessJournalRequest(BaseModel):
     """Request model for processing a journal entry"""
 
-    user_id: UUID = Field(..., description="User UUID")
     entry_text: str = Field(
         ..., min_length=1, max_length=10000, description="Journal entry text"
     )
@@ -161,7 +182,6 @@ class ResolveGapRequest(BaseModel):
 class ResolveParagraphRequest(BaseModel):
     """Request to resolve multiple gaps with a paragraph response"""
 
-    user_id: UUID = Field(..., description="User UUID")
     entry_id: UUID = Field(..., description="Entry UUID with gaps to resolve")
     user_paragraph: str = Field(
         ...,
@@ -233,19 +253,24 @@ class HealthCheckResponse(BaseModel):
     - Storage with alias learning
 
     Returns extracted data plus any clarification questions for ambiguous entries.
+
+    **Authentication required**: Uses the authenticated user's ID automatically.
     """,
 )
 async def process_journal_entry(
     request: ProcessJournalRequest,
+    current_user: TokenData = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     kafka: KafkaProducerService = Depends(get_kafka_producer),
     gemini: ResilientGeminiClient = Depends(get_gemini_client),
 ) -> ExtractionResponse:
     """
-    Process a journal entry with intelligent extraction
+    Process a journal entry with intelligent extraction.
+    Uses the authenticated user's ID from the JWT token.
     """
     try:
-        safe_user_id = str(request.user_id).replace("\n", "")
+        user_id = current_user.user_id
+        safe_user_id = str(user_id).replace("\n", "")
         logger.info(f"API /journal/process - START for user {safe_user_id}")
         logger.info(
             f"Request details: entry_text_length={len(request.entry_text)}, entry_date={request.entry_date}, detect_gaps={request.detect_gaps}, require_complete={request.require_complete}"
@@ -262,7 +287,7 @@ async def process_journal_entry(
         # Process entry
         logger.info("Starting orchestrator.process_journal_entry()")
         result = await orchestrator.process_journal_entry(
-            user_id=request.user_id,
+            user_id=user_id,
             entry_text=request.entry_text,
             entry_date=request.entry_date,
             detect_gaps=request.detect_gaps,
@@ -323,17 +348,18 @@ async def process_journal_entry(
     response_model=ResolveGapResponse,
     status_code=status.HTTP_200_OK,
     summary="Resolve a clarification gap",
-    description="Provide an answer to a clarification question from extraction.",
+    description="Provide an answer to a clarification question from extraction. **Authentication required**.",
 )
 async def resolve_gap(
     request: ResolveGapRequest,
-    user_id: UUID,
+    current_user: TokenData = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     kafka: KafkaProducerService = Depends(get_kafka_producer),
     gemini: ResilientGeminiClient = Depends(get_gemini_client),
 ) -> ResolveGapResponse:
     """
-    Resolve a clarification gap with user's response
+    Resolve a clarification gap with user's response.
+    Uses the authenticated user's ID from the JWT token.
     """
     try:
         orchestrator = JournalParserOrchestrator(
@@ -341,7 +367,7 @@ async def resolve_gap(
         )
 
         result = await orchestrator.resolve_gap(
-            user_id=user_id,
+            user_id=current_user.user_id,
             gap_id=request.gap_id,
             user_response=request.user_response,
         )
@@ -374,16 +400,20 @@ async def resolve_gap(
 
     Gemini will parse the response and extract answers to all pending questions.
     Returns remaining gaps if some questions are still unanswered.
+
+    **Authentication required**.
     """,
 )
 async def resolve_gaps_with_paragraph(
     request: ResolveParagraphRequest,
+    current_user: TokenData = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     kafka: KafkaProducerService = Depends(get_kafka_producer),
     gemini: ResilientGeminiClient = Depends(get_gemini_client),
 ) -> ResolveParagraphResponse:
     """
-    Resolve multiple gaps with a paragraph response using Gemini
+    Resolve multiple gaps with a paragraph response using Gemini.
+    Uses the authenticated user's ID from the JWT token.
     """
     try:
         orchestrator = JournalParserOrchestrator(
@@ -391,7 +421,7 @@ async def resolve_gaps_with_paragraph(
         )
 
         result = await orchestrator.resolve_gaps_with_paragraph(
-            user_id=request.user_id,
+            user_id=current_user.user_id,
             entry_id=request.entry_id,
             user_paragraph=request.user_paragraph,
         )
@@ -422,27 +452,27 @@ async def resolve_gaps_with_paragraph(
 
 
 @router.get(
-    "/pending-gaps/{user_id}",
+    "/pending-gaps",
     response_model=List[PendingGap],
     status_code=status.HTTP_200_OK,
     summary="Get pending clarification gaps",
-    description="Get all pending gaps that need user clarification.",
+    description="Get all pending gaps that need user clarification. **Authentication required**.",
 )
 async def get_pending_gaps(
-    user_id: UUID,
+    current_user: TokenData = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     kafka: KafkaProducerService = Depends(get_kafka_producer),
     gemini: ResilientGeminiClient = Depends(get_gemini_client),
 ) -> List[PendingGap]:
     """
-    Get all pending clarification gaps for a user
+    Get all pending clarification gaps for the authenticated user.
     """
     try:
         orchestrator = JournalParserOrchestrator(
             db_session=db, kafka_producer=kafka, gemini_client=gemini
         )
 
-        gaps = await orchestrator.get_pending_gaps(user_id)
+        gaps = await orchestrator.get_pending_gaps(current_user.user_id)
 
         return [
             PendingGap(
@@ -467,22 +497,23 @@ async def get_pending_gaps(
 
 
 @router.get(
-    "/activities/{user_id}",
+    "/activities",
     status_code=status.HTTP_200_OK,
     summary="Get user activities",
-    description="Get activities for a user with optional filters.",
+    description="Get activities for the authenticated user with optional filters. **Authentication required**.",
 )
 async def get_user_activities(
-    user_id: UUID,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     category: Optional[str] = None,
+    current_user: TokenData = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     kafka: KafkaProducerService = Depends(get_kafka_producer),
     gemini: ResilientGeminiClient = Depends(get_gemini_client),
 ) -> List[Dict[str, Any]]:
     """
-    Get user activities with optional filters
+    Get user activities with optional filters.
+    Uses the authenticated user's ID from the JWT token.
     """
     try:
         orchestrator = JournalParserOrchestrator(
@@ -490,7 +521,7 @@ async def get_user_activities(
         )
 
         return await orchestrator.get_user_activities(
-            user_id=user_id,
+            user_id=current_user.user_id,
             start_date=start_date,
             end_date=end_date,
             category=category,
@@ -505,27 +536,27 @@ async def get_user_activities(
 
 
 @router.get(
-    "/activity-summary/{user_id}",
+    "/activity-summary",
     status_code=status.HTTP_200_OK,
     summary="Get activity summary",
-    description="Get activity summary by category for a user.",
+    description="Get activity summary by category for the authenticated user. **Authentication required**.",
 )
 async def get_activity_summary(
-    user_id: UUID,
     days: int = 30,
+    current_user: TokenData = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     kafka: KafkaProducerService = Depends(get_kafka_producer),
     gemini: ResilientGeminiClient = Depends(get_gemini_client),
 ) -> Dict[str, Any]:
     """
-    Get activity summary for a user
+    Get activity summary for the authenticated user.
     """
     try:
         orchestrator = JournalParserOrchestrator(
             db_session=db, kafka_producer=kafka, gemini_client=gemini
         )
 
-        return await orchestrator.get_activity_summary(user_id, days)
+        return await orchestrator.get_activity_summary(current_user.user_id, days)
 
     except Exception as e:
         logger.error(f"Error getting activity summary: {e}", exc_info=True)

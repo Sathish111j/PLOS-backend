@@ -140,11 +140,19 @@ class PLOSException(Exception):
 class ValidationError(PLOSException):
     """Validation error (400)"""
 
-    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self,
+        message: str,
+        field: Optional[str] = None,
+        details: Optional[Dict[str, Any]] = None,
+    ):
+        error_details = details or {}
+        if field:
+            error_details["field"] = field
         super().__init__(
             message,
             status_code=400,
-            details=details,
+            details=error_details,
             error_code=ErrorCode.VALIDATION_ERROR,
         )
 

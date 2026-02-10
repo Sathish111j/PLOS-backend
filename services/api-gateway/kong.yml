@@ -3,41 +3,107 @@ _transform: true
 
 # Kong Declarative Configuration for PLOS API Gateway
 # DB-less mode - Configuration as code
+#
+# Routing Strategy:
+# - External: /api/v1/{service}/... (e.g., /api/v1/journal/process)
+# - Kong strips /api/v1 prefix and forwards remainder to service
+# - Service receives: /{service}/... (e.g., /journal/process)
 
 services:
+  # Authentication Service (handled by Journal Parser)
+  # External: /api/v1/auth/register -> Internal: /auth/register
+  - name: auth-service
+    url: http://journal-parser:8002
+    routes:
+      - name: auth-route
+        paths:
+          - ~/api/v1(?<path>/auth.*)$
+        strip_path: false
+        regex_priority: 100
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: "$(uri_captures.path)"
+
   # Journal Parser Service
+  # External: /api/v1/journal/process -> Internal: /journal/process
   - name: journal-parser
     url: http://journal-parser:8002
     routes:
       - name: journal-parser-route
         paths:
-          - /api/v1/journal
-          - /api/v1/parse
+          - ~/api/v1(?<path>/journal.*)$
         strip_path: false
+        regex_priority: 100
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: "$(uri_captures.path)"
 
   # Context Broker Service
+  # External: /api/v1/context/{user_id} -> Internal: /context/{user_id}
   - name: context-broker
     url: http://context-broker:8001
     routes:
       - name: context-broker-route
         paths:
-          - /api/v1/context
+          - ~/api/v1(?<path>/context.*)$
         strip_path: false
+        regex_priority: 100
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: "$(uri_captures.path)"
 
   # Knowledge System Service
+  # External: /api/v1/knowledge/extract/url -> Internal: /knowledge/extract/url
   - name: knowledge-system
     url: http://knowledge-system:8003
     routes:
       - name: knowledge-system-route
         paths:
-          - /api/v1/knowledge
+          - ~/api/v1(?<path>/knowledge.*)$
         strip_path: false
+        regex_priority: 100
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: "$(uri_captures.path)"
 
-  # Health Check Endpoint
-  - name: health
-    url: http://localhost:8001/status
+  # Health Check Routes - Direct access to each service
+  - name: health-journal
+    url: http://journal-parser:8002/health
     routes:
-      - name: health-route
+      - name: health-journal-route
+        paths:
+          - /health/journal
+        strip_path: true
+
+  - name: health-context
+    url: http://context-broker:8001/health
+    routes:
+      - name: health-context-route
+        paths:
+          - /health/context
+        strip_path: true
+
+  - name: health-knowledge
+    url: http://knowledge-system:8003/health
+    routes:
+      - name: health-knowledge-route
+        paths:
+          - /health/knowledge
+        strip_path: true
+
+  # Root health check
+  - name: health-gateway
+    url: http://journal-parser:8002/health
+    routes:
+      - name: health-gateway-route
         paths:
           - /health
         strip_path: true

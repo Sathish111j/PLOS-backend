@@ -23,7 +23,7 @@
 
 PLOS transforms the way you understand yourself. Write freely about your day - your sleep, workouts, meals, mood, work, relationships - and watch as AI extracts, organizes, and reveals patterns you never knew existed.
 
-> *"I slept 7 hours, went for a morning run, had coffee with Sarah, worked on the API project for 4 hours, feeling pretty good today - maybe 8/10"*
+> _"I slept 7 hours, went for a morning run, had coffee with Sarah, worked on the API project for 4 hours, feeling pretty good today - maybe 8/10"_
 
 This single sentence becomes **structured data** across 11 different life dimensions - sleep quality, exercise metrics, social connections, work productivity, and mood tracking - all searchable, analyzable, and ready to power personalized insights.
 
@@ -33,21 +33,21 @@ This single sentence becomes **structured data** across 11 different life dimens
 
 ### Turn Chaos Into Clarity
 
-| You Write | PLOS Extracts |
-|-----------|---------------|
-| "Slept around 7 hours, woke up at 6am" | Sleep: 7h, Wake: 06:00, Bed: 23:00 |
-| "45 min morning jog, felt great" | Exercise: Running, 45min, Morning, High Energy |
-| "Had oatmeal and coffee for breakfast" | Nutrition: Oatmeal + Coffee, Breakfast, ~300 cal |
-| "Mood is 8/10, productive day" | Mood: 8/10, Morning, High Confidence |
-| "Lunch with Sarah at the Italian place" | Social: Sarah, Meal, Restaurant, Midday |
-| "4 hours coding on the API project" | Work: Coding, 4h, API Project, Deep Focus |
+| You Write                               | PLOS Extracts                                    |
+| --------------------------------------- | ------------------------------------------------ |
+| "Slept around 7 hours, woke up at 6am"  | Sleep: 7h, Wake: 06:00, Bed: 23:00               |
+| "45 min morning jog, felt great"        | Exercise: Running, 45min, Morning, High Energy   |
+| "Had oatmeal and coffee for breakfast"  | Nutrition: Oatmeal + Coffee, Breakfast, ~300 cal |
+| "Mood is 8/10, productive day"          | Mood: 8/10, Morning, High Confidence             |
+| "Lunch with Sarah at the Italian place" | Social: Sarah, Meal, Restaurant, Midday          |
+| "4 hours coding on the API project"     | Work: Coding, 4h, API Project, Deep Focus        |
 
 ### Discover Hidden Patterns
 
 **Ever wondered why some days feel magical while others drag on?** PLOS uncovers the invisible connections in your life data.
 
 - **Sleep vs Mood Correlation**: See how your sleep quality affects next-day mood
-- **Exercise Impact**: Track how workouts influence energy and productivity  
+- **Exercise Impact**: Track how workouts influence energy and productivity
 - **Social Wellness**: Understand the relationship between social time and happiness
 - **Work Patterns**: Identify your most productive hours and contexts
 - **Nutrition Insights**: Connect eating habits with energy levels
@@ -59,10 +59,12 @@ This single sentence becomes **structured data** across 11 different life dimens
 **Write naturally, discover profoundly.** Whether you pour your thoughts into detailed journal entries or simply input daily data points, PLOS organizes everything and reveals patterns you never knew existed.
 
 **Journal Writing → Hidden Patterns:**
-- *"Slept 7 hours, morning run, coffee with Sarah, 4 hours coding, feeling great (8/10)"*
+
+- _"Slept 7 hours, morning run, coffee with Sarah, 4 hours coding, feeling great (8/10)"_
 - **PLOS Discovers:** This exact combination predicts your "perfect day" 89% of the time
 
 **Daily Data Input → Life Insights:**
+
 - Quick entries: Sleep: 7h, Exercise: 45min run, Mood: 8/10, Work: 4h coding
 - **PLOS Reveals:** Your creative output spikes 3x after morning cardio + coffee routine
 
@@ -81,11 +83,13 @@ Store everything - notes, ideas, articles, PDFs, links - and let AI retrieve exa
 <td width="50%">
 
 ### Phase 1: Journal Intelligence
+
 **Status: COMPLETE**
 
 The foundation - AI-powered journal parsing that understands natural language and extracts structured life data.
 
 **Delivered:**
+
 - Natural language journal processing
 - 11 extraction categories (sleep, mood, exercise, nutrition, work, social, health, activities, locations, weather, notes)
 - Confidence scoring and quality assessment
@@ -97,16 +101,18 @@ The foundation - AI-powered journal parsing that understands natural language an
 <td width="50%">
 
 ### Phase 2: Knowledge System
-**Status: IN PROGRESS**
+
+**Status: COMPLETE**
 
 Your personal knowledge base - dump any information and retrieve it intelligently when needed.
 
-**Building:**
-- Vector embeddings for semantic search
-- Document ingestion (PDFs, notes, links)
-- Context-aware retrieval
-- Knowledge graph connections
-- "Ask your data" natural language queries
+**Delivered:**
+
+- Unified ingestion pipeline (URLs, PDFs, Images)
+- CPU-optimized extraction (DRY principle applied)
+- Vector embeddings & Qdrant integration
+- Document deduplication & auto-tagging
+- Context-aware retrieval infrastructure
 
 </td>
 </tr>
@@ -114,11 +120,13 @@ Your personal knowledge base - dump any information and retrieve it intelligentl
 <td width="50%">
 
 ### Phase 3: Personal AI Assistant
-**Status: PLANNED**
+
+**Status: NEXT UP**
 
 Your AI companion that knows you - personalized recommendations, goal tracking, daily briefings.
 
 **Planned:**
+
 - Daily personalized briefings
 - Goal setting and progress tracking
 - Smart task management
@@ -130,11 +138,13 @@ Your AI companion that knows you - personalized recommendations, goal tracking, 
 <td width="50%">
 
 ### Phase 4: Life Analytics Dashboard
+
 **Status: PLANNED**
 
 Visualize your life patterns with beautiful, insightful dashboards.
 
 **Planned:**
+
 - Interactive life metrics dashboard
 - Time-series pattern visualization
 - Correlation discovery engine
@@ -161,18 +171,18 @@ Phase 4: Life Analytics      [....................]   0%
 
 ### Detailed Status
 
-| Component | Status | Description |
-|-----------|--------|-------------|
-| Journal Parser | Done | AI extraction for 11 life categories |
-| Context Broker | Done | User state and context management |
-| Knowledge System | In Progress | Vector search infrastructure ready |
-| Semantic Search | In Progress | Qdrant integration complete |
-| Document Ingestion | Planned | PDF, link, note processing |
-| AI Assistant Core | Planned | Personalized recommendations engine |
-| Goal Tracking | Planned | Goal setting and progress system |
-| Task Management | Planned | Smart task prioritization |
-| Analytics Dashboard | Planned | Life metrics visualization |
-| Mobile App | Future | iOS/Android companion app |
+| Component           | Status      | Description                          |
+| ------------------- | ----------- | ------------------------------------ |
+| Journal Parser      | Done        | AI extraction for 11 life categories |
+| Context Broker      | Done        | User state and context management    |
+| Knowledge System    | In Progress | Vector search infrastructure ready   |
+| Semantic Search     | In Progress | Qdrant integration complete          |
+| Document Ingestion  | Planned     | PDF, link, note processing           |
+| AI Assistant Core   | Planned     | Personalized recommendations engine  |
+| Goal Tracking       | Planned     | Goal setting and progress system     |
+| Task Management     | Planned     | Smart task prioritization            |
+| Analytics Dashboard | Planned     | Life metrics visualization           |
+| Mobile App          | Future      | iOS/Android companion app            |
 
 ---
 
@@ -183,8 +193,8 @@ Phase 4: Life Analytics      [....................]   0%
 Process any journal entry and get structured data:
 
 ```
-Input:  "Woke at 6am after 7.5h sleep. 45min morning run. 
-         Oatmeal breakfast. 5h coding at work. Lunch with 
+Input:  "Woke at 6am after 7.5h sleep. 45min morning run.
+         Oatmeal breakfast. 5h coding at work. Lunch with
          Sarah. Mood 8/10. Weight 74.5kg."
 
 Output:
@@ -200,19 +210,19 @@ Output:
 
 ### Extraction Categories
 
-| Category | What It Captures |
-|----------|-----------------|
-| Sleep | Duration, quality, wake/bed times, naps |
-| Mood | Score, time of day, context, confidence |
-| Exercise | Type, duration, intensity, calories |
-| Nutrition | Meals, items, calories, timing |
-| Work | Tasks, duration, projects, focus level |
-| Social | People, interaction type, context |
-| Health | Vitals, symptoms, medications |
-| Activities | Any tracked activity with metadata |
-| Locations | Places visited with context |
-| Weather | Conditions affecting the day |
-| Notes | Free-form observations and thoughts |
+| Category   | What It Captures                        |
+| ---------- | --------------------------------------- |
+| Sleep      | Duration, quality, wake/bed times, naps |
+| Mood       | Score, time of day, context, confidence |
+| Exercise   | Type, duration, intensity, calories     |
+| Nutrition  | Meals, items, calories, timing          |
+| Work       | Tasks, duration, projects, focus level  |
+| Social     | People, interaction type, context       |
+| Health     | Vitals, symptoms, medications           |
+| Activities | Any tracked activity with metadata      |
+| Locations  | Places visited with context             |
+| Weather    | Conditions affecting the day            |
+| Notes      | Free-form observations and thoughts     |
 
 ---
 
@@ -249,15 +259,15 @@ PostgreSQL  Redis  Qdrant
 
 ### Infrastructure
 
-| Component | Technology | Purpose |
-|-----------|------------|---------|
-| AI Engine | Google Gemini 2.5 | Natural language understanding |
-| API Layer | FastAPI + Kong | REST APIs with gateway |
-| Database | PostgreSQL | Structured life data storage |
-| Cache | Redis | Fast data access |
-| Vectors | Qdrant | Semantic search |
-| Events | Apache Kafka | Real-time processing |
-| Monitoring | Prometheus + Grafana | Observability |
+| Component  | Technology           | Purpose                        |
+| ---------- | -------------------- | ------------------------------ |
+| AI Engine  | Google Gemini 2.5    | Natural language understanding |
+| API Layer  | FastAPI + Kong       | REST APIs with gateway         |
+| Database   | PostgreSQL           | Structured life data storage   |
+| Cache      | Redis                | Fast data access               |
+| Vectors    | Qdrant               | Semantic search                |
+| Events     | Apache Kafka         | Real-time processing           |
+| Monitoring | Prometheus + Grafana | Observability                  |
 
 ---
 
@@ -287,6 +297,7 @@ PLOS creates a **personal data layer** that:
 ## Remaining Work
 
 ### High Priority
+
 - [ ] Complete knowledge base document ingestion
 - [ ] Build "Ask your data" query interface
 - [ ] Implement daily summary generation
@@ -294,6 +305,7 @@ PLOS creates a **personal data layer** that:
 - [ ] Create life analytics dashboard
 
 ### Medium Priority
+
 - [ ] Multi-modal input (voice, images)
 - [ ] Calendar and task integration
 - [ ] Habit tracking and streaks
@@ -301,6 +313,7 @@ PLOS creates a **personal data layer** that:
 - [ ] Relationship mapping
 
 ### Future Vision
+
 - [ ] Mobile companion app
 - [ ] Wearable device integration
 - [ ] Predictive wellness alerts
@@ -322,6 +335,7 @@ PLOS creates a **personal data layer** that:
 ## Quick Start
 
 ### Prerequisites
+
 - Docker and Docker Compose
 - Google Gemini API key
 
@@ -345,14 +359,14 @@ docker compose ps
 
 ### Access Points
 
-| Service | URL | Purpose |
-|---------|-----|---------|
-| Journal API | http://localhost:8002 | Process journal entries |
-| Knowledge API | http://localhost:8003 | Search and retrieve |
-| Context API | http://localhost:8001 | User state management |
-| Metabase | http://localhost:8082 | Data visualization & BI |
-| Monitoring | http://localhost:9090 | Prometheus metrics |
-| Dashboards | http://localhost:3333 | Grafana visualization |
+| Service       | URL                   | Purpose                 |
+| ------------- | --------------------- | ----------------------- |
+| Journal API   | http://localhost:8002 | Process journal entries |
+| Knowledge API | http://localhost:8003 | Search and retrieve     |
+| Context API   | http://localhost:8001 | User state management   |
+| Metabase      | http://localhost:8082 | Data visualization & BI |
+| Monitoring    | http://localhost:9090 | Prometheus metrics      |
+| Dashboards    | http://localhost:3333 | Grafana visualization   |
 
 ---
 

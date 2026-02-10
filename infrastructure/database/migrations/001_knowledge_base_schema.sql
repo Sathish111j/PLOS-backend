@@ -1,4 +1,6 @@
 -- ============================================================================
+SET search_path TO public;
+
 -- PLOS Knowledge Base - Database Schema Migration
 -- Phase 1: Core Tables for Knowledge Management System
 -- Last Updated: 2025-01-04
@@ -130,62 +132,25 @@ CREATE TABLE IF NOT EXISTS knowledge_item_tags (
 CREATE INDEX IF NOT EXISTS idx_item_tags_item_id ON knowledge_item_tags(item_id);
 CREATE INDEX IF NOT EXISTS idx_item_tags_tag_id ON knowledge_item_tags(tag_id);
 
+/*
 -- ============================================================================
 -- 5. KNOWLEDGE ENTITIES (Extracted Named Entities)
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS knowledge_entities (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    name VARCHAR(255) NOT NULL,
-    canonical_name VARCHAR(255),  -- Normalized form
-    entity_type VARCHAR(50) NOT NULL,  -- person, organization, concept, topic, location
-    description TEXT,
-    aliases TEXT[],  -- Alternative names
-    mention_count INTEGER DEFAULT 1,
-    first_seen_at TIMESTAMPTZ DEFAULT NOW(),
-    last_seen_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(user_id, canonical_name, entity_type)
-);
-
-CREATE INDEX IF NOT EXISTS idx_entities_user_id ON knowledge_entities(user_id);
-CREATE INDEX IF NOT EXISTS idx_entities_type ON knowledge_entities(entity_type);
-CREATE INDEX IF NOT EXISTS idx_entities_name ON knowledge_entities USING GIN(name gin_trgm_ops);
+-- MOVED TO 003_knowledge_graph.sql
+-- CREATE TABLE IF NOT EXISTS knowledge_entities ...
 
 -- ============================================================================
 -- 6. KNOWLEDGE RELATIONSHIPS (Entity Connections)
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS knowledge_relationships (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    source_entity_id UUID NOT NULL REFERENCES knowledge_entities(id) ON DELETE CASCADE,
-    target_entity_id UUID NOT NULL REFERENCES knowledge_entities(id) ON DELETE CASCADE,
-    relationship_type VARCHAR(50) NOT NULL,  -- co_occurs, mentions, related_to
-    strength FLOAT DEFAULT 1.0,  -- Relationship strength/weight
-    context TEXT,  -- Sample text showing relationship
-    occurrence_count INTEGER DEFAULT 1,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(user_id, source_entity_id, target_entity_id, relationship_type)
-);
-
-CREATE INDEX IF NOT EXISTS idx_relationships_source ON knowledge_relationships(source_entity_id);
-CREATE INDEX IF NOT EXISTS idx_relationships_target ON knowledge_relationships(target_entity_id);
+-- MOVED TO 003_knowledge_graph.sql
+-- CREATE TABLE IF NOT EXISTS knowledge_relationships ...
 
 -- ============================================================================
 -- 7. DOCUMENT-ENTITY LINKS
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS document_entity_links (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    item_id UUID NOT NULL REFERENCES knowledge_items(id) ON DELETE CASCADE,
-    entity_id UUID NOT NULL REFERENCES knowledge_entities(id) ON DELETE CASCADE,
-    mention_count INTEGER DEFAULT 1,
-    confidence FLOAT DEFAULT 0.9,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(item_id, entity_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_doc_entity_item ON document_entity_links(item_id);
-CREATE INDEX IF NOT EXISTS idx_doc_entity_entity ON document_entity_links(entity_id);
+-- MOVED TO 003_knowledge_graph.sql
+-- CREATE TABLE IF NOT EXISTS document_entity_links ...
+*/
 
 -- ============================================================================
 -- 8. KB CONVERSATIONS (Chat History)
