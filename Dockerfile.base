@@ -6,7 +6,6 @@
 #   Build for specific service:
 #   docker build --build-arg SERVICE_NAME=journal-parser -f Dockerfile.base -t plos-journal-parser .
 #   docker build --build-arg SERVICE_NAME=context-broker -f Dockerfile.base -t plos-context-broker .
-#   docker build --build-arg SERVICE_NAME=knowledge-system -f Dockerfile.base -t plos-knowledge-system .
 # ============================================================================
 
 ARG SERVICE_NAME=journal-parser
@@ -42,6 +41,7 @@ FROM python:3.11-slim AS production
 
 ARG SERVICE_NAME
 ENV SERVICE_NAME=${SERVICE_NAME}
+ENV SERVICE_PORT=8000
 
 # Create non-root user
 RUN groupadd --gid 1000 plos && \
@@ -70,7 +70,7 @@ USER plos
 
 # Health check (generic for all services)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD python -c "import httpx; httpx.get('http://localhost:8000/health', timeout=5)" || exit 1
+    CMD curl -f "http://localhost:${SERVICE_PORT}/health" || exit 1
 
 # Expose port (override in docker-compose for each service)
 EXPOSE 8000

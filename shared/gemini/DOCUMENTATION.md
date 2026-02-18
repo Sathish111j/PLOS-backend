@@ -95,7 +95,6 @@ The system consists of four main components:
 | `GEMINI_DEFAULT_MODEL` | `gemini-2.5-flash` | Default model for content generation |
 | `GEMINI_EMBEDDING_MODEL` | `text-embedding-004` | Model for embedding generation |
 | `GEMINI_JOURNAL_PARSER_MODEL` | (optional) | Override model for journal-parser service |
-| `GEMINI_KNOWLEDGE_SYSTEM_MODEL` | (optional) | Override model for knowledge-system service |
 | `GEMINI_CONTEXT_BROKER_MODEL` | (optional) | Override model for context-broker service |
 
 **Example Key Format:**
@@ -120,7 +119,6 @@ from shared.gemini import TaskType
 # Available task types:
 TaskType.JOURNAL_EXTRACTION      # Journal parsing
 TaskType.GAP_DETECTION          # Gap analysis
-TaskType.KNOWLEDGE_EXTRACTION   # Knowledge system extractions
 TaskType.TEXT_EMBEDDING         # Vector embeddings
 TaskType.CONTEXT_GENERATION     # Context broker
 TaskType.QUICK_ANALYSIS         # Fast, simple analysis
@@ -141,8 +139,6 @@ result = await client.generate_for_task(
     prompt="Extract entities from: Today I had a meeting with John..."
 )
 
-# Get the configured model for a task
-model = client.get_model_for_task(TaskType.KNOWLEDGE_EXTRACTION)
 ```
 
 ### Per-Service Model Configuration
@@ -152,7 +148,6 @@ Override models per service using environment variables:
 ```bash
 # .env
 GEMINI_JOURNAL_PARSER_MODEL=gemini-2.5-flash
-GEMINI_KNOWLEDGE_SYSTEM_MODEL=gemini-2.5-pro
 GEMINI_CONTEXT_BROKER_MODEL=gemini-2.5-flash
 ```
 
@@ -170,7 +165,6 @@ Default task configurations (`TASK_CONFIGS`):
 |------|-------|-------------|------------|
 | JOURNAL_EXTRACTION | gemini-2.5-flash | 0.3 | 4096 |
 | GAP_DETECTION | gemini-2.5-flash | 0.4 | 2048 |
-| KNOWLEDGE_EXTRACTION | gemini-2.5-pro | 0.4 | 8192 |
 | TEXT_EMBEDDING | text-embedding-004 | - | - |
 | QUICK_ANALYSIS | gemini-2.5-flash | 0.5 | 2048 |
 | DEEP_ANALYSIS | gemini-2.5-pro | 0.7 | 16384 |

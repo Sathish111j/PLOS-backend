@@ -25,18 +25,6 @@ updates:
       - "dependencies"
       - "python"
 
-  - package-ecosystem: "pip"
-    directory: "/services/knowledge-system"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 5
-    reviewers:
-      - "Sathish111j"
-    labels:
-      - "dependencies"
-      - "python"
-
   # Docker dependencies
   - package-ecosystem: "docker"
     directory: "/services/context-broker"
@@ -52,18 +40,6 @@ updates:
 
   - package-ecosystem: "docker"
     directory: "/services/journal-parser"
-    schedule:
-      interval: "weekly"
-      day: "tuesday"
-    open-pull-requests-limit: 3
-    reviewers:
-      - "Sathish111j"
-    labels:
-      - "dependencies"
-      - "docker"
-
-  - package-ecosystem: "docker"
-    directory: "/services/knowledge-system"
     schedule:
       interval: "weekly"
       day: "tuesday"

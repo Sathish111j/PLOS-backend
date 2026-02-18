@@ -116,6 +116,35 @@ class SuccessResponse(BaseModel):
 
 
 # ============================================================================
+# ERROR RESPONSE HELPERS
+# ============================================================================
+
+
+def normalize_error_details(details: Optional[Any]) -> Optional[List[ErrorDetail]]:
+    """Normalize error details into a list of ErrorDetail items."""
+    if details is None:
+        return None
+    if isinstance(details, list):
+        return details
+    if isinstance(details, ErrorDetail):
+        return [details]
+    if isinstance(details, dict):
+        message = details.get("message") or str(details)
+        field = details.get("field")
+        return [ErrorDetail(field=field, message=message)]
+    return [ErrorDetail(message=str(details))]
+
+
+def build_error_response(exc: "PLOSException") -> ErrorResponse:
+    """Create an ErrorResponse from a PLOSException."""
+    return ErrorResponse(
+        error_code=exc.error_code,
+        message=exc.message,
+        details=normalize_error_details(exc.details),
+    )
+
+
+# ============================================================================
 # EXCEPTION CLASSES
 # ============================================================================
 

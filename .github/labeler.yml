@@ -7,9 +7,6 @@
 'service/journal-parser':
   - services/journal-parser/**/*
 
-'service/knowledge-system':
-  - services/knowledge-system/**/*
-
 'service/api-gateway':
   - services/api-gateway/**/*
 

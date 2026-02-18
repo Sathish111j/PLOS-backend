@@ -6,21 +6,27 @@ Intelligent journal entry processing with comprehensive extraction and gap detec
 from contextlib import asynccontextmanager
 
 import uvicorn
-from api import router as journal_router
-from db_pool import close_global_pool, initialize_global_pool
-from dependencies import get_db_session, initialize_dependencies, shutdown_dependencies
+from api.journal.router import router as journal_router
+from api.reporting.router import router as reporting_router
+from dependencies.providers import (
+    get_db_session,
+    initialize_dependencies,
+    shutdown_dependencies,
+)
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from infrastructure.db.pool import close_global_pool, initialize_global_pool
 
 from shared.auth.router import create_auth_router
-from shared.utils.config import get_settings
 from shared.utils.logger import get_logger
 from shared.utils.logging_config import setup_logging
+from shared.utils.unified_config import get_unified_settings
+
+settings = get_unified_settings()
 
 # Setup structured logging
-setup_logging("journal-parser", log_level="INFO", json_logs=True)
+setup_logging("journal-parser", log_level=settings.log_level, json_logs=True)
 logger = get_logger(__name__)
-settings = get_settings()
 
 
 @asynccontextmanager
@@ -117,6 +123,10 @@ app = FastAPI(
             "name": "journal-parser",
             "description": "Intelligent journal entry processing",
         },
+        {
+            "name": "journal-reports",
+            "description": "User reporting and weekly insights",
+        },
         {"name": "health", "description": "Service health and monitoring"},
     ],
 )
@@ -136,6 +146,7 @@ app.include_router(auth_router)
 
 # Include journal router
 app.include_router(journal_router)
+app.include_router(reporting_router)
 
 
 @app.get("/", tags=["health"])

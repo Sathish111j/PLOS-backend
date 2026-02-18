@@ -1,20 +1,20 @@
 # PLOS - Quick Start Guide
 
-Get PLOS running in **5 minutes**! ⚡
+Get PLOS running in **5 minutes**.
 
 ---
 
 ## Prerequisites
 
-✅ Docker Desktop installed  
-✅ Git installed  
-✅ Google Gemini API key (free at [Google AI Studio](https://aistudio.google.com/))
+- Docker Desktop installed  
+- Git installed  
+- Google Gemini API key (free at [Google AI Studio](https://aistudio.google.com/))
 
 ---
 
 ## Installation (3 Steps)
 
-### 1️⃣ Clone & Setup
+### 1. Clone & Setup
 
 ```bash
 git clone <your-repo-url>
@@ -22,7 +22,7 @@ cd LifeOSbackend
 cp .env.example .env
 ```
 
-### 2️⃣ Add Your API Key
+### 2. Add Your API Key
 
 Edit `.env` and add your Gemini API key:
 
@@ -30,17 +30,17 @@ Edit `.env` and add your Gemini API key:
 GEMINI_API_KEY=your-key-here
 ```
 
-### 3️⃣ Start Everything
+### 3. Start Everything
 
 ```bash
 # Make scripts executable (Linux/Mac)
-chmod +x scripts/*.sh
+chmod +x scripts/start/*.sh scripts/stop/*.sh scripts/verify/*.sh scripts/setup/*.sh scripts/test/*.sh
 
 # Run setup (first time only)
-./scripts/setup.sh
+./scripts/setup/setup.sh
 
 # Start all services
-./scripts/dev.sh
+./scripts/start/dev.sh
 ```
 
 ---
@@ -76,13 +76,13 @@ docker-compose ps
 ```
 
 You should see:
-- ✅ PostgreSQL (database)
-- ✅ Redis (cache)
-- ✅ Kafka (message queue)
-- ✅ API Gateway
-- ✅ Context Broker
-- ✅ Frontend
-- ✅ Monitoring tools
+- PostgreSQL (database)
+- Redis (cache)
+- Kafka (message queue)
+- API Gateway
+- Context Broker
+- Frontend
+- Monitoring tools
 
 ---
 
@@ -96,21 +96,21 @@ docker-compose logs -f
 docker-compose down
 
 # Start again
-./scripts/dev.sh
+./scripts/start/dev.sh
 
 # Clean everything
-./scripts/clean.sh
+./scripts/stop/clean.sh
 ```
 
 ---
 
 ## Next Steps
 
-1. ✅ Setup complete!
-2. 📖 Read [Local Setup Guide](LOCAL_SETUP.md) for details
-3. 🤖 Learn about [Gemini Integration](GEMINI_INTEGRATION.md)
-4. 🏗️ Explore [Architecture](ARCHITECTURE.md)
-5. 💻 Start coding!
+1. Setup complete.
+2. Read [Local Setup Guide](LOCAL_SETUP.md) for details
+3. Learn about [Gemini Integration](GEMINI_INTEGRATION.md)
+4. Explore [Architecture](ARCHITECTURE.md)
+5. Start coding.
 
 ---
 
@@ -130,18 +130,19 @@ API_GATEWAY_PORT=8080  # Instead of 8000
 
 **Need to reset everything?**
 ```bash
-./scripts/clean.sh
-./scripts/setup.sh
+./scripts/stop/clean.sh
+./scripts/setup/setup.sh
 ```
 
 ---
 
 ## Need Help?
 
-- 📖 [Full Documentation](.)
-- 🐛 [Report Issues](https://github.com/yourusername/plos/issues)
-- 💬 [Join Discord](https://discord.gg/plos)
+- [Full Documentation](.)
+- [Report Issues](https://github.com/yourusername/plos/issues)
+- [Join Discord](https://discord.gg/plos)
 
 ---
 
-**Happy building! 🚀**
+**Happy building!**
+

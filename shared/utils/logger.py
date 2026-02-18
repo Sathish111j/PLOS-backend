@@ -4,10 +4,10 @@ Centralized logging configuration
 """
 
 import logging
-import sys
 from typing import Optional
 
 from .config import get_settings
+from .logging_config import setup_logging
 
 
 def get_logger(name: Optional[str] = None) -> logging.Logger:
@@ -24,26 +24,11 @@ def get_logger(name: Optional[str] = None) -> logging.Logger:
     logger_name = name or settings.service_name
 
     logger = logging.getLogger(logger_name)
-
-    # Avoid duplicate handlers
     if logger.handlers:
         return logger
 
-    # Set log level
-    log_level = getattr(logging, settings.log_level.upper(), logging.INFO)
-    logger.setLevel(log_level)
-
-    # Console handler
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(log_level)
-
-    # Formatter
-    formatter = logging.Formatter(
-        fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
+    return setup_logging(
+        service_name=logger_name,
+        log_level=settings.log_level,
+        json_logs=False,
     )
-    console_handler.setFormatter(formatter)
-
-    logger.addHandler(console_handler)
-
-    return logger

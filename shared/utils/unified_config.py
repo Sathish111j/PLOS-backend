@@ -148,18 +148,11 @@ class UnifiedSettings(BaseSettings):
     # =========================================================================
     journal_parser_port: int = Field(default=8002, description="Journal parser port")
     context_broker_port: int = Field(default=8001, description="Context broker port")
-    knowledge_system_port: int = Field(
-        default=8003, description="Knowledge system port"
-    )
 
     # =========================================================================
     # EXTERNAL SERVICES
     # =========================================================================
     openai_api_key: Optional[str] = Field(default=None, description="OpenAI API key")
-    qdrant_url: str = Field(
-        default="http://qdrant:6333", description="Qdrant vector DB URL"
-    )
-    qdrant_api_key: str = Field(default="", description="Qdrant API key")
 
     # =========================================================================
     # SPECIALIZED CONFIGURATION ACCESSORS

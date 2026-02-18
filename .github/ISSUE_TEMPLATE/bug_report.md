@@ -25,7 +25,7 @@ assignees: ''
 - **OS**: [e.g., Windows 11, Ubuntu 22.04, macOS 13]
 - **Python Version**: [e.g., 3.11.0]
 - **Docker Version**: [e.g., 24.0.0]
-- **Service**: [e.g., context-broker, journal-parser, knowledge-system]
+- **Service**: [e.g., context-broker, journal-parser, api-gateway]
 
 ## Logs/Error Messages
 ```

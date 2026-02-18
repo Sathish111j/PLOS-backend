@@ -58,21 +58,6 @@ services:
           replace:
             uri: "$(uri_captures.path)"
 
-  # Knowledge System Service
-  # External: /api/v1/knowledge/extract/url -> Internal: /knowledge/extract/url
-  - name: knowledge-system
-    url: http://knowledge-system:8003
-    routes:
-      - name: knowledge-system-route
-        paths:
-          - ~/api/v1(?<path>/knowledge.*)$
-        strip_path: false
-        regex_priority: 100
-    plugins:
-      - name: request-transformer
-        config:
-          replace:
-            uri: "$(uri_captures.path)"
 
   # Health Check Routes - Direct access to each service
   - name: health-journal
@@ -89,14 +74,6 @@ services:
       - name: health-context-route
         paths:
           - /health/context
-        strip_path: true
-
-  - name: health-knowledge
-    url: http://knowledge-system:8003/health
-    routes:
-      - name: health-knowledge-route
-        paths:
-          - /health/knowledge
         strip_path: true
 
   # Root health check

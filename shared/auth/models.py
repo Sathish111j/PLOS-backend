@@ -3,8 +3,6 @@ PLOS Authentication Models
 Pydantic models for authentication requests and responses
 """
 
-from __future__ import annotations
-
 from datetime import datetime
 from typing import Optional
 from uuid import UUID
@@ -47,7 +45,7 @@ class TokenResponse(BaseModel):
     access_token: str = Field(..., description="JWT access token")
     token_type: str = Field(default="bearer", description="Token type")
     expires_in: int = Field(..., description="Token expiration in seconds")
-    user: UserResponse = Field(..., description="Authenticated user details")
+    user: "UserResponse" = Field(..., description="Authenticated user details")
 
 
 class UserResponse(BaseModel):

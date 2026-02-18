@@ -122,7 +122,6 @@ class MetricsConfig(BaseSettings):
 # Singleton instances
 _context_config: Optional[ContextConfig] = None
 _cache_config: Optional[CacheConfig] = None
-_metrics_config: Optional[MetricsConfig] = None
 
 
 def get_context_config() -> ContextConfig:
@@ -139,11 +138,3 @@ def get_cache_config() -> CacheConfig:
     if _cache_config is None:
         _cache_config = CacheConfig()
     return _cache_config
-
-
-def get_metrics_config() -> MetricsConfig:
-    """Get metrics configuration singleton"""
-    global _metrics_config
-    if _metrics_config is None:
-        _metrics_config = MetricsConfig()
-    return _metrics_config

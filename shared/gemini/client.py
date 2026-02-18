@@ -383,7 +383,7 @@ class ResilientGeminiClient:
         Get the configured model for a specific service.
 
         Args:
-            service_name: Name of the service (journal-parser, knowledge-system, etc.)
+            service_name: Name of the service (journal-parser, context-broker, etc.)
 
         Returns:
             str: Model name to use

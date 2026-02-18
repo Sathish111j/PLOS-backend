@@ -37,11 +37,6 @@ class TaskType(str, Enum):
     GAP_DETECTION = "gap_detection"
     QUALITY_SCORING = "quality_scoring"
 
-    # Knowledge System Tasks
-    KNOWLEDGE_EXTRACTION = "knowledge_extraction"
-    DOCUMENT_SUMMARY = "document_summary"
-    SEMANTIC_SEARCH = "semantic_search"
-
     # Context Broker Tasks
     CONTEXT_ANALYSIS = "context_analysis"
     PATTERN_DETECTION = "pattern_detection"
@@ -112,9 +107,6 @@ class GeminiConfig(BaseModel):
     journal_parser_model: Optional[str] = Field(
         default=None, description="Override model for journal-parser service"
     )
-    knowledge_system_model: Optional[str] = Field(
-        default=None, description="Override model for knowledge-system service"
-    )
     context_broker_model: Optional[str] = Field(
         default=None, description="Override model for context-broker service"
     )
@@ -148,7 +140,6 @@ class GeminiConfig(BaseModel):
             vision_model=os.getenv("GEMINI_VISION_MODEL", "gemini-2.5-flash"),
             embedding_model=os.getenv("GEMINI_EMBEDDING_MODEL", "text-embedding-004"),
             journal_parser_model=os.getenv("GEMINI_JOURNAL_PARSER_MODEL"),
-            knowledge_system_model=os.getenv("GEMINI_KNOWLEDGE_SYSTEM_MODEL"),
             context_broker_model=os.getenv("GEMINI_CONTEXT_BROKER_MODEL"),
             use_caching=os.getenv("USE_GEMINI_CACHING", "true").lower() == "true",
             default_temperature=float(os.getenv("GEMINI_DEFAULT_TEMPERATURE", "0.7")),
@@ -160,14 +151,13 @@ class GeminiConfig(BaseModel):
         Get the appropriate model for a specific service.
 
         Args:
-            service_name: Name of the service (journal-parser, knowledge-system, context-broker)
+            service_name: Name of the service (journal-parser, context-broker)
 
         Returns:
             str: Model name to use
         """
         service_models = {
             "journal-parser": self.journal_parser_model,
-            "knowledge-system": self.knowledge_system_model,
             "context-broker": self.context_broker_model,
         }
 
@@ -189,10 +179,6 @@ class GeminiConfig(BaseModel):
             TaskType.JOURNAL_EXTRACTION: self.flash_model,
             TaskType.GAP_DETECTION: self.flash_model,
             TaskType.QUALITY_SCORING: self.flash_model,
-            # Knowledge System - use pro for accuracy
-            TaskType.KNOWLEDGE_EXTRACTION: self.pro_model,
-            TaskType.DOCUMENT_SUMMARY: self.flash_model,
-            TaskType.SEMANTIC_SEARCH: self.flash_model,
             # Context Broker
             TaskType.CONTEXT_ANALYSIS: self.flash_model,
             TaskType.PATTERN_DETECTION: self.flash_model,
@@ -229,18 +215,6 @@ Focus on: sleep, mood, activities, meals, and notable events.""",
         temperature=0.2,  # Very low for consistent scoring
         max_output_tokens=1024,
         description="Score extraction quality and confidence",
-    ),
-    TaskType.KNOWLEDGE_EXTRACTION: ModelConfig(
-        model="gemini-2.5-pro",  # Use pro for complex extraction
-        temperature=0.4,
-        max_output_tokens=16384,
-        description="Extract knowledge from documents and URLs",
-    ),
-    TaskType.DOCUMENT_SUMMARY: ModelConfig(
-        model="gemini-2.5-flash",
-        temperature=0.5,
-        max_output_tokens=4096,
-        description="Summarize documents and articles",
     ),
     TaskType.CONTEXT_ANALYSIS: ModelConfig(
         model="gemini-2.5-flash",

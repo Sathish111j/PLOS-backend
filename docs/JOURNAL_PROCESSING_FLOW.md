@@ -1604,12 +1604,12 @@ Score ranges:
 ### Testing & Validation Results
 
 **Edge Cases Tested:**
-- Empty entries → Validation error (min_length=1) ✓
-- Minimal entries ("nothing") → Low quality score ✓
-- Duplicate mentions (3 mentions) → Deduplicated to 1 record ✓
-- Typos ("playd badmintn") → Correctly understood ✓
-- Conflicting times (multiple wake times) → Intelligently resolved ✓
-- Mood/stress expressions → Captured in metrics ✓
+- Empty entries → Validation error (min_length=1) OK
+- Minimal entries ("nothing") → Low quality score OK
+- Duplicate mentions (3 mentions) → Deduplicated to 1 record OK
+- Typos ("playd badmintn") → Correctly understood OK
+- Conflicting times (multiple wake times) → Intelligently resolved OK
+- Mood/stress expressions → Captured in metrics OK
 
 **Performance Benchmarks:**
 - Total pipeline: 400-600ms average

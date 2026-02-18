@@ -8,7 +8,6 @@ from .extraction import (
     ExtractionType,
     FieldMetadata,
     UserBaseline,
-    calculate_quality_level,
 )
 
 __all__ = [
@@ -19,5 +18,4 @@ __all__ = [
     "ExtractionType",
     "FieldMetadata",
     "UserBaseline",
-    "calculate_quality_level",
 ]

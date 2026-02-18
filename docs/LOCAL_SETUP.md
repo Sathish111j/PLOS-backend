@@ -59,19 +59,19 @@ REDIS_PASSWORD=your-secure-password
 
 ```bash
 # Make scripts executable (Linux/Mac)
-chmod +x scripts/*.sh
+chmod +x scripts/start/*.sh scripts/stop/*.sh scripts/verify/*.sh scripts/setup/*.sh scripts/test/*.sh
 
 # Run setup script
-./scripts/setup.sh
+./scripts/setup/setup.sh
 ```
 
 This script will:
-- ✅ Check Docker installation
-- ✅ Create `.env` file (if not exists)
-- ✅ Build Docker images
-- ✅ Start infrastructure services (PostgreSQL, Redis, Kafka)
-- ✅ Run database migrations
-- ✅ Create Kafka topics
+- Check Docker installation
+- Create `.env` file (if not exists)
+- Build Docker images
+- Start infrastructure services (PostgreSQL, Redis, Kafka)
+- Run database migrations
+- Create Kafka topics
 
 **Expected output:**
 ```
@@ -79,17 +79,17 @@ This script will:
   PLOS - Initial Setup
 ==========================================
 
-✓ Docker and Docker Compose found
-✓ .env file created
-🏗️  Building Docker images...
+OK Docker and Docker Compose found
+OK .env file created
+Building Docker images...
 ...
-✅ Setup Complete!
+Setup Complete!
 ```
 
 ### 4. Start Development Environment
 
 ```bash
-./scripts/dev.sh
+./scripts/start/dev.sh
 ```
 
 This will start all services in Docker containers.
@@ -117,7 +117,7 @@ Open your browser and visit:
 | **Metabase** | http://localhost:8082 | Data visualization & BI |
 | **Grafana** | http://localhost:3333 | Monitoring dashboards |
 | **Prometheus** | http://localhost:9090 | Metrics |
-| **Kafka UI** | http://localhost:8080 | Kafka management |
+| **Kafka UI** | http://localhost:18080 | Kafka management |
 | **pgAdmin** | http://localhost:5050 | Database management |
 
 **Test API Gateway:**
@@ -339,7 +339,7 @@ docker-compose up -d context-broker
 ### Running Tests
 
 ```bash
-./scripts/test.sh
+./scripts/test/test.sh
 ```
 
 ---
@@ -349,12 +349,12 @@ docker-compose up -d context-broker
 ### Remove All Data
 
 ```bash
-./scripts/clean.sh
+./scripts/stop/clean.sh
 ```
 
 This will:
 - Stop all containers
-- Remove all volumes (⚠️ **deletes all data**)
+- Remove all volumes (deletes all data)
 - Remove Docker images
 
 ### Partial Cleanup
@@ -374,20 +374,21 @@ docker volume rm plos_postgres_data
 
 ## Next Steps
 
-1. ✅ Setup complete
-2. 📖 Read [Architecture Documentation](ARCHITECTURE.md)
-3. 🔌 Explore [API Documentation](API.md)
-4. 💻 Start building features
-5. 🤝 See [Contributing Guidelines](CONTRIBUTING.md)
+1. Setup complete
+2. Read [Architecture Documentation](ARCHITECTURE.md)
+3. Explore [API Documentation](API.md)
+4. Start building features
+5. See [Contributing Guidelines](CONTRIBUTING.md)
 
 ---
 
 ## Need Help?
 
-- 📧 Email: support@plos.dev
-- 💬 Discord: [Join server](https://discord.gg/plos)
-- 🐛 Issues: [GitHub Issues](https://github.com/yourusername/plos/issues)
+- Email: support@plos.dev
+- Discord: [Join server](https://discord.gg/plos)
+- Issues: [GitHub Issues](https://github.com/yourusername/plos/issues)
 
 ---
 
-**Happy coding! 🚀**
+**Happy coding!**
+

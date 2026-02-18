@@ -63,13 +63,3 @@ class UserBaseline(BaseModel):
 
     # Day-of-week patterns
     day_of_week_patterns: Optional[Dict[str, Any]] = None
-
-
-# ============================================================================
-# HELPER FUNCTIONS
-# ============================================================================
-
-
-def calculate_quality_level(score: float) -> float:
-    """Calculate quality level from score (simplified to just return the score)"""
-    return score

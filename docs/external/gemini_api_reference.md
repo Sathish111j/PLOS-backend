@@ -1002,7 +1002,6 @@ As you take embeddings to production, it is common to use**vector databases** to
 The following tutorials show how to use other third party vector databases with Gemini Embedding.
 
 - [ChromaDB tutorialsbolt](https://github.com/google-gemini/cookbook/tree/main/examples/chromadb)
-- [QDrant tutorialsbolt](https://github.com/google-gemini/cookbook/tree/main/examples/qdrant)
 - [Weaviate tutorialsbolt](https://github.com/google-gemini/cookbook/tree/main/examples/weaviate)
 - [Pinecone tutorialsbolt](https://github.com/google-gemini/cookbook/blob/main/examples/langchain/Gemini_LangChain_QA_Pinecone_WebLoad.ipynb)
 
@@ -7438,7 +7437,7 @@ This guide covers integrating Google Gemini API into PLOS for AI-powered feature
 |----------|-------|--------|
 | **Journal Parsing** | `gemini-2.5-flash` | Fast, cost-effective for text extraction |
 | **Context Analysis** | `gemini-2.5-flash` | Balanced performance for reasoning |
-| **Vision/Knowledge** | `gemini-2.5-flash-image` | Image understanding for knowledge items |
+| **Vision** | `gemini-2.5-flash-image` | Image understanding and multimodal analysis |
 | **Code Generation** | `gemini-2.5-pro` | Better reasoning for complex tasks |
 | **Document Processing** | `gemini-2.5-flash` | Handles PDFs (up to 1000 pages) |
 | **Complex Reasoning** | `gemini-3-flash-preview` | Latest, improved reasoning |
@@ -7788,7 +7787,7 @@ class InsightAgent:
 ### Pattern 3: Knowledge Extraction
 
 ```python
-# services/knowledge-system/src/extraction_engine.py
+# services/journal-parser/src/extraction_engine.py
 from google import genai
 from google.genai import types
 

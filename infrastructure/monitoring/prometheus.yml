@@ -44,13 +44,6 @@ scrape_configs:
     metrics_path: '/journal/metrics'
     scrape_interval: 10s
 
-  # Knowledge System - Vector search and semantic indexing
-  - job_name: 'knowledge-system'
-    static_configs:
-      - targets: ['knowledge-system:8003']
-    metrics_path: '/metrics'
-    scrape_interval: 10s
-
   # ========================================================================
   # INFRASTRUCTURE MONITORING
   # ========================================================================
@@ -75,21 +68,6 @@ scrape_configs:
   #   static_configs:
   #     - targets: ['kafka-exporter:9308']
   #   metrics_path: '/metrics'
-
-  # Qdrant Vector DB (telemetry endpoint)
-  # Note: Qdrant requires api-key header for authentication
-  - job_name: 'qdrant'
-    static_configs:
-      - targets: ['qdrant:6333']
-    metrics_path: '/telemetry'
-    scrape_interval: 30s
-    params:
-      format: ['prometheus']
-    # Qdrant uses custom header, so we disable scraping until
-    # a dedicated exporter is deployed or auth is disabled in dev
-    # authorization:
-    #   type: Bearer
-    #   credentials: qdrant_secure_key_2025
 
 # ============================================================================
 # RECORDING RULES (for pre-computed metrics)

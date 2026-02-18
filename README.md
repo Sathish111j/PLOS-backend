@@ -70,9 +70,9 @@ This single sentence becomes **structured data** across 11 different life dimens
 
 **The magic happens when PLOS connects the dots across all your data - finding correlations between sleep, exercise, social connections, work productivity, and happiness that transform how you understand yourself.**
 
-### Build Your Personal Knowledge Base
+### Build Your Personal Data Layer
 
-Store everything - notes, ideas, articles, PDFs, links - and let AI retrieve exactly what you need, when you need it. Your second brain that actually remembers.
+Capture your daily signals and let AI surface exactly what matters, when it matters.
 
 ---
 
@@ -100,19 +100,18 @@ The foundation - AI-powered journal parsing that understands natural language an
 </td>
 <td width="50%">
 
-### Phase 2: Knowledge System
+### Phase 2: Analytics & Reporting
 
-**Status: COMPLETE**
+**Status: IN PROGRESS**
 
-Your personal knowledge base - dump any information and retrieve it intelligently when needed.
+Build robust reporting on top of journal and context data.
 
 **Delivered:**
 
-- Unified ingestion pipeline (URLs, PDFs, Images)
-- CPU-optimized extraction (DRY principle applied)
-- Vector embeddings & Qdrant integration
-- Document deduplication & auto-tagging
-- Context-aware retrieval infrastructure
+- Time-series aggregation for journal metrics
+- Reporting endpoints for trends and overview
+- Infrastructure and gateway validation coverage
+- End-to-end checks for analytics correctness
 
 </td>
 </tr>
@@ -164,7 +163,7 @@ Visualize your life patterns with beautiful, insightful dashboards.
 
 ```
 Phase 1: Journal Parsing     [####################] 100%
-Phase 2: Knowledge System    [########............]  40%
+Phase 2: Analytics & Reports [########............]  40%
 Phase 3: AI Assistant        [....................]   0%
 Phase 4: Life Analytics      [....................]   0%
 ```
@@ -175,9 +174,7 @@ Phase 4: Life Analytics      [....................]   0%
 | ------------------- | ----------- | ------------------------------------ |
 | Journal Parser      | Done        | AI extraction for 11 life categories |
 | Context Broker      | Done        | User state and context management    |
-| Knowledge System    | In Progress | Vector search infrastructure ready   |
-| Semantic Search     | In Progress | Qdrant integration complete          |
-| Document Ingestion  | Planned     | PDF, link, note processing           |
+| Reports API         | In Progress | Time-series and trend endpoints      |
 | AI Assistant Core   | Planned     | Personalized recommendations engine  |
 | Goal Tracking       | Planned     | Goal setting and progress system     |
 | Task Management     | Planned     | Smart task prioritization            |
@@ -233,7 +230,6 @@ Output:
 - **Your Data, Your Control**: Self-hosted, no cloud dependencies for personal data
 - **AI-Powered**: Google Gemini 2.5 for intelligent extraction
 - **Real-Time Processing**: Kafka event streaming for instant updates
-- **Semantic Search**: Qdrant vector database for meaning-based retrieval
 - **Production Ready**: Docker containerized, health monitored, metrics collected
 
 ### System Architecture
@@ -250,11 +246,11 @@ User Journal Entry
         v
     [Kafka Bus] --> Event Streaming
         |
-   ______|______
-  |      |      |
-  v      v      v
-[DB]  [Cache] [Vectors]
-PostgreSQL  Redis  Qdrant
+     ___|___
+    |       |
+    v       v
+  [DB]   [Cache]
+ PostgreSQL Redis
 ```
 
 ### Infrastructure
@@ -265,7 +261,6 @@ PostgreSQL  Redis  Qdrant
 | API Layer  | FastAPI + Kong       | REST APIs with gateway         |
 | Database   | PostgreSQL           | Structured life data storage   |
 | Cache      | Redis                | Fast data access               |
-| Vectors    | Qdrant               | Semantic search                |
 | Events     | Apache Kafka         | Real-time processing           |
 | Monitoring | Prometheus + Grafana | Observability                  |
 
@@ -277,7 +272,7 @@ PostgreSQL  Redis  Qdrant
 
 - Journals stay unstructured and unsearchable
 - Life patterns remain hidden in plain text
-- Personal knowledge is scattered everywhere
+- Personal data is scattered across notes and entries
 - No AI assistant truly knows YOU
 - Generic apps don't understand your context
 
@@ -289,7 +284,7 @@ PLOS creates a **personal data layer** that:
 2. **Extracts** structured data from unstructured text
 3. **Stores** everything in a queryable format
 4. **Connects** patterns across time and categories
-5. **Retrieves** knowledge when you need it
+5. **Surfaces** insights when you need them
 6. **Assists** with personalized, context-aware AI
 
 ---
@@ -298,7 +293,7 @@ PLOS creates a **personal data layer** that:
 
 ### High Priority
 
-- [ ] Complete knowledge base document ingestion
+- [ ] Improve reporting and analytics coverage
 - [ ] Build "Ask your data" query interface
 - [ ] Implement daily summary generation
 - [ ] Add goal tracking system
@@ -362,7 +357,6 @@ docker compose ps
 | Service       | URL                   | Purpose                 |
 | ------------- | --------------------- | ----------------------- |
 | Journal API   | http://localhost:8002 | Process journal entries |
-| Knowledge API | http://localhost:8003 | Search and retrieve     |
 | Context API   | http://localhost:8001 | User state management   |
 | Metabase      | http://localhost:8082 | Data visualization & BI |
 | Monitoring    | http://localhost:9090 | Prometheus metrics      |
