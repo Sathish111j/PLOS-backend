@@ -25,12 +25,44 @@ def select_ef_search(latency_budget_ms: int) -> int:
 
 def detect_query_intent_weights(query: str) -> dict[str, float]:
     normalized = normalize_query(query)
-    if normalized.startswith("what is") or normalized.startswith("explain"):
+
+    conceptual_prefixes = (
+        "what is",
+        "explain",
+        "how does",
+        "why does",
+        "what are",
+    )
+    if normalized.startswith(conceptual_prefixes):
         return {"semantic": 0.8, "keyword": 0.15, "typo": 0.05}
-    if "find" in normalized or "document" in normalized:
+
+    if re.search(r'"[^"]+"', query) or re.search(r"\b[A-Z]{2,}-?\d+[A-Z0-9-]*\b", query):
+        return {"semantic": 0.3, "keyword": 0.6, "typo": 0.1}
+
+    if "find" in normalized or "document" in normalized or "report" in normalized:
         return {"semantic": 0.6, "keyword": 0.3, "typo": 0.1}
-    if any(token in normalized for token in ("pdf", "last week", "show me", "from")):
-        return {"semantic": 0.45, "keyword": 0.4, "typo": 0.15}
+
+    if len(normalized) <= 12 and re.search(r"[^a-z0-9\s\-]", normalized):
+        return {"semantic": 0.55, "keyword": 0.15, "typo": 0.3}
+
+    if any(
+        token in normalized
+        for token in (
+            "pdf",
+            "docx",
+            "ppt",
+            "xlsx",
+            "last week",
+            "from",
+            "before",
+            "after",
+            "between",
+            "author",
+            "bucket",
+        )
+    ):
+        return {"semantic": 0.6, "keyword": 0.3, "typo": 0.1}
+
     return {"semantic": 0.6, "keyword": 0.3, "typo": 0.1}
 
 
@@ -83,3 +115,70 @@ def bucket_context_score(
     ):
         return 1.0
     return 0.5
+
+
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a)) or 1.0
+    norm_b = math.sqrt(sum(y * y for y in b)) or 1.0
+    return dot / (norm_a * norm_b)
+
+
+def apply_mmr_diversity(
+    *,
+    query: str,
+    results: list[dict[str, Any]],
+    top_k: int,
+    lambda_weight: float = 0.7,
+) -> list[dict[str, Any]]:
+    if top_k <= 0 or not results:
+        return []
+
+    working = list(results)
+    if len(working) <= 1:
+        return working[:top_k]
+
+    query_vec = deterministic_embedding(query, 128)
+    for item in working:
+        text = str(item.get("text_preview") or item.get("title") or "")
+        item["_mmr_vec"] = deterministic_embedding(text, 128)
+        item["_mmr_rel"] = float(item.get("score") or 0.0)
+        item["_mmr_query_sim"] = _cosine_similarity(query_vec, item["_mmr_vec"])
+
+    selected: list[dict[str, Any]] = []
+    remaining = working
+
+    while remaining and len(selected) < top_k:
+        best_item = None
+        best_score = float("-inf")
+        for candidate in remaining:
+            if not selected:
+                novelty_penalty = 0.0
+            else:
+                novelty_penalty = max(
+                    _cosine_similarity(candidate["_mmr_vec"], chosen["_mmr_vec"])
+                    for chosen in selected
+                )
+
+            mmr_score = (
+                lambda_weight * candidate["_mmr_rel"]
+                + 0.15 * candidate["_mmr_query_sim"]
+                - (1.0 - lambda_weight) * novelty_penalty
+            )
+            if mmr_score > best_score:
+                best_score = mmr_score
+                best_item = candidate
+
+        if best_item is None:
+            break
+
+        selected.append(best_item)
+        remaining = [item for item in remaining if item is not best_item]
+
+    for item in selected:
+        item.pop("_mmr_vec", None)
+        item.pop("_mmr_rel", None)
+        item.pop("_mmr_query_sim", None)
+    return selected

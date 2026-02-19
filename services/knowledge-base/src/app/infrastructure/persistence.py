@@ -2260,7 +2260,16 @@ class KnowledgePersistence:
 
         pairs = [(query, candidate.get("text") or "") for candidate in candidates]
         try:
-            model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+            preferred_model = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+            try:
+                import torch
+
+                if torch.cuda.is_available():
+                    preferred_model = "BAAI/bge-reranker-base"
+            except Exception:
+                pass
+
+            model = CrossEncoder(preferred_model)
             scores = await asyncio.to_thread(model.predict, pairs, 32)
             return {
                 candidate["document_id"]: float(score)

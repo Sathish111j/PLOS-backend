@@ -1,4 +1,6 @@
 import base64
+import time
+from collections import OrderedDict
 from datetime import UTC, datetime
 from typing import Any, Dict, List
 from uuid import UUID
@@ -14,6 +16,7 @@ from app.application.ingestion.chunking import SemanticChunkingEngine
 from app.application.ingestion.models import DocumentChunk
 from app.application.ingestion.unified_processor import UnifiedDocumentProcessor
 from app.application.search_utils import (
+    apply_mmr_diversity,
     bucket_context_score,
     detect_query_intent_weights,
     engagement_score,
@@ -32,6 +35,27 @@ class KnowledgeService:
         self._processor = UnifiedDocumentProcessor()
         self._chunker = SemanticChunkingEngine()
         self._persistence = persistence
+        self._l1_cache: OrderedDict[str, tuple[float, Dict[str, Any]]] = OrderedDict()
+        self._l1_cache_max_items = 1000
+        self._l1_cache_ttl_seconds = 300
+
+    def _get_l1_cache(self, cache_key: str) -> Dict[str, Any] | None:
+        cached = self._l1_cache.get(cache_key)
+        if not cached:
+            return None
+        expires_at, payload = cached
+        if expires_at < time.time():
+            self._l1_cache.pop(cache_key, None)
+            return None
+        self._l1_cache.move_to_end(cache_key)
+        return payload
+
+    def _set_l1_cache(self, cache_key: str, payload: Dict[str, Any]) -> None:
+        expires_at = time.time() + float(self._l1_cache_ttl_seconds)
+        self._l1_cache[cache_key] = (expires_at, payload)
+        self._l1_cache.move_to_end(cache_key)
+        while len(self._l1_cache) > self._l1_cache_max_items:
+            self._l1_cache.popitem(last=False)
 
     async def upload_document(
         self,
@@ -263,11 +287,20 @@ class KnowledgeService:
             f"kb:search:v2:{owner_id}:{query_hash(normalized_query)}:"
             f"{cache_fingerprint}:{request.top_k}:{request.latency_budget_ms}:{int(request.enable_rerank)}"
         )
+
+        l1_cached = self._get_l1_cache(cache_key)
+        if l1_cached:
+            diagnostics = dict(l1_cached.get("diagnostics") or {})
+            diagnostics["cache"] = "l1_hit"
+            l1_cached["diagnostics"] = diagnostics
+            return l1_cached
+
         cached = await self._persistence.get_cached_json(cache_key)
         if cached:
             diagnostics = dict(cached.get("diagnostics") or {})
-            diagnostics["cache"] = "hit"
+            diagnostics["cache"] = "l2_hit"
             cached["diagnostics"] = diagnostics
+            self._set_l1_cache(cache_key, dict(cached))
             return cached
 
         ef_search = select_ef_search(request.latency_budget_ms)
@@ -365,7 +398,12 @@ class KnowledgeService:
             )
 
         scored_results.sort(key=lambda value: value["score"], reverse=True)
-        final_results = scored_results[: request.top_k]
+        final_results = apply_mmr_diversity(
+            query=normalized_query,
+            results=scored_results,
+            top_k=request.top_k,
+            lambda_weight=0.7,
+        )
         await self._persistence.record_search_impressions(
             [result["document_id"] for result in final_results]
         )
@@ -388,11 +426,17 @@ class KnowledgeService:
                     "typo": len(typo_results),
                     "fused": len(fused),
                 },
+                "diversity": {
+                    "enabled": True,
+                    "method": "mmr",
+                    "lambda": 0.7,
+                },
             },
         }
 
         ttl_seconds = 3600 if len(final_results) >= 5 else 300
         await self._persistence.set_cached_json(cache_key, response, ttl_seconds)
+        self._set_l1_cache(cache_key, dict(response))
         return response
 
     async def chat(self, owner_id: str, message: str) -> Dict[str, Any]:
