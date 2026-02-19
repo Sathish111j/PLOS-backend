@@ -59,14 +59,12 @@ class JournalRepository(BaseRepository):
         self, user_id: UUID, entry_date: date
     ) -> Optional[Dict[str, Any]]:
         """Get journal entry for specific date"""
-        query = text(
-            """
+        query = text("""
             SELECT id, user_id, entry_date, raw_entry, overall_quality,
                    has_gaps, created_at, updated_at
             FROM journal_extractions
             WHERE user_id = :user_id AND entry_date = :entry_date
-        """
-        )
+        """)
 
         result = await self.db.execute(
             query, {"user_id": str(user_id), "entry_date": entry_date}
@@ -97,8 +95,7 @@ class JournalRepository(BaseRepository):
         gemini_model: str,
     ) -> UUID:
         """Create new entry or update existing one"""
-        query = text(
-            """
+        query = text("""
             INSERT INTO journal_extractions
                 (user_id, entry_date, raw_entry, overall_quality,
                  has_gaps, extraction_time_ms, gemini_model)
@@ -114,8 +111,7 @@ class JournalRepository(BaseRepository):
                 gemini_model = EXCLUDED.gemini_model,
                 updated_at = NOW()
             RETURNING id
-        """
-        )
+        """)
 
         result = await self.db.execute(
             query,
@@ -137,16 +133,14 @@ class JournalRepository(BaseRepository):
         self, user_id: UUID, days: int = 30, limit: int = 100
     ) -> List[Dict[str, Any]]:
         """Get recent journal entries"""
-        query = text(
-            """
+        query = text("""
             SELECT id, entry_date, raw_entry, overall_quality, has_gaps, created_at
             FROM journal_extractions
             WHERE user_id = :user_id
               AND entry_date >= CURRENT_DATE - :days * INTERVAL '1 day'
             ORDER BY entry_date DESC
             LIMIT :limit
-        """
-        )
+        """)
 
         result = await self.db.execute(
             query, {"user_id": str(user_id), "days": days, "limit": limit}
@@ -171,8 +165,7 @@ class JournalRepository(BaseRepository):
         self, user_id: UUID, days: int = 30
     ) -> Optional[Dict[str, Any]]:
         """Calculate user baseline metrics over specified days"""
-        query = text(
-            """
+        query = text("""
             SELECT
                 AVG(CAST(metrics->>'mood' AS FLOAT)) as avg_mood,
                 AVG(CAST(metrics->>'energy' AS FLOAT)) as avg_energy,
@@ -184,8 +177,7 @@ class JournalRepository(BaseRepository):
             LEFT JOIN extraction_sleep es ON je.id = es.extraction_id
             WHERE je.user_id = :user_id
               AND je.entry_date >= CURRENT_DATE - :days * INTERVAL '1 day'
-        """
-        )
+        """)
 
         result = await self.db.execute(query, {"user_id": str(user_id), "days": days})
         row = result.fetchone()
@@ -221,8 +213,7 @@ class ActivityRepository(BaseRepository):
         calories: Optional[int] = None,
     ) -> UUID:
         """Save an activity"""
-        query = text(
-            """
+        query = text("""
             INSERT INTO extraction_activities
                 (extraction_id, raw_name, canonical_name, category,
                  duration_minutes, time_of_day, intensity, calories_burned)
@@ -230,8 +221,7 @@ class ActivityRepository(BaseRepository):
                 (:extraction_id, :raw_name, :canonical_name, :category,
                  :duration, :time_of_day, :intensity, :calories)
             RETURNING id
-        """
-        )
+        """)
 
         result = await self.db.execute(
             query,
@@ -254,8 +244,7 @@ class ActivityRepository(BaseRepository):
         self, user_id: UUID, days: int = 30
     ) -> List[Dict[str, Any]]:
         """Get user's recent activities"""
-        query = text(
-            """
+        query = text("""
             SELECT ea.canonical_name, ea.category, ea.duration_minutes,
                    ea.time_of_day, je.entry_date
             FROM extraction_activities ea
@@ -263,8 +252,7 @@ class ActivityRepository(BaseRepository):
             WHERE je.user_id = :user_id
               AND je.entry_date >= CURRENT_DATE - :days * INTERVAL '1 day'
             ORDER BY je.entry_date DESC
-        """
-        )
+        """)
 
         result = await self.db.execute(query, {"user_id": str(user_id), "days": days})
 
@@ -293,8 +281,7 @@ class MetricsRepository(BaseRepository):
 
     async def save_metrics(self, extraction_id: UUID, metrics: Dict[str, Any]) -> None:
         """Save metrics for an extraction"""
-        query = text(
-            """
+        query = text("""
             INSERT INTO extraction_metrics
                 (extraction_id, mood, energy, stress, productivity,
                  anxiety, confidence, focus, happiness, gratitude, creativity)
@@ -313,8 +300,7 @@ class MetricsRepository(BaseRepository):
                 happiness = EXCLUDED.happiness,
                 gratitude = EXCLUDED.gratitude,
                 creativity = EXCLUDED.creativity
-        """
-        )
+        """)
 
         await self.db.execute(
             query,

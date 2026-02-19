@@ -42,14 +42,12 @@ class UserRepository:
         Returns:
             Created user dict or None if failed
         """
-        query = text(
-            """
+        query = text("""
             INSERT INTO users (email, username, password_hash, full_name, timezone)
             VALUES (:email, :username, :password_hash, :full_name, :timezone)
             RETURNING id, email, username, full_name, timezone, is_active,
                       is_verified, created_at, updated_at, last_login
-        """
-        )
+        """)
 
         try:
             result = await self.db.execute(
@@ -95,14 +93,12 @@ class UserRepository:
         Returns:
             User dict with password_hash or None
         """
-        query = text(
-            """
+        query = text("""
             SELECT id, email, username, password_hash, full_name, timezone,
                    is_active, is_verified, created_at, updated_at, last_login
             FROM users
             WHERE email = :email
-        """
-        )
+        """)
 
         result = await self.db.execute(query, {"email": email.lower()})
         row = result.fetchone()
@@ -133,14 +129,12 @@ class UserRepository:
         Returns:
             User dict (no password) or None
         """
-        query = text(
-            """
+        query = text("""
             SELECT id, email, username, full_name, timezone,
                    is_active, is_verified, created_at, updated_at, last_login
             FROM users
             WHERE id = :user_id
-        """
-        )
+        """)
 
         result = await self.db.execute(query, {"user_id": str(user_id)})
         row = result.fetchone()
@@ -170,14 +164,12 @@ class UserRepository:
         Returns:
             User dict or None
         """
-        query = text(
-            """
+        query = text("""
             SELECT id, email, username, full_name, timezone,
                    is_active, is_verified, created_at, updated_at, last_login
             FROM users
             WHERE username = :username
-        """
-        )
+        """)
 
         result = await self.db.execute(query, {"username": username})
         row = result.fetchone()
@@ -199,13 +191,11 @@ class UserRepository:
 
     async def update_last_login(self, user_id: UUID) -> None:
         """Update user's last login timestamp"""
-        query = text(
-            """
+        query = text("""
             UPDATE users
             SET last_login = :now
             WHERE id = :user_id
-        """
-        )
+        """)
 
         await self.db.execute(
             query,
@@ -237,15 +227,13 @@ class UserRepository:
         if not updates:
             return await self.get_user_by_id(user_id)
 
-        query = text(
-            f"""
+        query = text(f"""
             UPDATE users
             SET {", ".join(updates)}, updated_at = NOW()
             WHERE id = :user_id
             RETURNING id, email, username, full_name, timezone,
                       is_active, is_verified, created_at, updated_at, last_login
-        """
-        )
+        """)
 
         result = await self.db.execute(query, params)
         await self.db.commit()
@@ -268,13 +256,11 @@ class UserRepository:
 
     async def update_password(self, user_id: UUID, new_password_hash: str) -> bool:
         """Update user password"""
-        query = text(
-            """
+        query = text("""
             UPDATE users
             SET password_hash = :password_hash, updated_at = NOW()
             WHERE id = :user_id
-        """
-        )
+        """)
 
         result = await self.db.execute(
             query,

@@ -70,14 +70,12 @@ class ExtractionWriter:
             time_of_day = self._normalize_time_of_day(metric_data.get("time_of_day"))
 
             await self.db.execute(
-                text(
-                    """
+                text("""
                     INSERT INTO extraction_metrics
                         (extraction_id, metric_type_id, value, time_of_day, confidence)
                     VALUES
                         (:extraction_id, :metric_type_id, :value, CAST(:time_of_day AS time_of_day), :confidence)
-                """
-                ),
+                """),
                 {
                     "extraction_id": extraction_id,
                     "metric_type_id": metric_type_id,
@@ -97,13 +95,11 @@ class ExtractionWriter:
             return row[0]
 
         result = await self.db.execute(
-            text(
-                """
+            text("""
                 INSERT INTO metric_types (name, display_name, unit, min_value, max_value)
                 VALUES (:name, :display, 'score', 1, 10)
                 RETURNING id
-            """
-            ),
+            """),
             {"name": metric_name, "display": metric_name.replace("_", " ").title()},
         )
         row = result.fetchone()
@@ -125,8 +121,7 @@ class ExtractionWriter:
                 time_of_day = self._normalize_time_of_day(activity.time_of_day.value)
 
             await self.db.execute(
-                text(
-                    """
+                text("""
                     INSERT INTO extraction_activities
                         (extraction_id, activity_raw, activity_category,
                          activity_subcategory, duration_minutes, time_of_day, start_time,
@@ -139,8 +134,7 @@ class ExtractionWriter:
                          :start_time, :end_time, :intensity, :satisfaction, :calories,
                          :confidence, :raw_mention, :needs_clarification, :is_outdoor,
                          :with_others, :location, :mood_before, :mood_after)
-                """
-                ),
+                """),
                 {
                     "extraction_id": extraction_id,
                     "activity_raw": activity.raw_name,
@@ -186,8 +180,7 @@ class ExtractionWriter:
                 time_of_day = self._normalize_time_of_day(item.time_of_day.value)
 
             await self.db.execute(
-                text(
-                    """
+                text("""
                     INSERT INTO extraction_consumptions
                         (extraction_id, item_raw, food_category, consumption_type, meal_type,
                          time_of_day, consumption_time, quantity, unit,
@@ -200,8 +193,7 @@ class ExtractionWriter:
                          :calories, :protein, :carbs, :fat, :fiber, :sugar, :sodium,
                          :caffeine_mg, :alcohol_units, :is_processed, :water_ml,
                          :healthy, :home_cooked, :confidence, :raw_mention)
-                """
-                ),
+                """),
                 {
                     "extraction_id": extraction_id,
                     "item_raw": item_raw,
@@ -242,8 +234,7 @@ class ExtractionWriter:
             time_of_day = self._normalize_time_of_day(interaction.get("time_of_day"))
 
             await self.db.execute(
-                text(
-                    """
+                text("""
                     INSERT INTO extraction_social
                         (extraction_id, person_name, relationship, relationship_category,
                          interaction_type, duration_minutes, time_of_day, sentiment,
@@ -256,8 +247,7 @@ class ExtractionWriter:
                          :quality_score, :conflict_level, :mood_before, :mood_after,
                          :emotional_impact, :interaction_outcome, :initiated_by,
                          :is_virtual, :location, :topic, :confidence, :raw_mention)
-                """
-                ),
+                """),
                 {
                     "extraction_id": extraction_id,
                     "person": interaction.get("person"),
@@ -292,14 +282,12 @@ class ExtractionWriter:
 
         for note in notes:
             await self.db.execute(
-                text(
-                    """
+                text("""
                     INSERT INTO extraction_notes
                         (extraction_id, note_type, content, sentiment, confidence, raw_mention)
                     VALUES
                         (:extraction_id, :type, :content, :sentiment, :confidence, :raw_mention)
-                """
-                ),
+                """),
                 {
                     "extraction_id": extraction_id,
                     "type": note.get("type", "thought"),
@@ -314,8 +302,7 @@ class ExtractionWriter:
         await self._clear_extraction_rows("extraction_sleep", extraction_id)
 
         await self.db.execute(
-            text(
-                """
+            text("""
                 INSERT INTO extraction_sleep
                     (extraction_id, duration_hours, quality, bedtime, waketime,
                      disruptions, trouble_falling_asleep, woke_up_tired,
@@ -326,8 +313,7 @@ class ExtractionWriter:
                      :disruptions, :trouble_falling_asleep, :woke_up_tired,
                      :nap, :sleep_environment, :pre_sleep_activity,
                      :dreams_noted, :confidence, :raw_mention)
-            """
-            ),
+            """),
             {
                 "extraction_id": extraction_id,
                 "duration": sleep.get("duration_hours"),
@@ -364,16 +350,14 @@ class ExtractionWriter:
             time_of_day = self._normalize_time_of_day(loc.get("time_of_day"))
 
             await self.db.execute(
-                text(
-                    """
+                text("""
                     INSERT INTO extraction_locations
                         (extraction_id, location_name, location_type, time_of_day,
                          duration_minutes, activity_context, raw_mention)
                     VALUES
                         (:extraction_id, :name, :type, :time_of_day,
                          :duration, :context, :raw_mention)
-                """
-                ),
+                """),
                 {
                     "extraction_id": extraction_id,
                     "name": loc.get("location_name"),
@@ -404,8 +388,7 @@ class ExtractionWriter:
             time_of_day = self._normalize_time_of_day(symptom.get("time_of_day"))
 
             await self.db.execute(
-                text(
-                    """
+                text("""
                     INSERT INTO extraction_health
                         (extraction_id, symptom_type, body_part, severity,
                          duration_minutes, time_of_day, possible_cause,
@@ -414,8 +397,7 @@ class ExtractionWriter:
                         (:extraction_id, :symptom, :body_part, :severity,
                          :duration, :time_of_day, :cause,
                          :medication, :is_resolved, :impact_score, :triggers, :raw_mention)
-                """
-                ),
+                """),
                 {
                     "extraction_id": extraction_id,
                     "symptom": symptom.get("symptom_type"),
@@ -442,8 +424,7 @@ class ExtractionWriter:
             time_of_day = self._normalize_time_of_day(item.get("time_of_day"))
 
             await self.db.execute(
-                text(
-                    """
+                text("""
                     INSERT INTO extraction_work
                         (extraction_id, work_type, project_name, duration_minutes,
                          time_of_day, productivity_score, focus_quality, interruptions,
@@ -452,8 +433,7 @@ class ExtractionWriter:
                         (:extraction_id, :work_type, :project_name, :duration,
                          :time_of_day, :productivity_score, :focus_quality, :interruptions,
                          :accomplishments, :blockers, :raw_mention)
-                """
-                ),
+                """),
                 {
                     "extraction_id": extraction_id,
                     "work_type": item.get("work_type"),
@@ -476,16 +456,14 @@ class ExtractionWriter:
         await self._clear_extraction_rows("extraction_weather", extraction_id)
 
         await self.db.execute(
-            text(
-                """
+            text("""
                 INSERT INTO extraction_weather
                     (extraction_id, weather_condition, temperature_feel,
                      mentioned_impact, raw_mention)
                 VALUES
                     (:extraction_id, :condition, :temp_feel,
                      :impact, :raw_mention)
-            """
-            ),
+            """),
             {
                 "extraction_id": extraction_id,
                 "condition": weather.get("condition"),
@@ -498,16 +476,14 @@ class ExtractionWriter:
     async def store_gaps(self, extraction_id: UUID, gaps: List[DataGap]) -> None:
         for gap in gaps:
             await self.db.execute(
-                text(
-                    """
+                text("""
                     INSERT INTO extraction_gaps
                         (extraction_id, field_category, question, context,
                          original_mention, priority, status)
                     VALUES
                         (:extraction_id, :category, :question, :context,
                          :mention, :priority, 'pending')
-                """
-                ),
+                """),
                 {
                     "extraction_id": extraction_id,
                     "category": gap.field_category,

@@ -298,8 +298,7 @@ class StorageService:
         gemini_model: str,
     ) -> UUID:
         """Insert or update base journal extraction."""
-        query = text(
-            """
+        query = text("""
             INSERT INTO journal_extractions
                 (id, user_id, entry_date, raw_entry, overall_quality,
                  has_gaps, extraction_time_ms, gemini_model)
@@ -307,8 +306,7 @@ class StorageService:
                 (gen_random_uuid(), :user_id, :entry_date, :raw_entry, CAST(:quality AS extraction_quality),
                  :has_gaps, :time_ms, :model)
             RETURNING id
-        """
-        )
+        """)
 
         result = await self.db.execute(
             query,
@@ -350,8 +348,7 @@ class StorageService:
         metric_names_water = ["water_intake_liters", "water_intake", "water"]
 
         snapshot_result = await self.db.execute(
-            text(
-                """
+            text("""
                 WITH consumptions AS (
                     SELECT
                         SUM(calories) AS calories_in,
@@ -421,8 +418,7 @@ class StorageService:
                 CROSS JOIN mood_data m
                 CROSS JOIN steps_data st
                 CROSS JOIN water_metric_data wm
-                """
-            ),
+                """),
             {
                 "extraction_id": extraction_id,
                 "metric_names_mood": metric_names_mood,
@@ -439,8 +435,7 @@ class StorageService:
         )
 
         await self.db.execute(
-            text(
-                """
+            text("""
                 INSERT INTO journal_timeseries (
                     user_id,
                     ts,
@@ -477,8 +472,7 @@ class StorageService:
                     :fat_g,
                     NOW()
                 )
-                """
-            ),
+                """),
             {
                 "user_id": user_id,
                 "ts": datetime.combine(entry_date, time_type.min),
@@ -546,8 +540,7 @@ class StorageService:
             if activity.time_of_day:
                 time_of_day = activity.time_of_day.value
 
-            query = text(
-                """
+            query = text("""
                 INSERT INTO extraction_activities
                     (extraction_id, activity_raw, activity_category,
                      activity_subcategory, duration_minutes, time_of_day, start_time,
@@ -560,8 +553,7 @@ class StorageService:
                      :start_time, :end_time, :intensity, :satisfaction, :calories,
                      :confidence, :raw_mention, :needs_clarification, :is_outdoor,
                      :with_others, :location, :mood_before, :mood_after)
-            """
-            )
+            """)
 
             await self.db.execute(
                 query,
@@ -692,12 +684,10 @@ class StorageService:
 
         # First verify the gap exists and is in pending status
         check_result = await self.db.execute(
-            text(
-                """
+            text("""
                 SELECT id, status FROM extraction_gaps
                 WHERE id = :gap_id
-            """
-            ),
+            """),
             {"gap_id": gap_id},
         )
         existing_gap = check_result.fetchone()
@@ -717,15 +707,13 @@ class StorageService:
         # Now update the gap
         logger.info(f"STORAGE: Updating gap {gap_id} to answered status")
         await self.db.execute(
-            text(
-                """
+            text("""
                 UPDATE extraction_gaps
                 SET status = 'answered',
                     user_response = :response,
                     resolved_at = NOW()
                 WHERE id = :gap_id AND status = 'pending'
-            """
-            ),
+            """),
             {"gap_id": gap_id, "response": user_response},
         )
 
@@ -735,16 +723,14 @@ class StorageService:
     async def get_pending_gaps(self, user_id: UUID) -> List[Dict[str, Any]]:
         """Get pending gaps for a user."""
         result = await self.db.execute(
-            text(
-                """
+            text("""
                 SELECT g.id, g.field_category, g.question, g.context,
                        g.original_mention, g.priority, g.created_at, je.entry_date
                 FROM extraction_gaps g
                 JOIN journal_extractions je ON g.extraction_id = je.id
                 WHERE je.user_id = :user_id AND g.status = 'pending'
                 ORDER BY g.priority ASC, je.entry_date DESC
-            """
-            ),
+            """),
             {"user_id": user_id},
         )
 
@@ -814,8 +800,7 @@ class StorageService:
     ) -> Dict[str, Any]:
         """Get activity summary for the last N days."""
         result = await self.db.execute(
-            text(
-                """
+            text("""
                 SELECT
                     ea.activity_raw as activity,
                     ea.activity_category as category,
@@ -829,8 +814,7 @@ class StorageService:
                                     AND je.entry_date >= CURRENT_DATE - (:days * INTERVAL '1 day')
                 GROUP BY ea.activity_raw, ea.activity_category
                 ORDER BY count DESC
-            """
-            ),
+            """),
             {"user_id": user_id, "days": days},
         )
 
@@ -857,8 +841,7 @@ class StorageService:
     async def get_entry_gaps(self, entry_id: UUID) -> List[Dict[str, Any]]:
         """Get all unresolved gaps for an entry."""
         result = await self.db.execute(
-            text(
-                """
+            text("""
                 SELECT
                     id as gap_id,
                     field_category,
@@ -870,8 +853,7 @@ class StorageService:
                 WHERE extraction_id = :entry_id
                   AND status = 'pending'
                 ORDER BY priority ASC
-            """
-            ),
+            """),
             {"entry_id": entry_id},
         )
 
@@ -897,8 +879,7 @@ class StorageService:
         # Get activities
         activities = []
         result = await self.db.execute(
-            text(
-                """
+            text("""
                 SELECT
                     ea.activity_raw,
                     ea.activity_category as category,
@@ -915,8 +896,7 @@ class StorageService:
                     ea.needs_clarification
                 FROM extraction_activities ea
                 WHERE ea.extraction_id = :entry_id
-            """
-            ),
+            """),
             {"entry_id": entry_id},
         )
 
@@ -951,8 +931,7 @@ class StorageService:
         # Get consumptions
         consumptions = []
         result = await self.db.execute(
-            text(
-                """
+            text("""
                 SELECT
                     ec.item_raw as food_raw,
                     ec.food_category,
@@ -968,8 +947,7 @@ class StorageService:
                     ec.confidence
                 FROM extraction_consumptions ec
                 WHERE ec.extraction_id = :entry_id
-            """
-            ),
+            """),
             {"entry_id": entry_id},
         )
 
@@ -1007,14 +985,12 @@ class StorageService:
         # Get metrics
         metrics = {}
         result = await self.db.execute(
-            text(
-                """
+            text("""
                 SELECT mt.name, em.value, em.time_of_day, em.confidence
                 FROM extraction_metrics em
                 JOIN metric_types mt ON em.metric_type_id = mt.id
                 WHERE em.extraction_id = :entry_id
-            """
-            ),
+            """),
             {"entry_id": entry_id},
         )
 
@@ -1029,14 +1005,12 @@ class StorageService:
         # Get social
         social = []
         result = await self.db.execute(
-            text(
-                """
+            text("""
                 SELECT person_name, relationship, interaction_type,
                        quality_score, duration_minutes, sentiment, topic
                 FROM extraction_social
                 WHERE extraction_id = :entry_id
-            """
-            ),
+            """),
             {"entry_id": entry_id},
         )
         for row in result.fetchall():
@@ -1045,13 +1019,11 @@ class StorageService:
         # Get notes
         notes = []
         result = await self.db.execute(
-            text(
-                """
+            text("""
                 SELECT note_type, content, sentiment
                 FROM extraction_notes
                 WHERE extraction_id = :entry_id
-            """
-            ),
+            """),
             {"entry_id": entry_id},
         )
         for row in result.fetchall():
@@ -1060,13 +1032,11 @@ class StorageService:
         # Get sleep
         sleep = None
         result = await self.db.execute(
-            text(
-                """
+            text("""
                 SELECT duration_hours, quality, bedtime, waketime, disruptions
                 FROM extraction_sleep
                 WHERE extraction_id = :entry_id
-            """
-            ),
+            """),
             {"entry_id": entry_id},
         )
         row = result.fetchone()
@@ -1114,8 +1084,7 @@ class StorageService:
         if resolved_gap_count > 0:
             # Get the oldest unresolved gaps and mark them resolved
             await self.db.execute(
-                text(
-                    """
+                text("""
                     UPDATE extraction_gaps
                     SET status = 'answered', resolved_at = NOW()
                     WHERE id IN (
@@ -1124,8 +1093,7 @@ class StorageService:
                         ORDER BY priority ASC
                         LIMIT :count
                     )
-                """
-                ),
+                """),
                 {"entry_id": entry_id, "count": resolved_gap_count},
             )
 
@@ -1139,13 +1107,11 @@ class StorageService:
         remaining_gaps = result.scalar() or 0
 
         await self.db.execute(
-            text(
-                """
+            text("""
                 UPDATE journal_extractions
                 SET has_gaps = :has_gaps, updated_at = NOW()
                 WHERE id = :entry_id
-            """
-            ),
+            """),
             {"entry_id": entry_id, "has_gaps": remaining_gaps > 0},
         )
 

@@ -52,8 +52,7 @@ class ReportService:
     async def get_context_snapshot(self, user_id: UUID) -> Optional[Dict[str, Any]]:
         """Fetch the latest context snapshot from context broker state."""
         result = await self.db.execute(
-            text(
-                """
+            text("""
                 SELECT
                     current_mood_score,
                     current_energy_level,
@@ -67,8 +66,7 @@ class ReportService:
                     updated_at
                 FROM user_context_state
                 WHERE user_id = :user_id
-            """
-            ),
+            """),
             {"user_id": user_id},
         )
 
@@ -93,8 +91,7 @@ class ReportService:
         self, user_id: UUID, start_date: date, end_date: date
     ) -> Dict[date, Optional[float]]:
         result = await self.db.execute(
-            text(
-                """
+            text("""
                 SELECT
                     time_bucket('1 day', ts)::date AS entry_date,
                     SUM(calories_in) AS calories
@@ -102,8 +99,7 @@ class ReportService:
                 WHERE user_id = :user_id
                   AND entry_date BETWEEN :start_date AND :end_date
                 GROUP BY 1
-            """
-            ),
+            """),
             {"user_id": user_id, "start_date": start_date, "end_date": end_date},
         )
 
@@ -116,8 +112,7 @@ class ReportService:
         self, user_id: UUID, start_date: date, end_date: date
     ) -> Dict[date, Dict[str, Optional[float]]]:
         result = await self.db.execute(
-            text(
-                """
+            text("""
                 SELECT
                     time_bucket('1 day', ts)::date AS entry_date,
                     AVG(sleep_hours) AS sleep_hours,
@@ -126,8 +121,7 @@ class ReportService:
                 WHERE user_id = :user_id
                   AND entry_date BETWEEN :start_date AND :end_date
                 GROUP BY 1
-            """
-            ),
+            """),
             {"user_id": user_id, "start_date": start_date, "end_date": end_date},
         )
 
@@ -143,8 +137,7 @@ class ReportService:
         self, user_id: UUID, start_date: date, end_date: date
     ) -> Dict[date, Dict[str, Optional[int]]]:
         result = await self.db.execute(
-            text(
-                """
+            text("""
                 SELECT
                     time_bucket('1 day', ts)::date AS entry_date,
                     SUM(activity_minutes) AS minutes,
@@ -153,8 +146,7 @@ class ReportService:
                 WHERE user_id = :user_id
                   AND entry_date BETWEEN :start_date AND :end_date
                 GROUP BY 1
-            """
-            ),
+            """),
             {"user_id": user_id, "start_date": start_date, "end_date": end_date},
         )
 
@@ -170,8 +162,7 @@ class ReportService:
         self, user_id: UUID, start_date: date, end_date: date
     ) -> Dict[date, Optional[float]]:
         result = await self.db.execute(
-            text(
-                """
+            text("""
                 SELECT
                     time_bucket('1 day', ts)::date AS entry_date,
                     AVG(mood_score) AS mood_score
@@ -179,8 +170,7 @@ class ReportService:
                 WHERE user_id = :user_id
                   AND entry_date BETWEEN :start_date AND :end_date
                 GROUP BY 1
-            """
-            ),
+            """),
             {"user_id": user_id, "start_date": start_date, "end_date": end_date},
         )
 
@@ -193,8 +183,7 @@ class ReportService:
         self, user_id: UUID, start_date: date, end_date: date
     ) -> Dict[date, Optional[float]]:
         result = await self.db.execute(
-            text(
-                """
+            text("""
                 SELECT
                     time_bucket('1 day', ts)::date AS entry_date,
                     SUM(water_ml) AS water_ml
@@ -202,8 +191,7 @@ class ReportService:
                 WHERE user_id = :user_id
                   AND entry_date BETWEEN :start_date AND :end_date
                 GROUP BY 1
-            """
-            ),
+            """),
             {"user_id": user_id, "start_date": start_date, "end_date": end_date},
         )
         return {
@@ -215,8 +203,7 @@ class ReportService:
         self, user_id: UUID, start_date: date, end_date: date
     ) -> Dict[date, Optional[int]]:
         result = await self.db.execute(
-            text(
-                """
+            text("""
                 SELECT
                     time_bucket('1 day', ts)::date AS entry_date,
                     SUM(steps) AS steps
@@ -224,8 +211,7 @@ class ReportService:
                 WHERE user_id = :user_id
                   AND entry_date BETWEEN :start_date AND :end_date
                 GROUP BY 1
-            """
-            ),
+            """),
             {"user_id": user_id, "start_date": start_date, "end_date": end_date},
         )
 
@@ -238,8 +224,7 @@ class ReportService:
         self, user_id: UUID, start_date: date, end_date: date
     ) -> Dict[date, Dict[str, Optional[float]]]:
         result = await self.db.execute(
-            text(
-                """
+            text("""
                 SELECT
                     time_bucket('1 day', ts)::date AS entry_date,
                     SUM(calories_in) AS calories,
@@ -250,8 +235,7 @@ class ReportService:
                 WHERE user_id = :user_id
                   AND entry_date BETWEEN :start_date AND :end_date
                 GROUP BY 1
-            """
-            ),
+            """),
             {"user_id": user_id, "start_date": start_date, "end_date": end_date},
         )
 
@@ -269,8 +253,7 @@ class ReportService:
         self, user_id: UUID, start_date: date, end_date: date
     ) -> Dict[str, Any]:
         daily_result = await self.db.execute(
-            text(
-                """
+            text("""
                 SELECT
                     je.entry_date AS entry_date,
                     COUNT(*) AS interactions
@@ -279,8 +262,7 @@ class ReportService:
                 WHERE je.user_id = :user_id
                   AND je.entry_date BETWEEN :start_date AND :end_date
                 GROUP BY je.entry_date
-            """
-            ),
+            """),
             {"user_id": user_id, "start_date": start_date, "end_date": end_date},
         )
 
@@ -290,23 +272,20 @@ class ReportService:
         }
 
         totals_result = await self.db.execute(
-            text(
-                """
+            text("""
                 SELECT
                     COUNT(*) AS total_interactions
                 FROM journal_extractions je
                 JOIN extraction_social es ON es.extraction_id = je.id
                 WHERE je.user_id = :user_id
                   AND je.entry_date BETWEEN :start_date AND :end_date
-            """
-            ),
+            """),
             {"user_id": user_id, "start_date": start_date, "end_date": end_date},
         )
         total_interactions = totals_result.scalar() or 0
 
         relationship_result = await self.db.execute(
-            text(
-                """
+            text("""
                 SELECT
                     COALESCE(es.relationship_category, 'other') AS category,
                     COUNT(*) AS count
@@ -315,8 +294,7 @@ class ReportService:
                 WHERE je.user_id = :user_id
                   AND je.entry_date BETWEEN :start_date AND :end_date
                 GROUP BY COALESCE(es.relationship_category, 'other')
-            """
-            ),
+            """),
             {"user_id": user_id, "start_date": start_date, "end_date": end_date},
         )
         by_relationship_category = {
@@ -324,8 +302,7 @@ class ReportService:
         }
 
         top_people_result = await self.db.execute(
-            text(
-                """
+            text("""
                 SELECT
                     COALESCE(es.person_name, es.relationship, 'unknown') AS person,
                     COUNT(*) AS interactions
@@ -336,8 +313,7 @@ class ReportService:
                 GROUP BY COALESCE(es.person_name, es.relationship, 'unknown')
                 ORDER BY interactions DESC
                 LIMIT 10
-            """
-            ),
+            """),
             {"user_id": user_id, "start_date": start_date, "end_date": end_date},
         )
 
@@ -359,8 +335,7 @@ class ReportService:
         self, user_id: UUID, start_date: date, end_date: date
     ) -> Dict[str, Any]:
         daily_result = await self.db.execute(
-            text(
-                """
+            text("""
                 SELECT
                     je.entry_date AS entry_date,
                     COUNT(*) AS symptoms
@@ -369,8 +344,7 @@ class ReportService:
                 WHERE je.user_id = :user_id
                   AND je.entry_date BETWEEN :start_date AND :end_date
                 GROUP BY je.entry_date
-            """
-            ),
+            """),
             {"user_id": user_id, "start_date": start_date, "end_date": end_date},
         )
 
@@ -380,23 +354,20 @@ class ReportService:
         }
 
         total_result = await self.db.execute(
-            text(
-                """
+            text("""
                 SELECT
                     COUNT(*) AS total_symptoms
                 FROM journal_extractions je
                 JOIN extraction_health eh ON eh.extraction_id = je.id
                 WHERE je.user_id = :user_id
                   AND je.entry_date BETWEEN :start_date AND :end_date
-            """
-            ),
+            """),
             {"user_id": user_id, "start_date": start_date, "end_date": end_date},
         )
         total_symptoms = total_result.scalar() or 0
 
         top_result = await self.db.execute(
-            text(
-                """
+            text("""
                 SELECT
                     eh.symptom_type,
                     COUNT(*) AS count
@@ -407,8 +378,7 @@ class ReportService:
                 GROUP BY eh.symptom_type
                 ORDER BY count DESC
                 LIMIT 10
-            """
-            ),
+            """),
             {"user_id": user_id, "start_date": start_date, "end_date": end_date},
         )
 
@@ -428,8 +398,7 @@ class ReportService:
         self, user_id: UUID, start_date: date, end_date: date
     ) -> Dict[str, Any]:
         daily_result = await self.db.execute(
-            text(
-                """
+            text("""
                 SELECT
                     je.entry_date AS entry_date,
                     SUM(ew.duration_minutes) AS minutes,
@@ -439,8 +408,7 @@ class ReportService:
                 WHERE je.user_id = :user_id
                   AND je.entry_date BETWEEN :start_date AND :end_date
                 GROUP BY je.entry_date
-            """
-            ),
+            """),
             {"user_id": user_id, "start_date": start_date, "end_date": end_date},
         )
 
@@ -544,8 +512,7 @@ class ReportService:
         bucket_interval: timedelta,
     ) -> List[Dict[str, Any]]:
         result = await self.db.execute(
-            text(
-                """
+            text("""
                 SELECT
                     time_bucket(:bucket_interval, ts) AS bucket_time,
                     SUM(calories_in) AS calories_in,
@@ -564,8 +531,7 @@ class ReportService:
                   AND entry_date BETWEEN :start_date AND :end_date
                 GROUP BY bucket_time
                 ORDER BY bucket_time
-                """
-            ),
+                """),
             {
                 "bucket_interval": bucket_interval,
                 "user_id": user_id,

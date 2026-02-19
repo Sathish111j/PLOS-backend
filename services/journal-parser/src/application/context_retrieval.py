@@ -129,8 +129,7 @@ class ContextRetrievalEngine:
             baseline_start = entry_date - timedelta(days=self.config.baseline_days)
 
             # Query metrics (mood, energy, stress) with proper join
-            metrics_query = text(
-                """
+            metrics_query = text("""
                 SELECT
                     em.metric_type_id,
                     AVG(em.value) as avg_value,
@@ -143,8 +142,7 @@ class ContextRetrievalEngine:
                   AND je.entry_date <= :end_date
                   AND em.metric_type_id IN (:mood_id, :energy_id, :stress_id)
                 GROUP BY em.metric_type_id
-            """
-            )
+            """)
 
             metrics_result = await self.session.execute(
                 metrics_query,
@@ -167,8 +165,7 @@ class ContextRetrievalEngine:
                 }
 
             # Query sleep hours with proper join
-            sleep_query = text(
-                """
+            sleep_query = text("""
                 SELECT
                     AVG(es.duration_hours) as avg_sleep,
                     STDDEV_POP(es.duration_hours) as stddev_sleep,
@@ -178,8 +175,7 @@ class ContextRetrievalEngine:
                 WHERE je.user_id = :user_id
                   AND je.entry_date >= :start_date
                   AND je.entry_date <= :end_date
-            """
-            )
+            """)
 
             sleep_result = await self.session.execute(
                 sleep_query,
@@ -232,8 +228,7 @@ class ContextRetrievalEngine:
         try:
             start_date = entry_date - timedelta(days=self.config.recent_entries_days)
 
-            query = text(
-                """
+            query = text("""
                 SELECT
                     ea.activity_raw as activity_name,
                     ea.duration_minutes,
@@ -246,8 +241,7 @@ class ContextRetrievalEngine:
                   AND je.entry_date <= :end_date
                 ORDER BY je.entry_date DESC
                 LIMIT :limit
-            """
-            )
+            """)
 
             result = await self.session.execute(
                 query,
@@ -282,8 +276,7 @@ class ContextRetrievalEngine:
     ) -> Optional[Dict[str, Any]]:
         """Get most recent sleep data"""
         try:
-            query = text(
-                """
+            query = text("""
                 SELECT
                     es.duration_hours as sleep_hours,
                     es.bedtime,
@@ -296,8 +289,7 @@ class ContextRetrievalEngine:
                   AND je.entry_date <= :end_date
                 ORDER BY je.entry_date DESC
                 LIMIT 1
-            """
-            )
+            """)
 
             result = await self.session.execute(
                 query,
@@ -334,8 +326,7 @@ class ContextRetrievalEngine:
             seven_days_ago = entry_date - timedelta(days=7)
 
             # Get metric averages
-            metrics_query = text(
-                """
+            metrics_query = text("""
                 SELECT
                     em.metric_type_id,
                     AVG(em.value) as avg_value
@@ -346,8 +337,7 @@ class ContextRetrievalEngine:
                   AND je.entry_date <= :end_date
                   AND em.metric_type_id IN (:mood_id, :energy_id, :stress_id)
                 GROUP BY em.metric_type_id
-            """
-            )
+            """)
 
             metrics_result = await self.session.execute(
                 metrics_query,
@@ -368,16 +358,14 @@ class ContextRetrievalEngine:
                 )
 
             # Get sleep average
-            sleep_query = text(
-                """
+            sleep_query = text("""
                 SELECT AVG(es.duration_hours) as avg_sleep
                 FROM extraction_sleep es
                 JOIN journal_extractions je ON es.extraction_id = je.id
                 WHERE je.user_id = :user_id
                   AND je.entry_date >= :start_date
                   AND je.entry_date <= :end_date
-            """
-            )
+            """)
 
             sleep_result = await self.session.execute(
                 sleep_query,
@@ -468,16 +456,14 @@ class ContextRetrievalEngine:
             logger.info(f"Fetching vocabulary for user {user_id}")
 
             # Get activity categories the user has used
-            categories_query = text(
-                """
+            categories_query = text("""
                 SELECT DISTINCT ea.activity_category, ea.activity_subcategory
                 FROM extraction_activities ea
                 JOIN journal_extractions je ON ea.extraction_id = je.id
                 WHERE je.user_id = :user_id
                   AND ea.activity_category IS NOT NULL
                 ORDER BY ea.activity_category
-            """
-            )
+            """)
 
             categories_result = await self.session.execute(
                 categories_query, {"user_id": user_id}
@@ -503,8 +489,7 @@ class ContextRetrievalEngine:
                 )
 
             # Get specific activities the user has done (top 50 by frequency)
-            activities_query = text(
-                """
+            activities_query = text("""
                 SELECT ea.activity_raw, ea.activity_category, COUNT(*) as freq
                 FROM extraction_activities ea
                 JOIN journal_extractions je ON ea.extraction_id = je.id
@@ -513,8 +498,7 @@ class ContextRetrievalEngine:
                 GROUP BY ea.activity_raw, ea.activity_category
                 ORDER BY freq DESC
                 LIMIT 50
-            """
-            )
+            """)
 
             activities_result = await self.session.execute(
                 activities_query, {"user_id": user_id}
@@ -526,16 +510,14 @@ class ContextRetrievalEngine:
             ]
 
             # Get food categories the user has consumed
-            food_cat_query = text(
-                """
+            food_cat_query = text("""
                 SELECT DISTINCT ec.food_category
                 FROM extraction_consumptions ec
                 JOIN journal_extractions je ON ec.extraction_id = je.id
                 WHERE je.user_id = :user_id
                   AND ec.food_category IS NOT NULL
                 ORDER BY ec.food_category
-            """
-            )
+            """)
 
             food_cat_result = await self.session.execute(
                 food_cat_query, {"user_id": user_id}
@@ -544,8 +526,7 @@ class ContextRetrievalEngine:
             food_categories = [row.food_category for row in food_cat_result]
 
             # Get specific foods the user has consumed (top 50 by frequency)
-            foods_query = text(
-                """
+            foods_query = text("""
                 SELECT ec.item_raw, ec.food_category, ec.meal_type, COUNT(*) as freq
                 FROM extraction_consumptions ec
                 JOIN journal_extractions je ON ec.extraction_id = je.id
@@ -554,8 +535,7 @@ class ContextRetrievalEngine:
                 GROUP BY ec.item_raw, ec.food_category, ec.meal_type
                 ORDER BY freq DESC
                 LIMIT 50
-            """
-            )
+            """)
 
             foods_result = await self.session.execute(foods_query, {"user_id": user_id})
 
@@ -569,16 +549,14 @@ class ContextRetrievalEngine:
             ]
 
             # Get meal types the user has used
-            meal_types_query = text(
-                """
+            meal_types_query = text("""
                 SELECT DISTINCT ec.meal_type
                 FROM extraction_consumptions ec
                 JOIN journal_extractions je ON ec.extraction_id = je.id
                 WHERE je.user_id = :user_id
                   AND ec.meal_type IS NOT NULL
                 ORDER BY ec.meal_type
-            """
-            )
+            """)
 
             meal_types_result = await self.session.execute(
                 meal_types_query, {"user_id": user_id}
