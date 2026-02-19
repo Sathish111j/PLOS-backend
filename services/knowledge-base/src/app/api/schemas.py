@@ -70,3 +70,29 @@ class ChatResponse(BaseModel):
     answer: str
     sources: List[Dict[str, Any]]
     input: str
+
+
+class EmbeddingDlqStatsResponse(BaseModel):
+    active_dlq: int
+    unreplayable: int
+    replayed: int
+    failed: int
+
+
+class EmbeddingDlqReprocessRequest(BaseModel):
+    max_items: int = Field(default=100, ge=1, le=1000)
+    purge_unrecoverable: bool = False
+    trigger_replay_cycle: bool = True
+
+
+class EmbeddingDlqPurgeRequest(BaseModel):
+    max_items: int = Field(default=0, ge=0, le=100000)
+
+
+class EmbeddingDlqActionResponse(BaseModel):
+    processed: int
+    moved_to_dlq: int
+    kept_unreplayable: int
+    purged: int
+    replay_cycle: Dict[str, int] | None = None
+    stats: EmbeddingDlqStatsResponse

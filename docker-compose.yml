@@ -477,7 +477,8 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-plos_redis_secure_2025}@redis:6379/0
       QDRANT_URL: http://qdrant:6333
       QDRANT_API_KEY: ${QDRANT_API_KEY:-}
-      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-documents}
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-documents_768}
+      QDRANT_FALLBACK_COLLECTION: ${QDRANT_FALLBACK_COLLECTION:-documents_fallback_384}
       MINIO_ENABLED: ${MINIO_ENABLED:-true}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio:9000}
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-plos_minio_admin}
@@ -489,7 +490,7 @@ services:
       GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
       GEMINI_DEFAULT_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-2.5-flash}
       GEMINI_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-2.5-flash}
-      GEMINI_EMBEDDING_MODEL: ${GEMINI_EMBEDDING_MODEL:-text-embedding-004}
+      GEMINI_EMBEDDING_MODEL: ${GEMINI_EMBEDDING_MODEL:-gemini-embedding-001}
       GEMINI_API_KEY_ROTATION_ENABLED: ${GEMINI_API_KEY_ROTATION_ENABLED:-true}
       GEMINI_API_KEY_ROTATION_MAX_RETRIES: ${GEMINI_API_KEY_ROTATION_MAX_RETRIES:-3}
       GEMINI_API_KEY_ROTATION_BACKOFF_SECONDS: ${GEMINI_API_KEY_ROTATION_BACKOFF_SECONDS:-60}
@@ -542,8 +543,18 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-plos_db_secure_2025}@supabase-db:5432/${POSTGRES_DB:-plos}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-plos_redis_secure_2025}@redis:6379/0
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-documents_768}
+      QDRANT_FALLBACK_COLLECTION: ${QDRANT_FALLBACK_COLLECTION:-documents_fallback_384}
+      GEMINI_EMBEDDING_MODEL: ${GEMINI_EMBEDDING_MODEL:-gemini-embedding-001}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-768}
       MINIO_ENABLED: "true"
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-plos_minio_admin}

@@ -67,7 +67,9 @@ class UnifiedDocumentProcessor:
                 return SourceType.WEB_DYNAMIC
             return SourceType.WEB_STATIC
         if result.format == DocumentFormat.OFFICE:
-            extension = str((result.metadata or {}).get("office_extension") or "").lower()
+            extension = str(
+                (result.metadata or {}).get("office_extension") or ""
+            ).lower()
             if extension in {".doc", ".docx"}:
                 return SourceType.DOCX
             if extension in {".xls", ".xlsx"}:
@@ -125,7 +127,11 @@ class UnifiedDocumentProcessor:
         if result.confidence_scores and result.confidence_score <= 0.0:
             result.confidence_score = max(
                 0.0,
-                min(1.0, sum(result.confidence_scores.values()) / len(result.confidence_scores)),
+                min(
+                    1.0,
+                    sum(result.confidence_scores.values())
+                    / len(result.confidence_scores),
+                ),
             )
         result.metadata["detected_format"] = detected.format.value
         result.metadata["detector_confidence"] = detected.detector_confidence

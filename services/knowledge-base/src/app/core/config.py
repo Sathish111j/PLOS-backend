@@ -14,6 +14,19 @@ class KnowledgeBaseConfig:
     debug: bool
     qdrant_url: str
     qdrant_collection: str
+    qdrant_fallback_collection: str
+    embedding_model: str
+    embedding_dimensions: int
+    embedding_batch_size: int
+    embedding_retry_max_attempts: int
+    embedding_cache_ttl_seconds: int
+    embedding_dlq_replay_enabled: bool
+    embedding_dlq_replay_interval_seconds: int
+    embedding_dlq_replay_batch_size: int
+    embedding_dlq_replay_max_attempts: int
+    embedding_queue_enabled: bool
+    celery_broker_url: str
+    celery_backend_url: str
     minio_enabled: bool
     minio_endpoint: str
     minio_secure: bool
@@ -46,7 +59,44 @@ def get_kb_config() -> KnowledgeBaseConfig:
         app_env=os.getenv("APP_ENV", unified.app_env),
         debug=_parse_bool(os.getenv("DEBUG"), unified.debug),
         qdrant_url=os.getenv("QDRANT_URL", "http://qdrant:6333"),
-        qdrant_collection=os.getenv("QDRANT_COLLECTION", "documents"),
+        qdrant_collection=os.getenv("QDRANT_COLLECTION", "documents_768"),
+        qdrant_fallback_collection=os.getenv(
+            "QDRANT_FALLBACK_COLLECTION", "documents_fallback_384"
+        ),
+        embedding_model=os.getenv("EMBEDDING_MODEL", "gemini-embedding-001"),
+        embedding_dimensions=int(os.getenv("EMBEDDING_DIMENSIONS", "768")),
+        embedding_batch_size=int(os.getenv("EMBEDDING_BATCH_SIZE", "100")),
+        embedding_retry_max_attempts=int(
+            os.getenv("EMBEDDING_RETRY_MAX_ATTEMPTS", "5")
+        ),
+        embedding_cache_ttl_seconds=int(
+            os.getenv("EMBEDDING_CACHE_TTL_SECONDS", str(7 * 24 * 60 * 60))
+        ),
+        embedding_dlq_replay_enabled=_parse_bool(
+            os.getenv("EMBEDDING_DLQ_REPLAY_ENABLED"),
+            True,
+        ),
+        embedding_dlq_replay_interval_seconds=int(
+            os.getenv("EMBEDDING_DLQ_REPLAY_INTERVAL_SECONDS", "30")
+        ),
+        embedding_dlq_replay_batch_size=int(
+            os.getenv("EMBEDDING_DLQ_REPLAY_BATCH_SIZE", "10")
+        ),
+        embedding_dlq_replay_max_attempts=int(
+            os.getenv("EMBEDDING_DLQ_REPLAY_MAX_ATTEMPTS", "3")
+        ),
+        embedding_queue_enabled=_parse_bool(
+            os.getenv("EMBEDDING_QUEUE_ENABLED"),
+            False,
+        ),
+        celery_broker_url=os.getenv(
+            "CELERY_BROKER_URL",
+            os.getenv("REDIS_URL", "redis://:plos_redis_secure_2025@redis:6379/0"),
+        ),
+        celery_backend_url=os.getenv(
+            "CELERY_BACKEND_URL",
+            os.getenv("REDIS_URL", "redis://:plos_redis_secure_2025@redis:6379/0"),
+        ),
         minio_enabled=_parse_bool(os.getenv("MINIO_ENABLED"), True),
         minio_endpoint=os.getenv("MINIO_ENDPOINT", "minio:9000"),
         minio_secure=_parse_bool(os.getenv("MINIO_SECURE"), False),

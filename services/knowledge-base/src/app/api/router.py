@@ -5,6 +5,10 @@ from app.api.schemas import (
     ChatRequest,
     ChatResponse,
     DocumentItem,
+    EmbeddingDlqActionResponse,
+    EmbeddingDlqPurgeRequest,
+    EmbeddingDlqReprocessRequest,
+    EmbeddingDlqStatsResponse,
     SearchRequest,
     SearchResponse,
     UploadRequest,
@@ -17,7 +21,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import PlainTextResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
-from shared.auth.dependencies import get_current_user_optional
+from shared.auth.dependencies import get_current_user, get_current_user_optional
 from shared.auth.models import TokenData
 
 router = APIRouter()
@@ -137,3 +141,50 @@ async def chat(
     owner_id = _owner_id(current_user)
     result = await knowledge_service.chat(owner_id, request.message)
     return ChatResponse(**result)
+
+
+@router.get(
+    "/ops/embedding-dlq/stats",
+    response_model=EmbeddingDlqStatsResponse,
+    tags=["ops"],
+)
+async def embedding_dlq_stats(
+    current_user: TokenData = Depends(get_current_user),
+) -> EmbeddingDlqStatsResponse:
+    _ = current_user
+    result = await knowledge_service.get_embedding_dlq_stats()
+    return EmbeddingDlqStatsResponse(**result)
+
+
+@router.post(
+    "/ops/embedding-dlq/reprocess-unreplayable",
+    response_model=EmbeddingDlqActionResponse,
+    tags=["ops"],
+)
+async def reprocess_embedding_dlq_unreplayable(
+    request: EmbeddingDlqReprocessRequest,
+    current_user: TokenData = Depends(get_current_user),
+) -> EmbeddingDlqActionResponse:
+    _ = current_user
+    result = await knowledge_service.reprocess_embedding_unreplayable(
+        max_items=request.max_items,
+        purge_unrecoverable=request.purge_unrecoverable,
+        trigger_replay_cycle=request.trigger_replay_cycle,
+    )
+    return EmbeddingDlqActionResponse(**result)
+
+
+@router.post(
+    "/ops/embedding-dlq/purge-unreplayable",
+    response_model=EmbeddingDlqActionResponse,
+    tags=["ops"],
+)
+async def purge_embedding_dlq_unreplayable(
+    request: EmbeddingDlqPurgeRequest,
+    current_user: TokenData = Depends(get_current_user),
+) -> EmbeddingDlqActionResponse:
+    _ = current_user
+    result = await knowledge_service.purge_embedding_unreplayable(
+        max_items=request.max_items
+    )
+    return EmbeddingDlqActionResponse(**result)

@@ -115,7 +115,11 @@ class StructuredDocument(BaseModel):
             if self.confidence_scores:
                 self.confidence_score = max(
                     0.0,
-                    min(1.0, sum(self.confidence_scores.values()) / len(self.confidence_scores)),
+                    min(
+                        1.0,
+                        sum(self.confidence_scores.values())
+                        / len(self.confidence_scores),
+                    ),
                 )
             else:
                 self.confidence_score = 0.0

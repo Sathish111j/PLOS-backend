@@ -151,7 +151,9 @@ class PdfProcessor:
 
         return "", [], [], {"mineru_available": True, "mineru_adapter": "missing"}
 
-    def _extract_with_paddleocr(self, payload: ProcessorInput) -> tuple[str, dict[str, Any]]:
+    def _extract_with_paddleocr(
+        self, payload: ProcessorInput
+    ) -> tuple[str, dict[str, Any]]:
         try:
             from paddleocr import PaddleOCR  # type: ignore
             from PIL import Image
@@ -175,10 +177,13 @@ class PdfProcessor:
         except Exception as error:
             return "", {"paddleocr_available": True, "paddleocr_error": str(error)}
 
-    def _extract_with_gemini_vision(self, payload: ProcessorInput) -> tuple[str, dict[str, Any]]:
+    def _extract_with_gemini_vision(
+        self, payload: ProcessorInput
+    ) -> tuple[str, dict[str, Any]]:
         try:
             from google import genai
             from google.genai import types
+
             from shared.gemini.config import get_gemini_config
         except Exception:
             return "", {"gemini_vision_available": False}
@@ -191,7 +196,10 @@ class PdfProcessor:
 
             api_key = (os.getenv("GEMINI_API_KEY") or "").strip()
             if not api_key:
-                return "", {"gemini_vision_available": False, "reason": "missing_api_key"}
+                return "", {
+                    "gemini_vision_available": False,
+                    "reason": "missing_api_key",
+                }
 
             client = genai.Client(api_key=api_key)
             config = get_gemini_config()
@@ -201,18 +209,29 @@ class PdfProcessor:
                     types.Part.from_text(
                         "Extract all readable text from this document image. Return plain text only."
                     ),
-                    types.Part.from_bytes(data=payload.content_bytes, mime_type=payload.mime_type or "image/png"),
+                    types.Part.from_bytes(
+                        data=payload.content_bytes,
+                        mime_type=payload.mime_type or "image/png",
+                    ),
                 ],
             )
             text = normalize_text(response.text or "")
-            return text, {"gemini_vision_available": True, "gemini_vision_model": config.vision_model}
+            return text, {
+                "gemini_vision_available": True,
+                "gemini_vision_model": config.vision_model,
+            }
         except Exception as error:
-            return "", {"gemini_vision_available": True, "gemini_vision_error": str(error)}
+            return "", {
+                "gemini_vision_available": True,
+                "gemini_vision_error": str(error),
+            }
 
     def _extract_image_pdf_fallback(
         self, payload: ProcessorInput, content_class: ContentClass
     ) -> StructuredDocument:
-        mineru_text, mineru_tables, mineru_images, mineru_meta = self._extract_with_mineru(payload)
+        mineru_text, mineru_tables, mineru_images, mineru_meta = (
+            self._extract_with_mineru(payload)
+        )
         paddle_text, paddle_meta = self._extract_with_paddleocr(payload)
 
         tesseract_text = ""
@@ -225,7 +244,10 @@ class PdfProcessor:
             tesseract_text = normalize_text(pytesseract.image_to_string(image))
             tesseract_meta = {"tesseract_available": True}
         except Exception as error:
-            tesseract_meta = {"tesseract_available": False, "tesseract_error": str(error)}
+            tesseract_meta = {
+                "tesseract_available": False,
+                "tesseract_error": str(error),
+            }
 
         gemini_text, gemini_meta = self._extract_with_gemini_vision(payload)
 
@@ -258,9 +280,7 @@ class PdfProcessor:
             metadata=metadata,
             confidence_scores={"text_extraction": confidence},
             confidence_score=confidence,
-            extraction_path=(
-                "mineru->paddleocr->tesseract->gemini_vision"
-            ),
+            extraction_path=("mineru->paddleocr->tesseract->gemini_vision"),
             strategy_used=(
                 ExtractionStrategy.PDF_SCANNED_HIGH_ACCURACY
                 if content_class == ContentClass.IMAGE_BASED
@@ -407,9 +427,11 @@ class OfficeProcessor:
             source_type=(
                 SourceType.DOCX
                 if extension in {".docx", ".doc"}
-                else SourceType.XLSX
-                if extension in {".xlsx", ".xls"}
-                else SourceType.PPTX
+                else (
+                    SourceType.XLSX
+                    if extension in {".xlsx", ".xls"}
+                    else SourceType.PPTX
+                )
             ),
             raw_text=text,
             text=text,
@@ -468,6 +490,7 @@ class WebProcessor:
                 browser = await playwright.chromium.launch(headless=True)
                 context = await browser.new_context()
                 page = await context.new_page()
+
                 async def handle_route(route):
                     if route.request.resource_type in {"image", "font", "media"}:
                         await route.abort()
@@ -484,15 +507,27 @@ class WebProcessor:
             return "", {"playwright_available": True, "playwright_error": str(error)}
 
         text, details = self._extract_static(html)
-        merged = {"playwright_available": True, "extractor": f"playwright->{details.get('extractor', 'static')}"}
+        merged = {
+            "playwright_available": True,
+            "extractor": f"playwright->{details.get('extractor', 'static')}",
+        }
         merged.update(details)
         return text, merged
 
     @staticmethod
     def _is_dynamic_candidate(html: str) -> bool:
         sample = html.lower()
-        signals = ["id=\"root\"", "id='root'", "__next", "data-reactroot", "ng-app", "vue"]
-        text_density = len("".join(ch for ch in sample[:4000] if ch.isalpha())) / max(1, len(sample[:4000]))
+        signals = [
+            'id="root"',
+            "id='root'",
+            "__next",
+            "data-reactroot",
+            "ng-app",
+            "vue",
+        ]
+        text_density = len("".join(ch for ch in sample[:4000] if ch.isalpha())) / max(
+            1, len(sample[:4000])
+        )
         return any(signal in sample for signal in signals) or text_density < 0.2
 
     async def process(self, payload: ProcessorInput) -> StructuredDocument:
@@ -512,7 +547,9 @@ class WebProcessor:
         try:
             html = await self._fetch_html(payload.source_url)
             if self._is_dynamic_candidate(html):
-                dynamic_text, dynamic_details = await self._render_dynamic(payload.source_url)
+                dynamic_text, dynamic_details = await self._render_dynamic(
+                    payload.source_url
+                )
                 if dynamic_text:
                     text, details = dynamic_text, dynamic_details
                 else:

@@ -327,6 +327,80 @@ class ResilientGeminiClient:
             is_quota_error=self._is_quota_error(last_error) if last_error else False,
         )
 
+    async def embed_content_batch(
+        self,
+        contents: List[str],
+        model: Optional[str] = None,
+        task_type: Optional[str] = None,
+        output_dimensionality: Optional[int] = None,
+    ) -> List[List[float]]:
+        if not contents:
+            return []
+
+        model = model or os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
+        last_error: Optional[Exception] = None
+
+        for attempt in range(self.max_retries):
+            try:
+                api_key = await self.key_manager.get_active_key()
+                self._configure_api_key(api_key)
+
+                embed_config = None
+                if task_type is not None or output_dimensionality is not None:
+                    config_kwargs: Dict[str, Any] = {}
+                    if task_type is not None:
+                        config_kwargs["task_type"] = task_type
+                    if output_dimensionality is not None:
+                        config_kwargs["output_dimensionality"] = output_dimensionality
+                    embed_config = types.EmbedContentConfig(**config_kwargs)
+
+                result = await asyncio.to_thread(
+                    self._client.models.embed_content,
+                    model=model,
+                    contents=contents,
+                    config=embed_config,
+                )
+
+                await self.key_manager.mark_key_request_success(api_key)
+
+                if hasattr(result, "embeddings") and result.embeddings:
+                    return [
+                        [float(value) for value in embedding.values]
+                        for embedding in result.embeddings
+                    ]
+
+                if hasattr(result, "embedding") and result.embedding:
+                    return [[float(value) for value in result.embedding.values]]
+
+                raise RuntimeError("Gemini batch embedding response was empty")
+
+            except Exception as error:
+                last_error = error
+                is_quota_error = self._is_quota_error(error)
+                api_key = self.current_api_key or (
+                    await self.key_manager.get_active_key()
+                )
+
+                await self.key_manager.mark_key_request_error(
+                    api_key=api_key,
+                    error=str(error),
+                    is_quota_error=is_quota_error,
+                )
+
+                if is_quota_error:
+                    await self.key_manager.mark_key_quota_exceeded(api_key)
+
+                if attempt < self.max_retries - 1:
+                    wait_time = 2**attempt
+                    await asyncio.sleep(wait_time)
+                    continue
+
+        raise GeminiAPICallError(
+            message=f"Failed to embed content batch after {self.max_retries} retries",
+            original_error=last_error,
+            is_quota_error=self._is_quota_error(last_error) if last_error else False,
+        )
+
     def get_key_metrics(self) -> Dict[str, Any]:
         """
         Get current metrics for all API keys.

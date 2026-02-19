@@ -105,7 +105,7 @@ class UnifiedSettings(BaseSettings):
         default="gemini-2.5-flash", description="Vision model"
     )
     gemini_embedding_model: str = Field(
-        default="text-embedding-004", description="Embedding model"
+        default="gemini-embedding-001", description="Embedding model"
     )
 
     # Gemini API Key Rotation

@@ -1,6 +1,7 @@
 import base64
 from datetime import UTC, datetime
 from typing import Any, Dict, List
+from uuid import UUID
 
 from app.api.schemas import SearchRequest
 from app.application.deduplication import (
@@ -10,6 +11,7 @@ from app.application.deduplication import (
 )
 from app.application.entity_extraction import extract_entities
 from app.application.ingestion.chunking import SemanticChunkingEngine
+from app.application.ingestion.models import DocumentChunk
 from app.application.ingestion.unified_processor import UnifiedDocumentProcessor
 from app.application.search_utils import (
     bucket_context_score,
@@ -48,58 +50,61 @@ class KnowledgeService:
         )
 
         dedup_computation = build_dedup_computation(structured.text)
-        duplicate_candidate = await self._persistence.find_duplicate_candidate(
-            normalized_sha256=dedup_computation.normalized_sha256,
-            simhash=dedup_computation.simhash,
-            simhash_band_hashes=dedup_computation.simhash_band_hashes,
-            minhash_signature=dedup_computation.minhash_signature,
-            minhash_band_hashes=dedup_computation.minhash_band_hashes,
-        )
-
-        if duplicate_candidate:
-            dedup_stage = duplicate_candidate.get("dedup_stage", "exact")
-            dedup_score = duplicate_candidate.get("dedup_score")
-            updated = await self._persistence.register_duplicate_access(
-                document_id=duplicate_candidate["document_id"],
-                source_url=source_url,
-                dedup_stage=dedup_stage,
-                dedup_score=dedup_score,
-            )
-            duplicate_response = updated or duplicate_candidate
-            duplicate_metadata = dict(duplicate_response.get("metadata") or {})
-            duplicate_metadata["deduplication"] = {
-                "stage": dedup_stage,
-                "score": dedup_score,
-                "duplicate_of": duplicate_response["document_id"],
-            }
-
-            return {
-                "document_id": duplicate_response["document_id"],
-                "owner_id": duplicate_response.get("owner_id", owner_id),
-                "filename": filename,
-                "status": f"duplicate_{dedup_stage}",
-                "content_type": duplicate_response.get(
-                    "content_type", structured.format.value
-                ),
-                "strategy": duplicate_response.get(
-                    "strategy", structured.strategy_used.value
-                ),
-                "word_count": duplicate_response.get("word_count", 0),
-                "char_count": duplicate_response.get("char_count", 0),
-                "text_preview": None,
-                "metadata": duplicate_metadata,
-                "confidence_scores": structured.confidence_scores,
-                "chunk_count": 0,
-                "created_at": duplicate_response["created_at"],
-            }
-
         chunks = self._chunker.chunk_document(
             source_document_id="pending",
             filename=filename,
             structured=structured,
         )
-        structured.chunks = chunks
-        structured.metadata["chunk_count"] = len(chunks)
+
+        dedup_stage_counts = {"exact": 0, "near": 0, "semantic": 0}
+        retained_chunk_pairs: list[tuple[DocumentChunk, Any]] = []
+
+        for chunk in chunks:
+            chunk_dedup = build_dedup_computation(chunk.text)
+            duplicate_chunk = await self._persistence.find_chunk_duplicate_candidate(
+                normalized_sha256=chunk_dedup.normalized_sha256,
+                simhash=chunk_dedup.simhash,
+                simhash_band_hashes=chunk_dedup.simhash_band_hashes,
+                minhash_signature=chunk_dedup.minhash_signature,
+                minhash_band_hashes=chunk_dedup.minhash_band_hashes,
+                semantic_async=True,
+            )
+
+            if duplicate_chunk:
+                dedup_stage = str(duplicate_chunk.get("dedup_stage", "exact"))
+                if dedup_stage in dedup_stage_counts:
+                    dedup_stage_counts[dedup_stage] += 1
+                continue
+
+            retained_chunk_pairs.append((chunk, chunk_dedup))
+
+        filtered_chunks: list[DocumentChunk] = []
+        chunk_signature_payloads: list[dict[str, Any]] = []
+
+        for chunk_index, (chunk, chunk_dedup) in enumerate(retained_chunk_pairs):
+            chunk.metadata = dict(chunk.metadata or {})
+            chunk.metadata["chunk_index"] = chunk_index
+            chunk.metadata["total_chunks"] = len(retained_chunk_pairs)
+            filtered_chunks.append(chunk)
+            chunk_signature_payloads.append(
+                {
+                    "chunk_index": chunk_index,
+                    "normalized_sha256": chunk_dedup.normalized_sha256,
+                    "simhash": chunk_dedup.simhash,
+                    "simhash_band_hashes": chunk_dedup.simhash_band_hashes,
+                    "minhash_signature": chunk_dedup.minhash_signature,
+                    "minhash_band_hashes": chunk_dedup.minhash_band_hashes,
+                }
+            )
+
+        structured.chunks = filtered_chunks
+        structured.metadata["chunk_count"] = len(filtered_chunks)
+        structured.metadata["deduplication"] = {
+            "input_chunks": len(chunks),
+            "retained_chunks": len(filtered_chunks),
+            "filtered_chunks": len(chunks) - len(filtered_chunks),
+            "stage_counts": dedup_stage_counts,
+        }
 
         ingestion_bytes = content_bytes or structured.text.encode("utf-8")
         if not structured.metadata.get("checksum"):
@@ -107,7 +112,7 @@ class KnowledgeService:
         integrity_checkpoints = build_integrity_chain(
             ingestion_bytes=ingestion_bytes,
             extracted_text=structured.text,
-            chunk_texts=[chunk.text for chunk in chunks],
+            chunk_texts=[chunk.text for chunk in filtered_chunks],
         )
         structured.metadata["integrity_chain"] = [
             {
@@ -137,12 +142,17 @@ class KnowledgeService:
             integrity_checkpoints=integrity_checkpoints,
         )
 
+        await self._persistence.register_chunk_signatures(
+            document_id=UUID(persisted["document_id"]),
+            signatures=chunk_signature_payloads,
+        )
+
         await self._persistence.index_document_vectors(
             document_id=persisted["document_id"],
             owner_id=owner_id,
             bucket_id=persisted.get("bucket_id"),
             content_type=structured.format.value,
-            chunks=structured.chunks,
+            chunks=filtered_chunks,
             created_at=persisted["created_at"],
         )
 
@@ -166,7 +176,7 @@ class KnowledgeService:
             "text_preview": structured.text[:300],
             "metadata": structured.metadata,
             "confidence_scores": structured.confidence_scores,
-            "chunk_count": len(chunks),
+            "chunk_count": len(filtered_chunks),
             "created_at": persisted["created_at"],
         }
         self._documents[persisted["document_id"]] = document
@@ -182,6 +192,45 @@ class KnowledgeService:
 
     async def list_buckets(self) -> List[Dict[str, str]]:
         return [{"name": "knowledge-base-documents", "provider": "minio"}]
+
+    async def get_embedding_dlq_stats(self) -> Dict[str, int]:
+        return await self._persistence.get_embedding_dlq_stats()
+
+    async def reprocess_embedding_unreplayable(
+        self,
+        *,
+        max_items: int,
+        purge_unrecoverable: bool,
+        trigger_replay_cycle: bool,
+    ) -> Dict[str, Any]:
+        action = await self._persistence.reprocess_embedding_unreplayable(
+            max_items=max_items,
+            purge_unrecoverable=purge_unrecoverable,
+        )
+        replay_cycle: Dict[str, int] | None = None
+        if trigger_replay_cycle:
+            replay_cycle = await self._persistence.replay_embedding_dlq_once()
+
+        stats = await self._persistence.get_embedding_dlq_stats()
+        return {
+            **action,
+            "replay_cycle": replay_cycle,
+            "stats": stats,
+        }
+
+    async def purge_embedding_unreplayable(self, *, max_items: int) -> Dict[str, Any]:
+        action = await self._persistence.purge_embedding_unreplayable(
+            max_items=max_items
+        )
+        stats = await self._persistence.get_embedding_dlq_stats()
+        return {
+            "processed": 0,
+            "moved_to_dlq": 0,
+            "kept_unreplayable": 0,
+            "purged": int(action.get("purged", 0)),
+            "replay_cycle": None,
+            "stats": stats,
+        }
 
     async def search(self, owner_id: str, request: SearchRequest) -> Dict[str, Any]:
         if owner_id == "anonymous":
@@ -302,8 +351,11 @@ class KnowledgeService:
         )
 
         for item in scored_results:
-            rerank_relevance = rerank_scores.get(
-                item["document_id"], item["base_score"]
+            rerank_relevance_raw = rerank_scores.get(item["document_id"])
+            rerank_relevance = float(
+                rerank_relevance_raw
+                if rerank_relevance_raw is not None
+                else item["base_score"]
             )
             item["score"] = (
                 0.6 * rerank_relevance

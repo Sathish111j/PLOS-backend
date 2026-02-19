@@ -115,7 +115,7 @@ def test_persist_processed_document_creates_db_rows() -> None:
     _run(scenario())
 
 
-def test_upload_document_exact_duplicate_reuses_existing_document() -> None:
+def test_upload_document_exact_duplicate_filters_chunks_before_indexing() -> None:
     config = get_kb_config()
     persistence = KnowledgePersistence(config)
     service = KnowledgeService(persistence)
@@ -126,11 +126,18 @@ def test_upload_document_exact_duplicate_reuses_existing_document() -> None:
             dedup_table_exists = await _fetchval(
                 "SELECT to_regclass('public.document_dedup_signatures') IS NOT NULL"
             )
+            chunk_dedup_table_exists = await _fetchval(
+                "SELECT to_regclass('public.chunk_dedup_signatures') IS NOT NULL"
+            )
             integrity_table_exists = await _fetchval(
                 "SELECT to_regclass('public.document_integrity_checks') IS NOT NULL"
             )
-            if not dedup_table_exists or not integrity_table_exists:
-                pytest.skip("Deduplication/integrity migration is not applied yet")
+            if (
+                not dedup_table_exists
+                or not chunk_dedup_table_exists
+                or not integrity_table_exists
+            ):
+                pytest.skip("Deduplication/integrity/chunk dedup migrations are not applied yet")
 
             has_gemini_keys = bool(
                 (os.getenv("GEMINI_API_KEY") or "").strip()
@@ -164,11 +171,20 @@ def test_upload_document_exact_duplicate_reuses_existing_document() -> None:
             )
 
             assert first["status"] == "completed"
-            assert second["status"] == "duplicate_exact"
-            assert second["document_id"] == first["document_id"]
+            assert second["status"] == "completed"
+            assert second["document_id"] != first["document_id"]
+            assert second["chunk_count"] == 0
+
+            dedup_meta = dict(second.get("metadata") or {}).get("deduplication") or {}
+            stage_counts = dict(dedup_meta.get("stage_counts") or {})
+            assert int(stage_counts.get("exact", 0)) >= 1
 
             dedup_rows = await _fetchval(
                 "SELECT COUNT(*) FROM document_dedup_signatures WHERE document_id = $1::uuid",
+                first["document_id"],
+            )
+            chunk_dedup_rows = await _fetchval(
+                "SELECT COUNT(*) FROM chunk_dedup_signatures WHERE document_id = $1::uuid",
                 first["document_id"],
             )
             integrity_rows = await _fetchval(
@@ -177,6 +193,7 @@ def test_upload_document_exact_duplicate_reuses_existing_document() -> None:
             )
 
             assert dedup_rows == 1
+            assert chunk_dedup_rows >= 1
             assert integrity_rows >= 4
         finally:
             await persistence.close()

@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import io
 import json
 from datetime import UTC, datetime
@@ -23,14 +24,33 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
 from redis.asyncio import Redis
 
+from shared.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 class KnowledgePersistence:
+    EMBEDDING_DLQ_KEY = "kb:embedding:dlq"
+    EMBEDDING_DLQ_UNREPLAYABLE_KEY = "kb:embedding:dlq:unreplayable"
+    EMBEDDING_DLQ_FAILED_KEY = "kb:embedding:dlq:failed"
+    EMBEDDING_DLQ_REPLAYED_KEY = "kb:embedding:dlq:replayed"
+
     def __init__(self, config: KnowledgeBaseConfig):
         self.config = config
         self._pool: asyncpg.Pool | None = None
         self._redis: Redis | None = None
         self._qdrant: QdrantClient | None = None
         self._table_exists_cache: dict[str, bool] = {}
+        self._semantic_chunk_dedup_queue: (
+            asyncio.Queue[
+                tuple[
+                    list[int], list[int], float, asyncio.Future[dict[str, Any] | None]
+                ]
+            ]
+            | None
+        ) = None
+        self._semantic_chunk_dedup_worker_task: asyncio.Task[None] | None = None
+        self._embedding_dlq_replay_task: asyncio.Task[None] | None = None
         self._embedding_provider = GeminiEmbeddingProvider(config)
         self._minio_client = Minio(
             config.minio_endpoint,
@@ -54,9 +74,28 @@ class KnowledgePersistence:
         except Exception:
             self._redis = None
 
+        self._start_semantic_chunk_dedup_worker()
+        self._start_embedding_dlq_replay_worker()
         await self.ensure_qdrant_collection()
 
     async def close(self) -> None:
+        if self._semantic_chunk_dedup_worker_task:
+            self._semantic_chunk_dedup_worker_task.cancel()
+            try:
+                await self._semantic_chunk_dedup_worker_task
+            except asyncio.CancelledError:
+                pass
+            self._semantic_chunk_dedup_worker_task = None
+            self._semantic_chunk_dedup_queue = None
+
+        if self._embedding_dlq_replay_task:
+            self._embedding_dlq_replay_task.cancel()
+            try:
+                await self._embedding_dlq_replay_task
+            except asyncio.CancelledError:
+                pass
+            self._embedding_dlq_replay_task = None
+
         if self._redis:
             await self._redis.aclose()
             self._redis = None
@@ -147,50 +186,82 @@ class KnowledgePersistence:
         if not self._qdrant:
             return
 
+        def _extract_vector_size(collection: Any) -> int | None:
+            config = getattr(collection, "config", None)
+            params = getattr(config, "params", None) if config else None
+            vectors = getattr(params, "vectors", None) if params else None
+
+            size = getattr(vectors, "size", None)
+            if isinstance(size, int):
+                return size
+
+            if isinstance(vectors, dict):
+                first_value = next(iter(vectors.values()), None)
+                if first_value is not None:
+                    dict_size = getattr(first_value, "size", None)
+                    if isinstance(dict_size, int):
+                        return dict_size
+            return None
+
         def _ensure() -> None:
             client = self._qdrant
             if not client:
                 return
-            collection_name = self.config.qdrant_collection
-            try:
-                client.get_collection(collection_name=collection_name)
-                return
-            except Exception:
-                pass
 
-            client.create_collection(
-                collection_name=collection_name,
-                vectors_config=qmodels.VectorParams(
-                    size=384,
-                    distance=qmodels.Distance.COSINE,
-                    on_disk=False,
-                ),
-                hnsw_config=qmodels.HnswConfigDiff(
-                    m=16,
-                    ef_construct=100,
-                    full_scan_threshold=10000,
-                ),
-                quantization_config=qmodels.ScalarQuantization(
-                    scalar=qmodels.ScalarQuantizationConfig(
-                        type=qmodels.ScalarType.INT8,
-                        quantile=0.99,
-                        always_ram=True,
+            collection_specs = [
+                (self.config.qdrant_collection, int(self.config.embedding_dimensions)),
+                (self.config.qdrant_fallback_collection, 384),
+            ]
+
+            for collection_name, expected_size in collection_specs:
+                existing = None
+                try:
+                    existing = client.get_collection(collection_name=collection_name)
+                except Exception:
+                    existing = None
+
+                if existing is not None:
+                    current_size = _extract_vector_size(existing)
+                    if isinstance(current_size, int) and current_size != expected_size:
+                        raise RuntimeError(
+                            f"Qdrant collection {collection_name} has dimension {current_size}, expected {expected_size}."
+                        )
+                else:
+                    client.create_collection(
+                        collection_name=collection_name,
+                        vectors_config=qmodels.VectorParams(
+                            size=expected_size,
+                            distance=qmodels.Distance.COSINE,
+                            on_disk=False,
+                        ),
+                        hnsw_config=qmodels.HnswConfigDiff(
+                            m=16,
+                            ef_construct=100,
+                            full_scan_threshold=10000,
+                        ),
+                        quantization_config=qmodels.ScalarQuantization(
+                            scalar=qmodels.ScalarQuantizationConfig(
+                                type=qmodels.ScalarType.INT8,
+                                quantile=0.99,
+                                always_ram=True,
+                            )
+                        ),
                     )
-                ),
-            )
 
-            for field_name, schema in (
-                ("user_id", qmodels.PayloadSchemaType.KEYWORD),
-                ("bucket_id", qmodels.PayloadSchemaType.KEYWORD),
-                ("content_type", qmodels.PayloadSchemaType.KEYWORD),
-                ("created_at", qmodels.PayloadSchemaType.INTEGER),
-                ("tags", qmodels.PayloadSchemaType.KEYWORD),
-            ):
-                client.create_payload_index(
-                    collection_name=collection_name,
-                    field_name=field_name,
-                    field_schema=schema,
-                )
+                for field_name, schema in (
+                    ("user_id", qmodels.PayloadSchemaType.KEYWORD),
+                    ("bucket_id", qmodels.PayloadSchemaType.KEYWORD),
+                    ("content_type", qmodels.PayloadSchemaType.KEYWORD),
+                    ("created_at", qmodels.PayloadSchemaType.INTEGER),
+                    ("tags", qmodels.PayloadSchemaType.KEYWORD),
+                    ("has_image", qmodels.PayloadSchemaType.BOOL),
+                    ("document_id", qmodels.PayloadSchemaType.KEYWORD),
+                ):
+                    client.create_payload_index(
+                        collection_name=collection_name,
+                        field_name=field_name,
+                        field_schema=schema,
+                    )
 
         await asyncio.to_thread(_ensure)
 
@@ -231,6 +302,366 @@ class KnowledgePersistence:
     @staticmethod
     def _exact_dedup_key(normalized_sha256: str) -> str:
         return f"kb:dedup:exact:{normalized_sha256}"
+
+    @staticmethod
+    def _exact_dedup_hash_key() -> str:
+        return "kb:dedup:exact:hash"
+
+    @staticmethod
+    def _exact_chunk_dedup_hash_key() -> str:
+        return "kb:dedup:chunk:exact:hash"
+
+    def _start_semantic_chunk_dedup_worker(self) -> None:
+        if (
+            self._semantic_chunk_dedup_worker_task
+            and not self._semantic_chunk_dedup_worker_task.done()
+        ):
+            return
+        self._semantic_chunk_dedup_queue = asyncio.Queue()
+        self._semantic_chunk_dedup_worker_task = asyncio.create_task(
+            self._semantic_chunk_dedup_worker(),
+            name="kb-semantic-chunk-dedup-worker",
+        )
+
+    def _start_embedding_dlq_replay_worker(self) -> None:
+        if not self._redis or not self.config.embedding_dlq_replay_enabled:
+            return
+        if (
+            self._embedding_dlq_replay_task
+            and not self._embedding_dlq_replay_task.done()
+        ):
+            return
+        self._embedding_dlq_replay_task = asyncio.create_task(
+            self._embedding_dlq_replay_loop(),
+            name="kb-embedding-dlq-replay-worker",
+        )
+
+    async def _embedding_dlq_replay_loop(self) -> None:
+        interval = max(1, int(self.config.embedding_dlq_replay_interval_seconds))
+        logger.info(
+            "Embedding DLQ replay worker started",
+            extra={
+                "interval_seconds": interval,
+                "batch_size": int(self.config.embedding_dlq_replay_batch_size),
+            },
+        )
+
+        while True:
+            try:
+                stats = await self.replay_embedding_dlq_once()
+                if stats["processed"] > 0:
+                    logger.info("Embedding DLQ replay cycle complete", extra=stats)
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                logger.warning(
+                    "Embedding DLQ replay cycle failed",
+                    extra={"error": str(error)},
+                )
+            await asyncio.sleep(interval)
+
+    async def replay_embedding_dlq_once(self) -> dict[str, int]:
+        if not self._redis:
+            return {
+                "processed": 0,
+                "replayed": 0,
+                "requeued": 0,
+                "failed": 0,
+                "unreplayable": 0,
+            }
+
+        max_items = max(1, int(self.config.embedding_dlq_replay_batch_size))
+        max_attempts = max(1, int(self.config.embedding_dlq_replay_max_attempts))
+
+        stats = {
+            "processed": 0,
+            "replayed": 0,
+            "requeued": 0,
+            "failed": 0,
+            "unreplayable": 0,
+        }
+
+        for _ in range(max_items):
+            raw_item = await self._redis.execute_command(
+                "LPOP",
+                self.EMBEDDING_DLQ_KEY,
+            )
+            if not raw_item:
+                break
+
+            stats["processed"] += 1
+
+            raw_item_text = raw_item if isinstance(raw_item, str) else str(raw_item)
+
+            try:
+                payload = json.loads(raw_item_text)
+            except Exception:
+                await self._redis.execute_command(
+                    "RPUSH",
+                    self.EMBEDDING_DLQ_UNREPLAYABLE_KEY,
+                    raw_item_text,
+                )
+                stats["unreplayable"] += 1
+                continue
+
+            texts = payload.get("texts") or payload.get("batch_texts")
+            if not isinstance(texts, list) or not texts:
+                payload["replay_error"] = "Missing replay payload: texts"
+                payload["replay_recorded_at"] = datetime.now(UTC).isoformat()
+                await self._redis.execute_command(
+                    "RPUSH",
+                    self.EMBEDDING_DLQ_UNREPLAYABLE_KEY,
+                    json.dumps(payload),
+                )
+                stats["unreplayable"] += 1
+                continue
+
+            replay_attempt = int(payload.get("replay_attempt", 0)) + 1
+
+            try:
+                if self.config.embedding_queue_enabled:
+                    from app.infrastructure.embedding_queue import run_embedding_task
+
+                    vectors = await asyncio.to_thread(
+                        run_embedding_task,
+                        config=self.config,
+                        texts=texts,
+                    )
+                else:
+                    vectors = await self._embedding_provider.embed_documents_batch(
+                        texts
+                    )
+
+                if len(vectors) != len(texts):
+                    raise RuntimeError(
+                        f"Embedding replay cardinality mismatch: got {len(vectors)} vectors for {len(texts)} texts"
+                    )
+
+                for text, vector in zip(texts, vectors):
+                    cache_key = f"kb:embedding:{hashlib.sha256(text.encode('utf-8')).hexdigest()}"
+                    await self._redis.set(
+                        cache_key,
+                        json.dumps([float(value) for value in vector]),
+                        ex=int(self.config.embedding_cache_ttl_seconds),
+                    )
+
+                payload["replay_attempt"] = replay_attempt
+                payload["replayed_at"] = datetime.now(UTC).isoformat()
+                await self._redis.execute_command(
+                    "RPUSH",
+                    self.EMBEDDING_DLQ_REPLAYED_KEY,
+                    json.dumps(payload),
+                )
+                stats["replayed"] += 1
+            except Exception as error:
+                payload["replay_attempt"] = replay_attempt
+                payload["last_replay_error"] = str(error)
+                payload["last_replay_attempt_at"] = datetime.now(UTC).isoformat()
+
+                if replay_attempt >= max_attempts:
+                    await self._redis.execute_command(
+                        "RPUSH",
+                        self.EMBEDDING_DLQ_FAILED_KEY,
+                        json.dumps(payload),
+                    )
+                    stats["failed"] += 1
+                else:
+                    await self._redis.execute_command(
+                        "RPUSH",
+                        self.EMBEDDING_DLQ_KEY,
+                        json.dumps(payload),
+                    )
+                    stats["requeued"] += 1
+
+        return stats
+
+    async def get_embedding_dlq_stats(self) -> dict[str, int]:
+        if not self._redis:
+            return {
+                "active_dlq": 0,
+                "unreplayable": 0,
+                "replayed": 0,
+                "failed": 0,
+            }
+
+        active_dlq = int(
+            await self._redis.execute_command("LLEN", self.EMBEDDING_DLQ_KEY) or 0
+        )
+        unreplayable = int(
+            await self._redis.execute_command(
+                "LLEN", self.EMBEDDING_DLQ_UNREPLAYABLE_KEY
+            )
+            or 0
+        )
+        replayed = int(
+            await self._redis.execute_command("LLEN", self.EMBEDDING_DLQ_REPLAYED_KEY)
+            or 0
+        )
+        failed = int(
+            await self._redis.execute_command("LLEN", self.EMBEDDING_DLQ_FAILED_KEY)
+            or 0
+        )
+
+        return {
+            "active_dlq": active_dlq,
+            "unreplayable": unreplayable,
+            "replayed": replayed,
+            "failed": failed,
+        }
+
+    async def reprocess_embedding_unreplayable(
+        self,
+        *,
+        max_items: int,
+        purge_unrecoverable: bool,
+    ) -> dict[str, int]:
+        if not self._redis:
+            return {
+                "processed": 0,
+                "moved_to_dlq": 0,
+                "kept_unreplayable": 0,
+                "purged": 0,
+            }
+
+        stats = {
+            "processed": 0,
+            "moved_to_dlq": 0,
+            "kept_unreplayable": 0,
+            "purged": 0,
+        }
+
+        for _ in range(max(1, int(max_items))):
+            raw_item = await self._redis.execute_command(
+                "LPOP",
+                self.EMBEDDING_DLQ_UNREPLAYABLE_KEY,
+            )
+            if not raw_item:
+                break
+
+            stats["processed"] += 1
+            raw_item_text = raw_item if isinstance(raw_item, str) else str(raw_item)
+
+            try:
+                payload = json.loads(raw_item_text)
+            except Exception:
+                if purge_unrecoverable:
+                    stats["purged"] += 1
+                else:
+                    await self._redis.execute_command(
+                        "RPUSH",
+                        self.EMBEDDING_DLQ_UNREPLAYABLE_KEY,
+                        raw_item_text,
+                    )
+                    stats["kept_unreplayable"] += 1
+                continue
+
+            texts = payload.get("texts") or payload.get("batch_texts")
+            normalized_texts = [
+                str(text) for text in list(texts or []) if str(text).strip()
+            ]
+            if normalized_texts:
+                payload["texts"] = normalized_texts
+                payload["reprocessed_at"] = datetime.now(UTC).isoformat()
+                await self._redis.execute_command(
+                    "RPUSH",
+                    self.EMBEDDING_DLQ_KEY,
+                    json.dumps(payload),
+                )
+                stats["moved_to_dlq"] += 1
+                continue
+
+            if purge_unrecoverable:
+                stats["purged"] += 1
+            else:
+                payload["reprocess_error"] = "Missing replay payload: texts"
+                payload["reprocess_checked_at"] = datetime.now(UTC).isoformat()
+                await self._redis.execute_command(
+                    "RPUSH",
+                    self.EMBEDDING_DLQ_UNREPLAYABLE_KEY,
+                    json.dumps(payload),
+                )
+                stats["kept_unreplayable"] += 1
+
+        return stats
+
+    async def purge_embedding_unreplayable(self, *, max_items: int) -> dict[str, int]:
+        if not self._redis:
+            return {"purged": 0}
+
+        if int(max_items) <= 0:
+            existing_count = int(
+                await self._redis.execute_command(
+                    "LLEN", self.EMBEDDING_DLQ_UNREPLAYABLE_KEY
+                )
+                or 0
+            )
+            if existing_count > 0:
+                await self._redis.execute_command(
+                    "DEL",
+                    self.EMBEDDING_DLQ_UNREPLAYABLE_KEY,
+                )
+            return {"purged": existing_count}
+
+        purged = 0
+        for _ in range(int(max_items)):
+            removed = await self._redis.execute_command(
+                "LPOP",
+                self.EMBEDDING_DLQ_UNREPLAYABLE_KEY,
+            )
+            if not removed:
+                break
+            purged += 1
+
+        return {"purged": purged}
+
+    async def _semantic_chunk_dedup_worker(self) -> None:
+        queue = self._semantic_chunk_dedup_queue
+        if not queue:
+            return
+
+        while True:
+            (
+                minhash_signature,
+                minhash_band_hashes,
+                semantic_threshold,
+                future,
+            ) = await queue.get()
+            try:
+                result = await self._find_semantic_chunk_duplicate(
+                    minhash_signature=minhash_signature,
+                    minhash_band_hashes=minhash_band_hashes,
+                    semantic_threshold=semantic_threshold,
+                )
+                if not future.done():
+                    future.set_result(result)
+            except Exception as error:
+                if not future.done():
+                    future.set_exception(error)
+            finally:
+                queue.task_done()
+
+    async def _enqueue_semantic_chunk_dedup(
+        self,
+        *,
+        minhash_signature: list[int],
+        minhash_band_hashes: list[int],
+        semantic_threshold: float,
+    ) -> dict[str, Any] | None:
+        if not self._semantic_chunk_dedup_queue:
+            self._start_semantic_chunk_dedup_worker()
+        if not self._semantic_chunk_dedup_queue:
+            return await self._find_semantic_chunk_duplicate(
+                minhash_signature=minhash_signature,
+                minhash_band_hashes=minhash_band_hashes,
+                semantic_threshold=semantic_threshold,
+            )
+
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[dict[str, Any] | None] = loop.create_future()
+        await self._semantic_chunk_dedup_queue.put(
+            (minhash_signature, minhash_band_hashes, semantic_threshold, future)
+        )
+        return await future
 
     async def _get_document_summary(self, document_id: UUID) -> dict[str, Any] | None:
         if not self._pool:
@@ -332,7 +763,11 @@ class KnowledgePersistence:
             return None
 
         if self._redis:
-            cached = await self._redis.get(self._exact_dedup_key(normalized_sha256))
+            cached = await self._redis.execute_command(
+                "HGET", self._exact_dedup_hash_key(), normalized_sha256
+            )
+            if not cached:
+                cached = await self._redis.get(self._exact_dedup_key(normalized_sha256))
             if cached:
                 try:
                     summary = await self._get_document_summary(UUID(cached))
@@ -356,6 +791,12 @@ class KnowledgePersistence:
         document_id = row["document_id"]
         summary = await self._get_document_summary(document_id)
         if summary and self._redis:
+            await self._redis.execute_command(
+                "HSET",
+                self._exact_dedup_hash_key(),
+                normalized_sha256,
+                str(document_id),
+            )
             await self._redis.set(
                 self._exact_dedup_key(normalized_sha256),
                 str(document_id),
@@ -575,11 +1016,329 @@ class KnowledgePersistence:
             )
 
         if self._redis:
+            await self._redis.execute_command(
+                "HSET",
+                self._exact_dedup_hash_key(),
+                normalized_sha256,
+                str(document_id),
+            )
             await self._redis.set(
                 self._exact_dedup_key(normalized_sha256),
                 str(document_id),
                 ex=60 * 60 * 24,
             )
+
+    async def _get_chunk_summary(
+        self,
+        *,
+        document_id: UUID,
+        chunk_index: int,
+    ) -> dict[str, Any] | None:
+        if not self._pool:
+            return None
+
+        query = """
+            SELECT
+                c.id AS chunk_id,
+                c.chunk_index,
+                c.document_id,
+                c.content_type,
+                c.token_count,
+                c.char_count,
+                c.chunk_metadata,
+                d.created_by,
+                d.created_at
+            FROM document_chunks c
+            JOIN documents d ON d.id = c.document_id
+            WHERE c.document_id = $1 AND c.chunk_index = $2
+            LIMIT 1
+        """
+        async with self._pool.acquire() as connection:
+            row = await connection.fetchrow(query, document_id, chunk_index)
+
+        if not row:
+            return None
+
+        chunk_metadata = row["chunk_metadata"] or {}
+        if isinstance(chunk_metadata, str):
+            try:
+                chunk_metadata = json.loads(chunk_metadata)
+            except Exception:
+                chunk_metadata = {}
+
+        return {
+            "chunk_id": str(row["chunk_id"]),
+            "chunk_index": int(row["chunk_index"]),
+            "document_id": str(row["document_id"]),
+            "owner_id": str(row["created_by"]) if row["created_by"] else "anonymous",
+            "content_type": row["content_type"],
+            "token_count": int(row["token_count"]),
+            "char_count": int(row["char_count"]),
+            "metadata": chunk_metadata,
+            "created_at": row["created_at"].isoformat(),
+        }
+
+    async def find_chunk_duplicate_candidate(
+        self,
+        *,
+        normalized_sha256: str,
+        simhash: int,
+        simhash_band_hashes: list[int],
+        minhash_signature: list[int],
+        minhash_band_hashes: list[int],
+        near_threshold: int = 3,
+        semantic_threshold: float = 0.85,
+        semantic_async: bool = True,
+    ) -> dict[str, Any] | None:
+        if not self._pool:
+            raise RuntimeError("KnowledgePersistence pool is not initialized")
+        if not await self._has_table("chunk_dedup_signatures"):
+            return None
+
+        exact_duplicate = await self._find_exact_chunk_duplicate(normalized_sha256)
+        if exact_duplicate:
+            exact_duplicate["dedup_stage"] = "exact"
+            exact_duplicate["dedup_score"] = 1.0
+            return exact_duplicate
+
+        near_duplicate = await self._find_near_chunk_duplicate(
+            simhash=simhash,
+            simhash_band_hashes=simhash_band_hashes,
+            near_threshold=near_threshold,
+        )
+        if near_duplicate:
+            near_duplicate["dedup_stage"] = "near"
+            return near_duplicate
+
+        if semantic_async:
+            semantic_duplicate = await self._enqueue_semantic_chunk_dedup(
+                minhash_signature=minhash_signature,
+                minhash_band_hashes=minhash_band_hashes,
+                semantic_threshold=semantic_threshold,
+            )
+        else:
+            semantic_duplicate = await self._find_semantic_chunk_duplicate(
+                minhash_signature=minhash_signature,
+                minhash_band_hashes=minhash_band_hashes,
+                semantic_threshold=semantic_threshold,
+            )
+
+        if semantic_duplicate:
+            semantic_duplicate["dedup_stage"] = "semantic"
+            return semantic_duplicate
+
+        return None
+
+    async def _find_exact_chunk_duplicate(
+        self,
+        normalized_sha256: str,
+    ) -> dict[str, Any] | None:
+        if not self._pool:
+            return None
+
+        if self._redis:
+            cached = await self._redis.execute_command(
+                "HGET",
+                self._exact_chunk_dedup_hash_key(),
+                normalized_sha256,
+            )
+            if cached:
+                try:
+                    payload = json.loads(cached)
+                    document_id = UUID(payload["document_id"])
+                    chunk_index = int(payload["chunk_index"])
+                    summary = await self._get_chunk_summary(
+                        document_id=document_id,
+                        chunk_index=chunk_index,
+                    )
+                    if summary:
+                        return summary
+                except Exception:
+                    pass
+
+        query = """
+            SELECT document_id, chunk_index
+            FROM chunk_dedup_signatures
+            WHERE normalized_sha256 = $1
+            LIMIT 1
+        """
+        async with self._pool.acquire() as connection:
+            row = await connection.fetchrow(query, normalized_sha256)
+
+        if not row:
+            return None
+
+        summary = await self._get_chunk_summary(
+            document_id=row["document_id"],
+            chunk_index=int(row["chunk_index"]),
+        )
+        if summary and self._redis:
+            payload = json.dumps(
+                {
+                    "document_id": summary["document_id"],
+                    "chunk_index": summary["chunk_index"],
+                }
+            )
+            await self._redis.execute_command(
+                "HSET",
+                self._exact_chunk_dedup_hash_key(),
+                normalized_sha256,
+                payload,
+            )
+
+        return summary
+
+    async def _find_near_chunk_duplicate(
+        self,
+        *,
+        simhash: int,
+        simhash_band_hashes: list[int],
+        near_threshold: int,
+    ) -> dict[str, Any] | None:
+        if not self._pool:
+            return None
+
+        query = """
+            SELECT
+                s.document_id,
+                s.chunk_index,
+                s.simhash
+            FROM chunk_dedup_signatures s
+            WHERE s.simhash_band_hashes && $1::bigint[]
+            LIMIT 128
+        """
+        async with self._pool.acquire() as connection:
+            rows = await connection.fetch(query, simhash_band_hashes)
+
+        candidate_document_id: UUID | None = None
+        candidate_chunk_index: int | None = None
+        best_distance: int | None = None
+        current_unsigned = to_unsigned_bigint(simhash)
+
+        for row in rows:
+            candidate_unsigned = to_unsigned_bigint(int(row["simhash"]))
+            distance = hamming_distance_64(current_unsigned, candidate_unsigned)
+            if distance < near_threshold and (
+                best_distance is None or distance < best_distance
+            ):
+                best_distance = distance
+                candidate_document_id = row["document_id"]
+                candidate_chunk_index = int(row["chunk_index"])
+
+        if candidate_document_id is None or candidate_chunk_index is None:
+            return None
+
+        summary = await self._get_chunk_summary(
+            document_id=candidate_document_id,
+            chunk_index=candidate_chunk_index,
+        )
+        if not summary:
+            return None
+
+        summary["dedup_score"] = 1.0 - (best_distance / 64.0 if best_distance else 0.0)
+        summary["hamming_distance"] = best_distance
+        return summary
+
+    async def _find_semantic_chunk_duplicate(
+        self,
+        *,
+        minhash_signature: list[int],
+        minhash_band_hashes: list[int],
+        semantic_threshold: float,
+    ) -> dict[str, Any] | None:
+        if not self._pool:
+            return None
+
+        query = """
+            SELECT
+                s.document_id,
+                s.chunk_index,
+                s.minhash_signature
+            FROM chunk_dedup_signatures s
+            WHERE s.minhash_band_hashes && $1::bigint[]
+            LIMIT 128
+        """
+        async with self._pool.acquire() as connection:
+            rows = await connection.fetch(query, minhash_band_hashes)
+
+        candidate_document_id: UUID | None = None
+        candidate_chunk_index: int | None = None
+        best_similarity = 0.0
+
+        for row in rows:
+            candidate_signature = list(row["minhash_signature"] or [])
+            if len(candidate_signature) != len(minhash_signature):
+                continue
+            similarity = minhash_similarity(minhash_signature, candidate_signature)
+            if similarity > semantic_threshold and similarity > best_similarity:
+                best_similarity = similarity
+                candidate_document_id = row["document_id"]
+                candidate_chunk_index = int(row["chunk_index"])
+
+        if candidate_document_id is None or candidate_chunk_index is None:
+            return None
+
+        summary = await self._get_chunk_summary(
+            document_id=candidate_document_id,
+            chunk_index=candidate_chunk_index,
+        )
+        if not summary:
+            return None
+
+        summary["dedup_score"] = best_similarity
+        return summary
+
+    async def register_chunk_signatures(
+        self,
+        *,
+        document_id: UUID,
+        signatures: list[dict[str, Any]],
+    ) -> None:
+        if not self._pool or not signatures:
+            return
+        if not await self._has_table("chunk_dedup_signatures"):
+            return
+
+        query = """
+            INSERT INTO chunk_dedup_signatures (
+                document_id,
+                chunk_index,
+                normalized_sha256,
+                simhash,
+                simhash_band_hashes,
+                minhash_signature,
+                minhash_band_hashes
+            )
+            VALUES ($1, $2, $3, $4, $5::bigint[], $6::bigint[], $7::bigint[])
+            ON CONFLICT (normalized_sha256)
+            DO NOTHING
+        """
+        async with self._pool.acquire() as connection:
+            for signature in signatures:
+                await connection.execute(
+                    query,
+                    document_id,
+                    int(signature["chunk_index"]),
+                    signature["normalized_sha256"],
+                    signature["simhash"],
+                    list(signature["simhash_band_hashes"]),
+                    list(signature["minhash_signature"]),
+                    list(signature["minhash_band_hashes"]),
+                )
+
+        if self._redis:
+            for signature in signatures:
+                await self._redis.execute_command(
+                    "HSET",
+                    self._exact_chunk_dedup_hash_key(),
+                    signature["normalized_sha256"],
+                    json.dumps(
+                        {
+                            "document_id": str(document_id),
+                            "chunk_index": int(signature["chunk_index"]),
+                        }
+                    ),
+                )
 
     async def record_integrity_chain(
         self,
@@ -823,7 +1582,9 @@ class KnowledgePersistence:
                     if not isinstance(image_ids, list):
                         image_ids = []
 
-                    parent_chunk = chunk_metadata.get("parent_chunk_id") or chunk_metadata.get("parent_chunk")
+                    parent_chunk = chunk_metadata.get(
+                        "parent_chunk_id"
+                    ) or chunk_metadata.get("parent_chunk")
                     parent_chunk_uuid = None
                     if isinstance(parent_chunk, str):
                         try:
@@ -831,7 +1592,9 @@ class KnowledgePersistence:
                         except Exception:
                             parent_chunk_uuid = None
 
-                    chunk_metadata["parent_chunk_id"] = str(parent_chunk_uuid) if parent_chunk_uuid else None
+                    chunk_metadata["parent_chunk_id"] = (
+                        str(parent_chunk_uuid) if parent_chunk_uuid else None
+                    )
 
                     await connection.execute(
                         chunk_insert,
@@ -952,13 +1715,101 @@ class KnowledgePersistence:
             return
         await self.ensure_qdrant_collection()
 
-        points: list[qmodels.PointStruct] = []
+        points_primary: list[qmodels.PointStruct] = []
+        points_fallback: list[qmodels.PointStruct] = []
         created_epoch = self._epoch_seconds(created_at) or int(
             datetime.now(UTC).timestamp()
         )
 
-        for index, chunk in enumerate(chunks):
-            vector = await self._embedding_provider.embed_document(chunk.text)
+        batch_size = max(1, int(self.config.embedding_batch_size))
+        chunk_records: list[tuple[int, DocumentChunk, str]] = [
+            (index, chunk, chunk.text or "") for index, chunk in enumerate(chunks)
+        ]
+
+        text_to_vector: dict[str, list[float]] = {}
+        uncached_texts: list[str] = []
+
+        for _, _, text in chunk_records:
+            text_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+            cache_key = f"kb:embedding:{text_hash}"
+            if self._redis:
+                cached = await self._redis.get(cache_key)
+                if cached:
+                    try:
+                        vector = [float(value) for value in json.loads(cached)]
+                        if vector:
+                            text_to_vector[text] = vector
+                            continue
+                    except Exception:
+                        pass
+            uncached_texts.append(text)
+
+        unique_uncached_texts = list(dict.fromkeys(uncached_texts))
+        for start in range(0, len(unique_uncached_texts), batch_size):
+            batch_texts = unique_uncached_texts[start : start + batch_size]
+            try:
+                if self.config.embedding_queue_enabled:
+                    from app.infrastructure.embedding_queue import run_embedding_task
+
+                    batch_vectors = await asyncio.to_thread(
+                        run_embedding_task,
+                        config=self.config,
+                        texts=batch_texts,
+                    )
+                else:
+                    batch_vectors = (
+                        await self._embedding_provider.embed_documents_batch(
+                            batch_texts
+                        )
+                    )
+            except Exception as error:
+                if self._redis:
+                    await self._redis.execute_command(
+                        "RPUSH",
+                        self.EMBEDDING_DLQ_KEY,
+                        json.dumps(
+                            {
+                                "document_id": document_id,
+                                "batch_start": start,
+                                "batch_size": len(batch_texts),
+                                "texts": batch_texts,
+                                "error": str(error),
+                                "created_at": datetime.now(UTC).isoformat(),
+                            }
+                        ),
+                    )
+                raise RuntimeError(
+                    f"Embedding batch failed after retries (start={start}, size={len(batch_texts)}): {error}"
+                ) from error
+
+            if len(batch_vectors) != len(batch_texts):
+                raise RuntimeError(
+                    f"Embedding batch cardinality mismatch: got {len(batch_vectors)} vectors for {len(batch_texts)} texts"
+                )
+
+            for text, vector in zip(batch_texts, batch_vectors):
+                text_to_vector[text] = vector
+                if self._redis:
+                    cache_key = f"kb:embedding:{hashlib.sha256(text.encode('utf-8')).hexdigest()}"
+                    await self._redis.set(
+                        cache_key,
+                        json.dumps(vector),
+                        ex=int(self.config.embedding_cache_ttl_seconds),
+                    )
+
+        expected_dimension = int(self.config.embedding_dimensions)
+        for index, chunk, text in chunk_records:
+            vector = text_to_vector.get(text)
+            if not vector:
+                continue
+
+            vector_dimension = len(vector)
+            use_fallback_collection = vector_dimension != expected_dimension
+            if use_fallback_collection and vector_dimension != 384:
+                raise RuntimeError(
+                    f"Unsupported embedding dimension {vector_dimension}. Expected {expected_dimension} or fallback 384."
+                )
+
             payload = {
                 "document_id": document_id,
                 "chunk_id": chunk.chunk_id,
@@ -968,31 +1819,48 @@ class KnowledgePersistence:
                 "content_type": content_type,
                 "tags": list((chunk.metadata or {}).get("tags") or []),
                 "created_at": created_epoch,
+                "has_image": bool((chunk.metadata or {}).get("has_image")),
+                "embedding_source": "fallback" if use_fallback_collection else "gemini",
+                "requires_reembedding": bool(use_fallback_collection),
                 "text": chunk.text[:4000],
             }
             point_id = str(uuid4())
-            points.append(
-                qmodels.PointStruct(
-                    id=point_id,
-                    vector=vector,
-                    payload=payload,
-                )
+            point = qmodels.PointStruct(
+                id=point_id,
+                vector=vector,
+                payload=payload,
             )
+            if use_fallback_collection:
+                points_fallback.append(point)
+            else:
+                points_primary.append(point)
 
-        if not points:
+        if not points_primary and not points_fallback:
             return
 
-        def _upsert() -> None:
+        def _upsert(
+            collection_name: str,
+            points: list[qmodels.PointStruct],
+        ) -> None:
             client = self._qdrant
-            if not client:
+            if not client or not points:
                 return
             client.upsert(
-                collection_name=self.config.qdrant_collection,
+                collection_name=collection_name,
                 points=points,
                 wait=False,
             )
 
-        await asyncio.to_thread(_upsert)
+        if points_primary:
+            await asyncio.to_thread(
+                _upsert, self.config.qdrant_collection, points_primary
+            )
+        if points_fallback:
+            await asyncio.to_thread(
+                _upsert,
+                self.config.qdrant_fallback_collection,
+                points_fallback,
+            )
 
     def _filter_conditions(
         self,

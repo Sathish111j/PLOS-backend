@@ -93,7 +93,7 @@ The system consists of four main components:
 | `GEMINI_API_KEY_ROTATION_BACKOFF_SECONDS` | `60` | Seconds to wait before retrying exhausted key |
 | `GEMINI_API_KEY_ROTATION_MAX_RETRIES` | `3` | Maximum retries per request |
 | `GEMINI_DEFAULT_MODEL` | `gemini-2.5-flash` | Default model for content generation |
-| `GEMINI_EMBEDDING_MODEL` | `text-embedding-004` | Model for embedding generation |
+| `GEMINI_EMBEDDING_MODEL` | `gemini-embedding-001` | Model for embedding generation |
 | `GEMINI_JOURNAL_PARSER_MODEL` | (optional) | Override model for journal-parser service |
 | `GEMINI_CONTEXT_BROKER_MODEL` | (optional) | Override model for context-broker service |
 
@@ -165,7 +165,7 @@ Default task configurations (`TASK_CONFIGS`):
 |------|-------|-------------|------------|
 | JOURNAL_EXTRACTION | gemini-2.5-flash | 0.3 | 4096 |
 | GAP_DETECTION | gemini-2.5-flash | 0.4 | 2048 |
-| TEXT_EMBEDDING | text-embedding-004 | - | - |
+| TEXT_EMBEDDING | gemini-embedding-001 | - | - |
 | QUICK_ANALYSIS | gemini-2.5-flash | 0.5 | 2048 |
 | DEEP_ANALYSIS | gemini-2.5-pro | 0.7 | 16384 |
 

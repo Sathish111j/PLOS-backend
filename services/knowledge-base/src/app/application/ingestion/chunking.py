@@ -178,14 +178,20 @@ class SemanticChunkingEngine:
         units.extend(image_pair_units)
 
         if not units and structured.text.strip():
-            units.append(_ChunkUnit(text=structured.text.strip(), split_boundary="section"))
+            units.append(
+                _ChunkUnit(text=structured.text.strip(), split_boundary="section")
+            )
         return units
 
-    def _image_pair_units(self, text: str, images: list[dict[str, Any]]) -> list[_ChunkUnit]:
+    def _image_pair_units(
+        self, text: str, images: list[dict[str, Any]]
+    ) -> list[_ChunkUnit]:
         if not images:
             return []
 
-        paragraphs = [part.strip() for part in re.split(r"\n\s*\n", text) if part.strip()]
+        paragraphs = [
+            part.strip() for part in re.split(r"\n\s*\n", text) if part.strip()
+        ]
         if not paragraphs:
             paragraphs = [text.strip()] if text.strip() else []
 
@@ -193,11 +199,15 @@ class SemanticChunkingEngine:
         for index, image in enumerate(images):
             image_id = str(image.get("id") or uuid4())
             page = image.get("page")
-            ocr_text = str(image.get("ocr_text") or image.get("description") or "").strip()
+            ocr_text = str(
+                image.get("ocr_text") or image.get("description") or ""
+            ).strip()
 
             before = paragraphs[max(0, index - 1)] if paragraphs else ""
             after = paragraphs[min(len(paragraphs) - 1, index)] if paragraphs else ""
-            combined = "\n\n".join(part for part in [before, ocr_text, after] if part).strip()
+            combined = "\n\n".join(
+                part for part in [before, ocr_text, after] if part
+            ).strip()
             if not combined:
                 continue
 
@@ -608,14 +618,17 @@ class SemanticChunkingEngine:
         if not chunks:
             return chunks
 
+        atomic_content_types = {"table", "code", "image_pair"}
         merged: list[_ChunkUnit] = []
         for chunk in chunks:
             token_count = self._estimator.estimate(chunk.text)
+            previous_chunk = merged[-1] if merged else None
             if (
                 merged
                 and token_count < self._config.min_tokens
-                and chunk.content_type not in {"table", "code", "image_pair"}
-                and merged[-1].content_type not in {"table", "code", "image_pair"}
+                and chunk.content_type not in atomic_content_types
+                and previous_chunk is not None
+                and previous_chunk.content_type not in atomic_content_types
             ):
                 previous = merged.pop()
                 merged_text = f"{previous.text}\n\n{chunk.text}".strip()
@@ -637,7 +650,9 @@ class SemanticChunkingEngine:
                         language=previous.language or chunk.language,
                         line_range=previous.line_range or chunk.line_range,
                         file_path=previous.file_path or chunk.file_path,
-                        image_ids=list({*(previous.image_ids or []), *(chunk.image_ids or [])}),
+                        image_ids=list(
+                            {*(previous.image_ids or []), *(chunk.image_ids or [])}
+                        ),
                     )
                 )
             else:

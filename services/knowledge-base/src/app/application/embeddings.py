@@ -1,4 +1,5 @@
 import math
+from typing import Sequence
 
 from app.core.config import KnowledgeBaseConfig
 
@@ -14,8 +15,11 @@ class GeminiEmbeddingProvider:
         self._config = config
         self._gemini_client: ResilientGeminiClient | None = None
         gemini_config = get_gemini_config()
-        self._embedding_model = gemini_config.embedding_model
-        self._dimensions = int(getattr(config, "embedding_dimensions", 384))
+        self._embedding_model = (
+            getattr(config, "embedding_model", None) or gemini_config.embedding_model
+        )
+        self._dimensions = int(getattr(config, "embedding_dimensions", 768))
+        self._max_attempts = int(getattr(config, "embedding_retry_max_attempts", 5))
 
     def _candidate_models(self) -> list[str]:
         candidates = [
@@ -100,7 +104,62 @@ class GeminiEmbeddingProvider:
             "Gemini embedding failed for all candidate models",
             extra={"error": str(last_error) if last_error else None},
         )
-        raise RuntimeError("Gemini embedding failed for all candidate models") from last_error
+        raise RuntimeError(
+            "Gemini embedding failed for all candidate models"
+        ) from last_error
+
+    async def _gemini_embeddings_batch(
+        self,
+        texts: Sequence[str],
+        *,
+        task_type: str,
+    ) -> list[list[float]]:
+        if not texts:
+            return []
+
+        if self._gemini_client is None:
+            try:
+                self._gemini_client = ResilientGeminiClient(
+                    max_retries=self._max_attempts
+                )
+            except Exception as error:
+                logger.error(
+                    "Gemini client unavailable",
+                    extra={"error": str(error)},
+                )
+                raise RuntimeError("Gemini client unavailable") from error
+
+        last_error: Exception | None = None
+        for model_name in self._candidate_models():
+            try:
+                vectors = await self._gemini_client.embed_content_batch(
+                    list(texts),
+                    model=model_name,
+                    task_type=task_type,
+                    output_dimensionality=self._dimensions,
+                )
+                normalized_vectors: list[list[float]] = []
+                for vector in vectors:
+                    resized = self._resize_vector(
+                        [float(value) for value in vector],
+                        self._dimensions,
+                    )
+                    normalized_vectors.append(self._normalize(resized))
+                return normalized_vectors
+            except Exception as error:
+                last_error = error
+                logger.warning(
+                    "Gemini batch embedding model attempt failed",
+                    extra={"error": str(error), "model": model_name},
+                )
+
+        logger.error(
+            "Gemini batch embedding failed for all candidate models",
+            extra={"error": str(last_error) if last_error else None},
+        )
+        raise RuntimeError(
+            "Gemini batch embedding failed for all candidate models"
+        ) from last_error
 
     async def embed_document(self, text: str) -> list[float]:
         return await self._gemini_embedding(
@@ -112,6 +171,12 @@ class GeminiEmbeddingProvider:
         return await self._gemini_embedding(
             text,
             task_type="RETRIEVAL_QUERY",
+        )
+
+    async def embed_documents_batch(self, texts: Sequence[str]) -> list[list[float]]:
+        return await self._gemini_embeddings_batch(
+            texts,
+            task_type="RETRIEVAL_DOCUMENT",
         )
 
     async def embed_text(self, text: str) -> list[float]:

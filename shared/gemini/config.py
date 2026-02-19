@@ -22,7 +22,7 @@ class GeminiModelType(str, Enum):
     FLASH_LITE = "gemini-2.0-flash-lite"  # Fastest, lowest cost
 
     # Embedding Models
-    EMBEDDING = "gemini-embedding-001"  # Stable embedding model
+    EMBEDDING = "gemini-embedding-001"  # Production embedding model
     EMBEDDING_LEGACY = "embedding-001"  # Legacy embedding model
 
     # Experimental Models
@@ -80,7 +80,7 @@ class GeminiConfig(BaseModel):
     # Key Rotation Settings
     rotation_enabled: bool = Field(default=True, description="Enable API key rotation")
     rotation_max_retries: int = Field(
-        default=3, description="Max retries before giving up"
+        default=5, description="Max retries before giving up"
     )
     rotation_backoff_seconds: int = Field(
         default=60, description="Seconds to wait before retrying exhausted key"
@@ -129,7 +129,7 @@ class GeminiConfig(BaseModel):
             ).lower()
             == "true",
             rotation_max_retries=int(
-                os.getenv("GEMINI_API_KEY_ROTATION_MAX_RETRIES", "3")
+                os.getenv("GEMINI_API_KEY_ROTATION_MAX_RETRIES", "5")
             ),
             rotation_backoff_seconds=int(
                 os.getenv("GEMINI_API_KEY_ROTATION_BACKOFF_SECONDS", "60")
@@ -295,5 +295,5 @@ def get_embedding_model() -> str:
 
 # Export commonly used configurations
 DEFAULT_MODEL = os.getenv("GEMINI_DEFAULT_MODEL", "gemini-2.5-flash")
-EMBEDDING_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL", "text-embedding-004")
+EMBEDDING_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
 PRO_MODEL = os.getenv("GEMINI_PRO_MODEL", "gemini-2.5-pro")
