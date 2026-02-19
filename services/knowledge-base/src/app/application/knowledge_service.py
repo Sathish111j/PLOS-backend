@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import time
 from collections import OrderedDict
@@ -64,8 +65,25 @@ class KnowledgeService:
         content_base64: str | None = None,
         mime_type: str | None = None,
         source_url: str | None = None,
+        content_bucket_id: str | None = None,
+        bucket_hint: str | None = None,
     ) -> Dict[str, Any]:
         content_bytes = base64.b64decode(content_base64) if content_base64 else None
+
+        preview_text = ""
+        if content_bytes:
+            preview_text = content_bytes[:2000].decode("utf-8", errors="ignore")
+        elif source_url:
+            preview_text = source_url
+
+        routing_decision = await self._persistence.route_content_bucket(
+            owner_id=owner_id,
+            title=filename,
+            preview_text=preview_text,
+            explicit_bucket_id=content_bucket_id,
+            bucket_hint=bucket_hint,
+        )
+
         structured = await self._processor.process(
             filename=filename,
             content_bytes=content_bytes,
@@ -82,6 +100,7 @@ class KnowledgeService:
 
         dedup_stage_counts = {"exact": 0, "near": 0, "semantic": 0}
         retained_chunk_pairs: list[tuple[DocumentChunk, Any]] = []
+        forced_chunk_retention = False
 
         for chunk in chunks:
             chunk_dedup = build_dedup_computation(chunk.text)
@@ -101,6 +120,12 @@ class KnowledgeService:
                 continue
 
             retained_chunk_pairs.append((chunk, chunk_dedup))
+
+        if not retained_chunk_pairs and chunks:
+            fallback_chunk = chunks[0]
+            fallback_dedup = build_dedup_computation(fallback_chunk.text)
+            retained_chunk_pairs.append((fallback_chunk, fallback_dedup))
+            forced_chunk_retention = True
 
         filtered_chunks: list[DocumentChunk] = []
         chunk_signature_payloads: list[dict[str, Any]] = []
@@ -128,7 +153,13 @@ class KnowledgeService:
             "retained_chunks": len(filtered_chunks),
             "filtered_chunks": len(chunks) - len(filtered_chunks),
             "stage_counts": dedup_stage_counts,
+            "forced_retention": forced_chunk_retention,
         }
+
+        selected_bucket_id = routing_decision.get("selected_bucket_id")
+        for chunk in filtered_chunks:
+            chunk.metadata = dict(chunk.metadata or {})
+            chunk.metadata["bucket_id"] = selected_bucket_id
 
         ingestion_bytes = content_bytes or structured.text.encode("utf-8")
         if not structured.metadata.get("checksum"):
@@ -156,6 +187,8 @@ class KnowledgeService:
             mime_type=mime_type,
             content_bytes=content_bytes,
             structured=structured,
+            content_bucket_id=routing_decision.get("selected_bucket_id"),
+            routing_metadata=routing_decision,
             dedup={
                 "normalized_sha256": dedup_computation.normalized_sha256,
                 "simhash": dedup_computation.simhash,
@@ -174,7 +207,9 @@ class KnowledgeService:
         await self._persistence.index_document_vectors(
             document_id=persisted["document_id"],
             owner_id=owner_id,
-            bucket_id=persisted.get("bucket_id"),
+            content_bucket_id=(
+                persisted.get("content_bucket_id") or persisted.get("bucket_id")
+            ),
             content_type=structured.format.value,
             chunks=filtered_chunks,
             created_at=persisted["created_at"],
@@ -202,6 +237,9 @@ class KnowledgeService:
             "confidence_scores": structured.confidence_scores,
             "chunk_count": len(filtered_chunks),
             "created_at": persisted["created_at"],
+            "content_bucket_id": persisted.get("content_bucket_id"),
+            "minio_storage_bucket_name": persisted.get("minio_storage_bucket_name"),
+            "bucket_routing": routing_decision,
         }
         self._documents[persisted["document_id"]] = document
         return document
@@ -215,7 +253,84 @@ class KnowledgeService:
         ]
 
     async def list_buckets(self) -> List[Dict[str, str]]:
-        return [{"name": "knowledge-base-documents", "provider": "minio"}]
+        raise RuntimeError("Use list_buckets_for_owner")
+
+    async def list_buckets_for_owner(self, owner_id: str) -> List[Dict[str, Any]]:
+        return await self._persistence.list_buckets_for_user(owner_id)
+
+    async def create_bucket(
+        self,
+        *,
+        owner_id: str,
+        name: str,
+        description: str | None,
+        parent_bucket_id: str | None,
+        icon_emoji: str | None,
+        color_hex: str | None,
+    ) -> Dict[str, Any]:
+        return await self._persistence.create_bucket(
+            owner_id=owner_id,
+            name=name,
+            description=description,
+            parent_bucket_id=parent_bucket_id,
+            icon_emoji=icon_emoji,
+            color_hex=color_hex,
+        )
+
+    async def move_bucket(
+        self,
+        *,
+        owner_id: str,
+        bucket_id: str,
+        parent_bucket_id: str | None,
+    ) -> Dict[str, Any]:
+        return await self._persistence.move_bucket(
+            owner_id=owner_id,
+            bucket_id=bucket_id,
+            new_parent_bucket_id=parent_bucket_id,
+        )
+
+    async def delete_bucket(
+        self,
+        *,
+        owner_id: str,
+        bucket_id: str,
+        target_bucket_id: str | None,
+    ) -> Dict[str, int]:
+        return await self._persistence.delete_bucket(
+            owner_id=owner_id,
+            bucket_id=bucket_id,
+            target_bucket_id=target_bucket_id,
+        )
+
+    async def bulk_move_documents(
+        self,
+        *,
+        owner_id: str,
+        source_bucket_id: str,
+        target_bucket_id: str,
+    ) -> Dict[str, int]:
+        return await self._persistence.bulk_move_documents(
+            owner_id=owner_id,
+            source_bucket_id=source_bucket_id,
+            target_bucket_id=target_bucket_id,
+        )
+
+    async def route_bucket_preview(
+        self,
+        *,
+        owner_id: str,
+        title: str,
+        preview_text: str,
+        bucket_hint: str | None,
+    ) -> Dict[str, Any]:
+        return await self._persistence.route_content_bucket(
+            owner_id=owner_id,
+            title=title,
+            preview_text=preview_text,
+            explicit_bucket_id=None,
+            bucket_hint=bucket_hint,
+        )
 
     async def get_embedding_dlq_stats(self) -> Dict[str, int]:
         return await self._persistence.get_embedding_dlq_stats()
@@ -282,6 +397,14 @@ class KnowledgeService:
             "created_before": request.created_before,
         }
 
+        if request.bucket_id:
+            subtree_bucket_ids = await self._persistence.resolve_subtree_bucket_ids_for_owner(
+                owner_id=owner_id,
+                root_bucket_id=request.bucket_id,
+            )
+            if subtree_bucket_ids:
+                filters["bucket_ids"] = subtree_bucket_ids
+
         cache_fingerprint = query_hash(str(filters))
         cache_key = (
             f"kb:search:v2:{owner_id}:{query_hash(normalized_query)}:"
@@ -304,24 +427,30 @@ class KnowledgeService:
             return cached
 
         ef_search = select_ef_search(request.latency_budget_ms)
-        semantic_results = await self._persistence.search_semantic(
-            owner_id=owner_id,
-            query=normalized_query,
-            top_k=max(50, request.top_k),
-            ef_search=ef_search,
-            filters=filters,
-        )
-        keyword_results = await self._persistence.search_keyword(
-            owner_id=owner_id,
-            query=normalized_query,
-            top_k=max(50, request.top_k),
-            filters=filters,
-        )
-        typo_results = await self._persistence.search_typo_tolerant(
-            owner_id=owner_id,
-            query=normalized_query,
-            top_k=max(20, request.top_k),
-            filters=filters,
+
+        expanded_queries = await self._persistence.expand_query_gemini(normalized_query)
+        all_semantic_queries = [normalized_query] + expanded_queries
+
+        semantic_results, keyword_results, typo_results = await asyncio.gather(
+            self._persistence.search_semantic_multi(
+                owner_id=owner_id,
+                queries=all_semantic_queries,
+                top_k=max(50, request.top_k),
+                ef_search=ef_search,
+                filters=filters,
+            ),
+            self._persistence.search_keyword(
+                owner_id=owner_id,
+                query=normalized_query,
+                top_k=max(50, request.top_k),
+                filters=filters,
+            ),
+            self._persistence.search_typo_tolerant(
+                owner_id=owner_id,
+                query=normalized_query,
+                top_k=max(20, request.top_k),
+                filters=filters,
+            ),
         )
 
         fused = reciprocal_rank_fusion(
@@ -332,6 +461,18 @@ class KnowledgeService:
             ],
             k=60,
         )
+
+        tier_matches: dict[str, set[str]] = {}
+        for tier_name, tier_results in (
+            ("semantic", semantic_results),
+            ("fulltext", keyword_results),
+            ("typo", typo_results),
+        ):
+            for row in tier_results:
+                document_id = str(row.get("document_id") or "")
+                if not document_id:
+                    continue
+                tier_matches.setdefault(document_id, set()).add(tier_name)
 
         candidate_ids = [document_id for document_id, _ in fused[:50]]
         metadata_by_id = await self._persistence.fetch_documents_by_ids(candidate_ids)
@@ -359,6 +500,11 @@ class KnowledgeService:
             scored_results.append(
                 {
                     **document,
+                    "chunk_id": None,
+                    "document_title": document.get("title") or "document",
+                    "bucket_path": document.get("bucket_path"),
+                    "rrf_score": base_score,
+                    "tiers_matched": sorted(tier_matches.get(document_id, set())),
                     "base_score": base_score,
                     "recency_score": recency,
                     "engagement_score": engagement_value,
@@ -396,6 +542,8 @@ class KnowledgeService:
                 + 0.15 * item["engagement_score"]
                 + 0.1 * item["bucket_context_score"]
             )
+            item["rerank_score"] = rerank_relevance
+            item["relevance_score"] = item["score"]
 
         scored_results.sort(key=lambda value: value["score"], reverse=True)
         final_results = apply_mmr_diversity(
@@ -413,6 +561,10 @@ class KnowledgeService:
             "query": request.query,
             "top_k": request.top_k,
             "results": final_results,
+            "total_candidates": len(candidate_ids),
+            "latency_ms": elapsed_ms,
+            "cache_hit": False,
+            "query_intent": "hybrid",
             "owner_id": owner_id,
             "message": "Hybrid search pipeline executed with semantic, keyword, and typo-tolerant tiers.",
             "diagnostics": {
@@ -420,6 +572,11 @@ class KnowledgeService:
                 "latency_ms": elapsed_ms,
                 "ef_search": ef_search,
                 "weights": weights,
+                "query_expansion": {
+                    "enabled": True,
+                    "expanded_count": len(expanded_queries),
+                    "alternatives": expanded_queries,
+                },
                 "candidate_counts": {
                     "semantic": len(semantic_results),
                     "keyword": len(keyword_results),

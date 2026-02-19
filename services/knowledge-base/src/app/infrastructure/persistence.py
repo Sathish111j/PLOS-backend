@@ -2,12 +2,14 @@ import asyncio
 import hashlib
 import io
 import json
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
 import asyncpg
+import meilisearch
 from app.application.deduplication import (
     IntegrityCheckpoint,
     hamming_distance_64,
@@ -24,6 +26,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
 from redis.asyncio import Redis
 
+from shared.gemini.client import ResilientGeminiClient
 from shared.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -34,6 +37,8 @@ class KnowledgePersistence:
     EMBEDDING_DLQ_UNREPLAYABLE_KEY = "kb:embedding:dlq:unreplayable"
     EMBEDDING_DLQ_FAILED_KEY = "kb:embedding:dlq:failed"
     EMBEDDING_DLQ_REPLAYED_KEY = "kb:embedding:dlq:replayed"
+    ROUTING_AUTO_CONFIDENCE_THRESHOLD = 0.85
+    ROUTING_CONFIRMATION_THRESHOLD = 0.60
 
     def __init__(self, config: KnowledgeBaseConfig):
         self.config = config
@@ -58,6 +63,7 @@ class KnowledgePersistence:
             secret_key=config.minio_secret_key,
             secure=config.minio_secure,
         )
+        self._meili: meilisearch.Client | None = None
 
     async def connect(self) -> None:
         dsn = self.config.database_url.replace("postgresql+asyncpg://", "postgresql://")
@@ -77,6 +83,20 @@ class KnowledgePersistence:
         self._start_semantic_chunk_dedup_worker()
         self._start_embedding_dlq_replay_worker()
         await self.ensure_qdrant_collection()
+        try:
+            meili_client = meilisearch.Client(
+                self.config.meilisearch_url,
+                self.config.meilisearch_master_key or None,
+            )
+            await asyncio.to_thread(meili_client.health)
+            self._meili = meili_client
+            await self._ensure_meili_index()
+        except Exception as exc:
+            logger.warning(
+                "Meilisearch unavailable, typo-tolerant search will use pg_trgm fallback: %s",
+                exc,
+            )
+            self._meili = None
 
     async def close(self) -> None:
         if self._semantic_chunk_dedup_worker_task:
@@ -102,6 +122,7 @@ class KnowledgePersistence:
         if self._qdrant:
             self._qdrant.close()
             self._qdrant = None
+        self._meili = None
         if self._pool:
             await self._pool.close()
 
@@ -115,26 +136,98 @@ class KnowledgePersistence:
         except Exception:
             return "unreachable"
 
-    async def _ensure_bucket_record(self, user_uuid: UUID | None) -> UUID | None:
+    async def _ensure_storage_bucket_record(self, user_uuid: UUID | None) -> UUID | None:
         if not self._pool:
             return None
 
-        query = """
-            INSERT INTO buckets (name, storage_backend, storage_bucket, is_active, created_by, updated_by)
-            VALUES ($1, 'minio', $2, TRUE, $3, $3)
-            ON CONFLICT (name)
-            DO UPDATE SET
-                storage_bucket = EXCLUDED.storage_bucket,
+        minio_storage_bucket_name = self.config.minio_bucket
+        bucket_path = f"/root/{self._bucket_slug(minio_storage_bucket_name)}"
+
+        if user_uuid:
+            select_query = """
+                SELECT id
+                FROM buckets
+                WHERE user_id = $1
+                  AND parent_bucket_id IS NULL
+                  AND is_deleted = FALSE
+                  AND lower(name) = lower($2)
+                LIMIT 1
+            """
+            select_params = (user_uuid, minio_storage_bucket_name)
+        else:
+            select_query = """
+                SELECT id
+                FROM buckets
+                WHERE user_id IS NULL
+                  AND parent_bucket_id IS NULL
+                  AND is_deleted = FALSE
+                  AND lower(name) = lower($1)
+                LIMIT 1
+            """
+            select_params = (minio_storage_bucket_name,)
+
+        update_query = """
+            UPDATE buckets
+            SET storage_backend = 'minio',
+                storage_bucket = $2,
+                is_active = TRUE,
                 updated_at = NOW(),
-                updated_by = EXCLUDED.updated_by
+                updated_by = $3
+            WHERE id = $1
             RETURNING id
         """
+
+        insert_query = """
+            INSERT INTO buckets (
+                user_id,
+                parent_bucket_id,
+                depth,
+                path,
+                name,
+                description,
+                storage_backend,
+                storage_bucket,
+                is_active,
+                is_default,
+                is_deleted,
+                created_by,
+                updated_by
+            )
+            VALUES (
+                $1,
+                NULL,
+                0,
+                $2,
+                $3,
+                'Auto-created storage bucket record',
+                'minio',
+                $4,
+                TRUE,
+                FALSE,
+                FALSE,
+                $1,
+                $1
+            )
+            RETURNING id
+        """
+
         async with self._pool.acquire() as connection:
+            existing = await connection.fetchrow(select_query, *select_params)
+            if existing:
+                row = await connection.fetchrow(
+                    update_query,
+                    existing["id"],
+                    minio_storage_bucket_name,
+                    user_uuid,
+                )
+                return row["id"] if row else existing["id"]
+
             row = await connection.fetchrow(
-                query,
-                self.config.minio_bucket,
-                self.config.minio_bucket,
+                insert_query,
                 user_uuid,
+                bucket_path,
+                minio_storage_bucket_name,
+                minio_storage_bucket_name,
             )
             return row["id"] if row else None
 
@@ -151,6 +244,1072 @@ class KnowledgePersistence:
         async with self._pool.acquire() as connection:
             row = await connection.fetchrow(query, parsed)
         return row["id"] if row else None
+
+    @staticmethod
+    def _bucket_slug(name: str) -> str:
+        slug = re.sub(r"[^a-z0-9]+", "-", name.strip().lower())
+        slug = slug.strip("-")
+        return slug or "bucket"
+
+    async def _get_bucket_row(
+        self,
+        *,
+        user_uuid: UUID,
+        bucket_id: UUID,
+        include_deleted: bool = False,
+    ) -> asyncpg.Record | None:
+        if not self._pool:
+            return None
+
+        where_deleted = "" if include_deleted else "AND is_deleted = FALSE"
+        query = f"""
+            SELECT id, user_id, parent_bucket_id, depth, name, description,
+                   icon_emoji, color_hex, document_count, is_default, is_deleted,
+                   path, created_at, updated_at
+            FROM buckets
+            WHERE user_id = $1
+              AND id = $2
+              {where_deleted}
+            LIMIT 1
+        """
+        async with self._pool.acquire() as connection:
+            return await connection.fetchrow(query, user_uuid, bucket_id)
+
+    async def _ensure_user_default_buckets(self, user_uuid: UUID) -> None:
+        if not self._pool:
+            return
+
+        async with self._pool.acquire() as connection:
+            existing = await connection.fetchval(
+                "SELECT COUNT(*) FROM buckets WHERE user_id = $1 AND is_deleted = FALSE",
+                user_uuid,
+            )
+            if int(existing or 0) > 0:
+                return
+
+            default_specs = [
+                (
+                    "Research and Reference",
+                    "Academic papers, technical documentation, reference materials, and knowledge resources.",
+                    "book",
+                    "#4F46E5",
+                    True,
+                ),
+                (
+                    "Work and Projects",
+                    "Work-related files, project documents, meeting notes, reports, and professional materials.",
+                    "briefcase",
+                    "#0EA5E9",
+                    True,
+                ),
+                (
+                    "Web and Media Saves",
+                    "Web pages, articles, blog posts, social content, videos, and online resources.",
+                    "globe",
+                    "#10B981",
+                    True,
+                ),
+                (
+                    "Needs Classification",
+                    "Inbox for low-confidence automatic routing that requires user confirmation.",
+                    "inbox",
+                    "#F59E0B",
+                    False,
+                ),
+            ]
+
+            async with connection.transaction():
+                for name, description, icon_name, color_hex, is_default in default_specs:
+                    slug = self._bucket_slug(name)
+                    await connection.execute(
+                        """
+                        INSERT INTO buckets (
+                            id,
+                            user_id,
+                            parent_bucket_id,
+                            depth,
+                            name,
+                            description,
+                            icon_emoji,
+                            color_hex,
+                            document_count,
+                            is_default,
+                            is_deleted,
+                            path,
+                            storage_backend,
+                            storage_bucket,
+                            is_active,
+                            created_by,
+                            updated_by
+                        )
+                        VALUES (
+                            gen_random_uuid(),
+                            $1,
+                            NULL,
+                            0,
+                            $2,
+                            $3,
+                            $4,
+                            $5,
+                            0,
+                            $6,
+                            FALSE,
+                            $7,
+                            'minio',
+                            $8,
+                            TRUE,
+                            $1,
+                            $1
+                        )
+                        ON CONFLICT DO NOTHING
+                        """,
+                        user_uuid,
+                        name,
+                        description,
+                        icon_name,
+                        color_hex,
+                        is_default,
+                        f"/root/{slug}",
+                        self.config.minio_bucket,
+                    )
+
+    async def list_buckets_for_user(self, owner_id: str) -> list[dict[str, Any]]:
+        user_uuid = await self._resolve_existing_user_uuid(owner_id)
+        if not user_uuid or not self._pool:
+            return []
+
+        await self._ensure_user_default_buckets(user_uuid)
+
+        query = """
+            SELECT id, user_id, parent_bucket_id, depth, name, description,
+                   icon_emoji, color_hex, document_count, is_default, is_deleted,
+                   path, created_at, updated_at
+            FROM buckets
+            WHERE user_id = $1
+              AND is_deleted = FALSE
+            ORDER BY path ASC
+        """
+        async with self._pool.acquire() as connection:
+            rows = await connection.fetch(query, user_uuid)
+
+        return [
+            {
+                "bucket_id": str(row["id"]),
+                "user_id": str(row["user_id"]),
+                "parent_bucket_id": (
+                    str(row["parent_bucket_id"]) if row["parent_bucket_id"] else None
+                ),
+                "depth": int(row["depth"]),
+                "name": row["name"],
+                "description": row["description"],
+                "icon_emoji": row["icon_emoji"],
+                "color_hex": row["color_hex"],
+                "document_count": int(row["document_count"] or 0),
+                "is_default": bool(row["is_default"]),
+                "is_deleted": bool(row["is_deleted"]),
+                "path": row["path"],
+                "created_at": row["created_at"].isoformat(),
+                "updated_at": row["updated_at"].isoformat(),
+            }
+            for row in rows
+        ]
+
+    async def create_bucket(
+        self,
+        *,
+        owner_id: str,
+        name: str,
+        description: str | None,
+        parent_bucket_id: str | None,
+        icon_emoji: str | None,
+        color_hex: str | None,
+    ) -> dict[str, Any]:
+        user_uuid = await self._resolve_existing_user_uuid(owner_id)
+        if not user_uuid or not self._pool:
+            raise RuntimeError("Valid authenticated user is required")
+
+        await self._ensure_user_default_buckets(user_uuid)
+
+        parent_uuid: UUID | None = None
+        depth = 0
+        parent_path = "/root"
+        if parent_bucket_id:
+            parent_uuid = UUID(parent_bucket_id)
+            parent_row = await self._get_bucket_row(user_uuid=user_uuid, bucket_id=parent_uuid)
+            if not parent_row:
+                raise PermissionError(
+                    "Parent bucket not found or not accessible to this user"
+                )
+            depth = int(parent_row["depth"]) + 1
+            parent_path = str(parent_row["path"])
+
+        slug = self._bucket_slug(name)
+        path = f"{parent_path}/{slug}"
+
+        query = """
+            INSERT INTO buckets (
+                id, user_id, parent_bucket_id, depth, name, description,
+                icon_emoji, color_hex, document_count, is_default, is_deleted,
+                path, storage_backend, storage_bucket, is_active, created_by, updated_by
+            )
+            VALUES (
+                gen_random_uuid(), $1, $2, $3, $4, $5,
+                $6, $7, 0, FALSE, FALSE,
+                $8, 'minio', $9, TRUE, $1, $1
+            )
+            RETURNING id, user_id, parent_bucket_id, depth, name, description,
+                      icon_emoji, color_hex, document_count, is_default, is_deleted,
+                      path, created_at, updated_at
+        """
+        async with self._pool.acquire() as connection:
+            row = await connection.fetchrow(
+                query,
+                user_uuid,
+                parent_uuid,
+                depth,
+                name,
+                description,
+                icon_emoji,
+                color_hex,
+                path,
+                self.config.minio_bucket,
+            )
+
+        if not row:
+            raise RuntimeError("Failed to create bucket")
+
+        return {
+            "bucket_id": str(row["id"]),
+            "user_id": str(row["user_id"]),
+            "parent_bucket_id": (
+                str(row["parent_bucket_id"]) if row["parent_bucket_id"] else None
+            ),
+            "depth": int(row["depth"]),
+            "name": row["name"],
+            "description": row["description"],
+            "icon_emoji": row["icon_emoji"],
+            "color_hex": row["color_hex"],
+            "document_count": int(row["document_count"] or 0),
+            "is_default": bool(row["is_default"]),
+            "is_deleted": bool(row["is_deleted"]),
+            "path": row["path"],
+            "created_at": row["created_at"].isoformat(),
+            "updated_at": row["updated_at"].isoformat(),
+        }
+
+    async def move_bucket(
+        self,
+        *,
+        owner_id: str,
+        bucket_id: str,
+        new_parent_bucket_id: str | None,
+    ) -> dict[str, Any]:
+        user_uuid = await self._resolve_existing_user_uuid(owner_id)
+        if not user_uuid or not self._pool:
+            raise RuntimeError("Valid authenticated user is required")
+
+        bucket_uuid = UUID(bucket_id)
+        bucket_row = await self._get_bucket_row(user_uuid=user_uuid, bucket_id=bucket_uuid)
+        if not bucket_row:
+            raise RuntimeError("Bucket not found")
+
+        old_path = str(bucket_row["path"])
+        old_depth = int(bucket_row["depth"])
+
+        parent_uuid: UUID | None = None
+        new_depth = 0
+        new_parent_path = "/root"
+
+        if new_parent_bucket_id:
+            parent_uuid = UUID(new_parent_bucket_id)
+            if parent_uuid == bucket_uuid:
+                raise RuntimeError("Cannot move a bucket into itself")
+
+            parent_row = await self._get_bucket_row(user_uuid=user_uuid, bucket_id=parent_uuid)
+            if not parent_row:
+                raise RuntimeError("Target parent bucket not found")
+
+            parent_path = str(parent_row["path"])
+            if parent_path.startswith(f"{old_path}/"):
+                raise RuntimeError("Cannot move a bucket into its own descendant")
+
+            new_depth = int(parent_row["depth"]) + 1
+            new_parent_path = parent_path
+
+        new_path = f"{new_parent_path}/{self._bucket_slug(str(bucket_row['name']))}"
+        depth_delta = new_depth - old_depth
+
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.execute(
+                    """
+                    UPDATE buckets
+                    SET parent_bucket_id = $1,
+                        depth = $2,
+                        path = $3,
+                        updated_at = NOW()
+                    WHERE user_id = $4
+                      AND id = $5
+                      AND is_deleted = FALSE
+                    """,
+                    parent_uuid,
+                    new_depth,
+                    new_path,
+                    user_uuid,
+                    bucket_uuid,
+                )
+
+                await connection.execute(
+                    """
+                    UPDATE buckets
+                    SET path = regexp_replace(path, '^' || $1, $2),
+                        depth = depth + $3,
+                        updated_at = NOW()
+                    WHERE user_id = $4
+                      AND is_deleted = FALSE
+                      AND path LIKE $1 || '/%'
+                    """,
+                    old_path,
+                    new_path,
+                    depth_delta,
+                    user_uuid,
+                )
+
+        moved = await self._get_bucket_row(user_uuid=user_uuid, bucket_id=bucket_uuid)
+        if not moved:
+            raise RuntimeError("Bucket move failed")
+
+        return {
+            "bucket_id": str(moved["id"]),
+            "user_id": str(moved["user_id"]),
+            "parent_bucket_id": (
+                str(moved["parent_bucket_id"]) if moved["parent_bucket_id"] else None
+            ),
+            "depth": int(moved["depth"]),
+            "name": moved["name"],
+            "description": moved["description"],
+            "icon_emoji": moved["icon_emoji"],
+            "color_hex": moved["color_hex"],
+            "document_count": int(moved["document_count"] or 0),
+            "is_default": bool(moved["is_default"]),
+            "is_deleted": bool(moved["is_deleted"]),
+            "path": moved["path"],
+            "created_at": moved["created_at"].isoformat(),
+            "updated_at": moved["updated_at"].isoformat(),
+        }
+
+    async def _resolve_subtree_bucket_ids(
+        self,
+        *,
+        user_uuid: UUID,
+        root_bucket_uuid: UUID,
+    ) -> list[UUID]:
+        row = await self._get_bucket_row(user_uuid=user_uuid, bucket_id=root_bucket_uuid)
+        if not row or not self._pool:
+            return []
+
+        root_path = str(row["path"])
+        query = """
+            SELECT id
+            FROM buckets
+            WHERE user_id = $1
+              AND is_deleted = FALSE
+              AND (path = $2 OR path LIKE $2 || '/%')
+        """
+        async with self._pool.acquire() as connection:
+            rows = await connection.fetch(query, user_uuid, root_path)
+
+        return [r["id"] for r in rows]
+
+    async def resolve_subtree_bucket_ids_for_owner(
+        self,
+        *,
+        owner_id: str,
+        root_bucket_id: str,
+    ) -> list[str]:
+        user_uuid = await self._resolve_existing_user_uuid(owner_id)
+        if not user_uuid:
+            return []
+
+        try:
+            root_uuid = UUID(root_bucket_id)
+        except Exception:
+            return []
+
+        bucket_ids = await self._resolve_subtree_bucket_ids(
+            user_uuid=user_uuid,
+            root_bucket_uuid=root_uuid,
+        )
+        return [str(bucket_id) for bucket_id in bucket_ids]
+
+    async def _refresh_bucket_document_counts(self, user_uuid: UUID) -> None:
+        if not self._pool:
+            return
+
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.execute(
+                    """
+                    UPDATE buckets b
+                    SET document_count = sub.count,
+                        updated_at = NOW()
+                    FROM (
+                        SELECT parent.id AS bucket_id, COUNT(d.id)::int AS count
+                        FROM buckets parent
+                        LEFT JOIN buckets child
+                          ON child.user_id = parent.user_id
+                         AND child.is_deleted = FALSE
+                         AND (child.path = parent.path OR child.path LIKE parent.path || '/%')
+                        LEFT JOIN documents d
+                          ON d.bucket_id = child.id
+                         AND d.created_by = parent.user_id
+                        WHERE parent.user_id = $1
+                          AND parent.is_deleted = FALSE
+                        GROUP BY parent.id
+                    ) sub
+                    WHERE b.id = sub.bucket_id
+                    """,
+                    user_uuid,
+                )
+
+    @staticmethod
+    def _routing_content_fingerprint(title: str | None, text_preview: str | None) -> str:
+        base = re.sub(r"\s+", " ", f"{title or ''} {text_preview or ''}".strip().lower())
+        return hashlib.sha256(base.encode("utf-8")).hexdigest()
+
+    async def _record_bucket_routing_feedback_rows(
+        self,
+        *,
+        user_uuid: UUID,
+        moved_rows: list[asyncpg.Record],
+        target_bucket_id: UUID,
+    ) -> None:
+        if not moved_rows or not self._pool:
+            return
+        if not await self._has_table("bucket_routing_feedback"):
+            return
+
+        values: list[tuple[UUID, UUID, UUID | None, UUID, str, str | None]] = []
+        for row in moved_rows:
+            extracted = row.get("extracted_metadata") or {}
+            if isinstance(extracted, str):
+                try:
+                    extracted = json.loads(extracted)
+                except Exception:
+                    extracted = {}
+            title = str(row.get("title") or "")
+            text_preview = str(extracted.get("text_preview") or "")
+            fingerprint = self._routing_content_fingerprint(title, text_preview)
+            source_bucket_id = row.get("source_bucket_id")
+            values.append(
+                (
+                    user_uuid,
+                    row["id"],
+                    source_bucket_id,
+                    target_bucket_id,
+                    fingerprint,
+                    "user_bucket_move",
+                )
+            )
+
+        if not values:
+            return
+
+        async with self._pool.acquire() as connection:
+            await connection.executemany(
+                """
+                INSERT INTO bucket_routing_feedback (
+                    user_id,
+                    document_id,
+                    source_bucket_id,
+                    target_bucket_id,
+                    content_fingerprint,
+                    correction_reason
+                )
+                VALUES ($1, $2, $3, $4, $5, $6)
+                """,
+                values,
+            )
+
+    async def bulk_move_documents(
+        self,
+        *,
+        owner_id: str,
+        source_bucket_id: str,
+        target_bucket_id: str,
+    ) -> dict[str, int]:
+        user_uuid = await self._resolve_existing_user_uuid(owner_id)
+        if not user_uuid or not self._pool:
+            raise RuntimeError("Valid authenticated user is required")
+
+        source_uuid = UUID(source_bucket_id)
+        target_uuid = UUID(target_bucket_id)
+        if source_uuid == target_uuid:
+            return {"moved_documents": 0}
+
+        source_row = await self._get_bucket_row(user_uuid=user_uuid, bucket_id=source_uuid)
+        target_row = await self._get_bucket_row(user_uuid=user_uuid, bucket_id=target_uuid)
+        if not source_row or not target_row:
+            raise RuntimeError("Source or target bucket not found")
+
+        subtree_bucket_ids = await self._resolve_subtree_bucket_ids(
+            user_uuid=user_uuid,
+            root_bucket_uuid=source_uuid,
+        )
+        if not subtree_bucket_ids:
+            return {"moved_documents": 0}
+
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                moved_rows = await connection.fetch(
+                    """
+                    WITH moved AS (
+                        SELECT id, bucket_id, title, extracted_metadata
+                        FROM documents
+                        WHERE created_by = $2
+                          AND bucket_id = ANY($3::uuid[])
+                    )
+                    UPDATE documents d
+                    SET bucket_id = $1,
+                        updated_by = $2,
+                        updated_at = NOW()
+                    FROM moved m
+                    WHERE d.id = m.id
+                    RETURNING d.id,
+                              m.bucket_id AS source_bucket_id,
+                              m.title,
+                              m.extracted_metadata
+                    """,
+                    target_uuid,
+                    user_uuid,
+                    subtree_bucket_ids,
+                )
+
+                moved_document_ids = [row["id"] for row in moved_rows]
+
+                if moved_document_ids:
+                    await connection.execute(
+                        """
+                        UPDATE document_chunks
+                        SET chunk_metadata = jsonb_set(
+                                COALESCE(chunk_metadata, '{}'::jsonb),
+                                '{bucket_id}',
+                                to_jsonb($1::text),
+                                TRUE
+                            )
+                        WHERE document_id = ANY($2::uuid[])
+                        """,
+                        str(target_uuid),
+                        moved_document_ids,
+                    )
+
+        await self._record_bucket_routing_feedback_rows(
+            user_uuid=user_uuid,
+            moved_rows=moved_rows,
+            target_bucket_id=target_uuid,
+        )
+
+        moved_count = len(moved_document_ids)
+
+        if moved_document_ids and self._qdrant:
+            def _set_payload_for_collection(collection_name: str) -> None:
+                client = self._qdrant
+                if not client:
+                    return
+                qdrant_filter = qmodels.Filter(
+                    must=[
+                        qmodels.FieldCondition(
+                            key="user_id",
+                            match=qmodels.MatchValue(value=str(user_uuid)),
+                        ),
+                        qmodels.FieldCondition(
+                            key="document_id",
+                            match=qmodels.MatchAny(
+                                any=[str(doc_id) for doc_id in moved_document_ids]
+                            ),
+                        ),
+                    ]
+                )
+                points, _ = client.scroll(
+                    collection_name=collection_name,
+                    scroll_filter=qdrant_filter,
+                    limit=max(len(moved_document_ids) * 256, 1000),
+                    with_payload=False,
+                    with_vectors=False,
+                )
+                point_ids = [point.id for point in points if point.id is not None]
+                if not point_ids:
+                    return
+                client.set_payload(
+                    collection_name=collection_name,
+                    payload={"bucket_id": str(target_uuid)},
+                    points=point_ids,
+                    wait=False,
+                )
+
+            await asyncio.to_thread(_set_payload_for_collection, self.config.qdrant_collection)
+            await asyncio.to_thread(
+                _set_payload_for_collection,
+                self.config.qdrant_fallback_collection,
+            )
+
+        await self._refresh_bucket_document_counts(user_uuid)
+        return {"moved_documents": moved_count}
+
+    async def delete_bucket(
+        self,
+        *,
+        owner_id: str,
+        bucket_id: str,
+        target_bucket_id: str | None,
+    ) -> dict[str, int]:
+        user_uuid = await self._resolve_existing_user_uuid(owner_id)
+        if not user_uuid or not self._pool:
+            raise RuntimeError("Valid authenticated user is required")
+
+        bucket_uuid = UUID(bucket_id)
+        bucket_row = await self._get_bucket_row(user_uuid=user_uuid, bucket_id=bucket_uuid)
+        if not bucket_row:
+            raise RuntimeError("Bucket not found")
+        if bool(bucket_row["is_default"]):
+            raise PermissionError("Default buckets cannot be deleted")
+
+        target_uuid: UUID | None = UUID(target_bucket_id) if target_bucket_id else None
+        if target_uuid is None:
+            parent_uuid = bucket_row["parent_bucket_id"]
+            target_uuid = parent_uuid if parent_uuid else None
+
+        if target_uuid is None:
+            fallback = await self._find_needs_classification_bucket(user_uuid)
+            if fallback is None:
+                await self._ensure_user_default_buckets(user_uuid)
+                fallback = await self._find_needs_classification_bucket(user_uuid)
+            if fallback is None:
+                raise RuntimeError("No valid target bucket available for redistribution")
+            target_uuid = fallback
+
+        subtree_bucket_ids = await self._resolve_subtree_bucket_ids(
+            user_uuid=user_uuid,
+            root_bucket_uuid=bucket_uuid,
+        )
+        if not subtree_bucket_ids:
+            return {"redistributed_documents": 0, "deleted_buckets": 0}
+
+        if target_uuid in subtree_bucket_ids:
+            raise RuntimeError("Cannot redistribute documents into the bucket being deleted")
+
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                moved = await connection.fetch(
+                    """
+                    WITH moved AS (
+                        SELECT id, bucket_id, title, extracted_metadata
+                        FROM documents
+                        WHERE created_by = $2
+                          AND bucket_id = ANY($3::uuid[])
+                    )
+                    UPDATE documents d
+                    SET bucket_id = $1,
+                        updated_by = $2,
+                        updated_at = NOW()
+                    FROM moved m
+                    WHERE d.id = m.id
+                    RETURNING d.id,
+                              m.bucket_id AS source_bucket_id,
+                              m.title,
+                              m.extracted_metadata
+                    """,
+                    target_uuid,
+                    user_uuid,
+                    subtree_bucket_ids,
+                )
+                moved_document_ids = [row["id"] for row in moved]
+
+                await connection.execute(
+                    """
+                    UPDATE buckets
+                    SET is_deleted = TRUE,
+                        deleted_at = NOW(),
+                        updated_at = NOW()
+                    WHERE user_id = $1
+                      AND id = ANY($2::uuid[])
+                    """,
+                    user_uuid,
+                    subtree_bucket_ids,
+                )
+
+        await self._record_bucket_routing_feedback_rows(
+            user_uuid=user_uuid,
+            moved_rows=moved,
+            target_bucket_id=target_uuid,
+        )
+
+        if moved_document_ids and self._qdrant:
+            def _set_payload_for_collection(collection_name: str) -> None:
+                client = self._qdrant
+                if not client:
+                    return
+                qdrant_filter = qmodels.Filter(
+                    must=[
+                        qmodels.FieldCondition(
+                            key="user_id",
+                            match=qmodels.MatchValue(value=str(user_uuid)),
+                        ),
+                        qmodels.FieldCondition(
+                            key="document_id",
+                            match=qmodels.MatchAny(
+                                any=[str(doc_id) for doc_id in moved_document_ids]
+                            ),
+                        ),
+                    ]
+                )
+                points, _ = client.scroll(
+                    collection_name=collection_name,
+                    scroll_filter=qdrant_filter,
+                    limit=max(len(moved_document_ids) * 256, 1000),
+                    with_payload=False,
+                    with_vectors=False,
+                )
+                point_ids = [point.id for point in points if point.id is not None]
+                if not point_ids:
+                    return
+                client.set_payload(
+                    collection_name=collection_name,
+                    payload={"bucket_id": str(target_uuid)},
+                    points=point_ids,
+                    wait=False,
+                )
+
+            await asyncio.to_thread(_set_payload_for_collection, self.config.qdrant_collection)
+            await asyncio.to_thread(
+                _set_payload_for_collection,
+                self.config.qdrant_fallback_collection,
+            )
+
+        await self._refresh_bucket_document_counts(user_uuid)
+        return {
+            "redistributed_documents": len(moved_document_ids),
+            "deleted_buckets": len(subtree_bucket_ids),
+        }
+
+    async def _find_needs_classification_bucket(self, user_uuid: UUID) -> UUID | None:
+        if not self._pool:
+            return None
+        query = """
+            SELECT id
+            FROM buckets
+            WHERE user_id = $1
+              AND is_deleted = FALSE
+              AND lower(name) = 'needs classification'
+            ORDER BY created_at ASC
+            LIMIT 1
+        """
+        async with self._pool.acquire() as connection:
+            row = await connection.fetchrow(query, user_uuid)
+        return row["id"] if row else None
+
+    async def _bucket_routing_feedback_boost(
+        self,
+        *,
+        user_uuid: UUID,
+        content_fingerprint: str,
+    ) -> dict[str, float]:
+        if not self._pool or not await self._has_table("bucket_routing_feedback"):
+            return {}
+
+        query = """
+            SELECT target_bucket_id, COUNT(*)::int AS count
+            FROM bucket_routing_feedback
+            WHERE user_id = $1
+              AND content_fingerprint = $2
+            GROUP BY target_bucket_id
+        """
+        async with self._pool.acquire() as connection:
+            rows = await connection.fetch(query, user_uuid, content_fingerprint)
+
+        return {
+            str(row["target_bucket_id"]): min(0.20, 0.05 * int(row["count"] or 0))
+            for row in rows
+        }
+
+    async def _rank_bucket_candidates(
+        self,
+        *,
+        user_uuid: UUID,
+        title: str,
+        preview_text: str,
+        bucket_hint: str | None,
+        buckets: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        source_text = " ".join(
+            [title.strip(), preview_text.strip()[:500], (bucket_hint or "").strip()]
+        ).strip()
+        normalized_source = normalize_text = re.sub(r"\s+", " ", source_text.lower())
+        tokens = {token for token in re.findall(r"[a-z0-9]{3,}", normalized_source)}
+        content_fingerprint = hashlib.sha256(normalized_source.encode("utf-8")).hexdigest()
+        boosts = await self._bucket_routing_feedback_boost(
+            user_uuid=user_uuid,
+            content_fingerprint=content_fingerprint,
+        )
+
+        scored: list[dict[str, Any]] = []
+        for bucket in buckets:
+            name = str(bucket.get("name") or "")
+            description = str(bucket.get("description") or "")
+            path = str(bucket.get("path") or "")
+            bucket_tokens = {
+                token
+                for token in re.findall(
+                    r"[a-z0-9]{3,}",
+                    f"{name.lower()} {description.lower()} {path.lower()}",
+                )
+            }
+            overlap = len(tokens & bucket_tokens)
+            denom = max(1, len(tokens))
+            overlap_score = overlap / denom
+            name_bonus = 0.15 if any(t in name.lower() for t in tokens) else 0.0
+            hint_bonus = 0.2 if bucket_hint and any(t in (name + ' ' + description).lower() for t in re.findall(r"[a-z0-9]{3,}", bucket_hint.lower())) else 0.0
+            feedback_boost = float(boosts.get(str(bucket["bucket_id"]), 0.0))
+            confidence = min(0.99, max(0.05, overlap_score + name_bonus + hint_bonus + feedback_boost))
+            scored.append(
+                {
+                    "bucket_id": str(bucket["bucket_id"]),
+                    "confidence": confidence,
+                    "reasoning": f"token_overlap={overlap}; hint_bonus={hint_bonus:.2f}; feedback_boost={feedback_boost:.2f}",
+                }
+            )
+
+        scored.sort(key=lambda item: item["confidence"], reverse=True)
+        return scored[:3]
+
+    async def _gemini_rank_bucket_candidates(
+        self,
+        *,
+        title: str,
+        preview_text: str,
+        bucket_hint: str | None,
+        buckets: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not buckets:
+            return []
+
+        try:
+            client = ResilientGeminiClient(max_retries=2)
+        except Exception:
+            return []
+
+        bucket_lines = []
+        for bucket in buckets:
+            bucket_lines.append(
+                f"<bucket><bucket_id>{bucket['bucket_id']}</bucket_id><name>{bucket.get('name','')}</name><description>{bucket.get('description','')}</description><path>{bucket.get('path','')}</path><document_count>{bucket.get('document_count',0)}</document_count></bucket>"
+            )
+
+        hint_value = bucket_hint or ""
+        prompt = (
+            "<document_summary>"
+            f"<title>{title}</title>"
+            f"<preview>{preview_text[:500]}</preview>"
+            f"<hint>{hint_value}</hint>"
+            "</document_summary>"
+            "<available_buckets>"
+            + "".join(bucket_lines)
+            + "</available_buckets>"
+            "<classification_instruction>"
+            "Return ONLY JSON with a top-level key 'candidates'."
+            "Each candidate must include: bucket_id (string), confidence (0..1), reasoning (string)."
+            "Return up to 3 candidates ordered best-to-worst."
+            "</classification_instruction>"
+        )
+
+        try:
+            raw = await client.generate_content(prompt=prompt, temperature=0.1)
+            cleaned = raw.strip()
+            start = cleaned.find("{")
+            end = cleaned.rfind("}")
+            if start < 0 or end < 0:
+                return []
+            payload = json.loads(cleaned[start : end + 1])
+            candidates = list(payload.get("candidates") or [])
+            normalized: list[dict[str, Any]] = []
+            valid_bucket_ids = {str(bucket["bucket_id"]) for bucket in buckets}
+            for item in candidates:
+                bucket_id = str(item.get("bucket_id") or "")
+                if not bucket_id or bucket_id not in valid_bucket_ids:
+                    continue
+                confidence = float(item.get("confidence") or 0.0)
+                normalized.append(
+                    {
+                        "bucket_id": bucket_id,
+                        "confidence": max(0.0, min(1.0, confidence)),
+                        "reasoning": str(item.get("reasoning") or "gemini-classified"),
+                    }
+                )
+            normalized.sort(key=lambda row: row["confidence"], reverse=True)
+            return normalized[:3]
+        except Exception:
+            return []
+
+    async def expand_query_gemini(
+        self,
+        query: str,
+    ) -> list[str]:
+        """Use Gemini to produce 2-3 alternative phrasings of the query.
+
+        Returns a list of alternative query strings (not including the original).
+        Returns an empty list when Gemini is unavailable so callers degrade
+        gracefully to the original query.
+        """
+        if not query or len(query.strip()) < 3:
+            return []
+        try:
+            client = ResilientGeminiClient(max_retries=1)
+        except Exception:
+            return []
+
+        prompt = (
+            "You are a search query expansion assistant. "
+            "Given the user search query below, produce 2 to 3 alternative phrasings "
+            "that have the same intent but use different words, synonyms, or formulations. "
+            "Return ONLY a JSON object with a single key 'alternatives' whose value is an array of strings.\n"
+            f"Query: {query}"
+        )
+        try:
+            raw = await client.generate_content(prompt=prompt, temperature=0.3)
+            cleaned = raw.strip()
+            start = cleaned.find("{")
+            end = cleaned.rfind("}")
+            if start < 0 or end < 0:
+                return []
+            payload = json.loads(cleaned[start : end + 1])
+            alternatives = [
+                str(alt).strip()
+                for alt in (payload.get("alternatives") or [])
+                if str(alt).strip()
+            ]
+            return alternatives[:3]
+        except Exception:
+            return []
+
+    async def route_content_bucket(
+        self,
+        *,
+        owner_id: str,
+        title: str,
+        preview_text: str,
+        explicit_bucket_id: str | None,
+        bucket_hint: str | None,
+    ) -> dict[str, Any]:
+        user_uuid = await self._resolve_existing_user_uuid(owner_id)
+        if not user_uuid:
+            return {
+                "mode": "anonymous",
+                "selected_bucket_id": None,
+                "selected_confidence": 0.0,
+                "requires_confirmation": False,
+                "candidates": [],
+            }
+
+        await self._ensure_user_default_buckets(user_uuid)
+        bucket_rows = await self.list_buckets_for_user(owner_id)
+
+        if explicit_bucket_id:
+            explicit_uuid = UUID(explicit_bucket_id)
+            explicit_row = await self._get_bucket_row(
+                user_uuid=user_uuid,
+                bucket_id=explicit_uuid,
+            )
+            if not explicit_row:
+                raise RuntimeError("Explicit bucket not found")
+            return {
+                "mode": "explicit",
+                "selected_bucket_id": str(explicit_row["id"]),
+                "selected_confidence": 1.0,
+                "requires_confirmation": False,
+                "candidates": [
+                    {
+                        "bucket_id": str(explicit_row["id"]),
+                        "confidence": 1.0,
+                        "reasoning": "User explicit override",
+                    }
+                ],
+            }
+
+        heuristic_candidates = await self._rank_bucket_candidates(
+            user_uuid=user_uuid,
+            title=title,
+            preview_text=preview_text,
+            bucket_hint=bucket_hint,
+            buckets=bucket_rows,
+        )
+        gemini_candidates = await self._gemini_rank_bucket_candidates(
+            title=title,
+            preview_text=preview_text,
+            bucket_hint=bucket_hint,
+            buckets=bucket_rows,
+        )
+
+        merged_by_bucket: dict[str, dict[str, Any]] = {}
+        for source in (heuristic_candidates, gemini_candidates):
+            for candidate in source:
+                bucket_id = str(candidate["bucket_id"])
+                previous = merged_by_bucket.get(bucket_id)
+                confidence = float(candidate["confidence"])
+                if previous is None or confidence > float(previous["confidence"]):
+                    merged_by_bucket[bucket_id] = {
+                        "bucket_id": bucket_id,
+                        "confidence": confidence,
+                        "reasoning": str(candidate.get("reasoning") or ""),
+                    }
+
+        candidates = sorted(
+            merged_by_bucket.values(),
+            key=lambda item: float(item["confidence"]),
+            reverse=True,
+        )[:3]
+
+        if not candidates:
+            fallback_bucket = await self._find_needs_classification_bucket(user_uuid)
+            return {
+                "mode": "fallback",
+                "selected_bucket_id": str(fallback_bucket) if fallback_bucket else None,
+                "selected_confidence": 0.0,
+                "requires_confirmation": True,
+                "candidates": [],
+            }
+
+        top = candidates[0]
+        top_confidence = float(top["confidence"])
+        needs_classification_bucket = await self._find_needs_classification_bucket(user_uuid)
+
+        if top_confidence >= self.ROUTING_AUTO_CONFIDENCE_THRESHOLD:
+            mode = "hint_auto" if bucket_hint else "auto"
+            return {
+                "mode": mode,
+                "selected_bucket_id": top["bucket_id"],
+                "selected_confidence": top_confidence,
+                "requires_confirmation": False,
+                "candidates": candidates,
+            }
+
+        if top_confidence >= self.ROUTING_CONFIRMATION_THRESHOLD:
+            mode = "hint_confirmation" if bucket_hint else "confirmation"
+            return {
+                "mode": mode,
+                "selected_bucket_id": top["bucket_id"],
+                "selected_confidence": top_confidence,
+                "requires_confirmation": True,
+                "candidates": candidates[:2],
+            }
+
+        return {
+            "mode": "needs_classification",
+            "selected_bucket_id": (
+                str(needs_classification_bucket) if needs_classification_bucket else top["bucket_id"]
+            ),
+            "selected_confidence": top_confidence,
+            "requires_confirmation": True,
+            "candidates": candidates[:2],
+        }
 
     async def _ensure_minio_bucket(self) -> None:
         if not self.config.minio_enabled:
@@ -1384,6 +2543,8 @@ class KnowledgePersistence:
         mime_type: str | None,
         content_bytes: bytes | None,
         structured: StructuredDocument,
+        content_bucket_id: str | None = None,
+        routing_metadata: dict[str, Any] | None = None,
         dedup: dict[str, Any] | None = None,
         integrity_checkpoints: list[IntegrityCheckpoint] | None = None,
     ) -> dict[str, Any]:
@@ -1396,7 +2557,22 @@ class KnowledgePersistence:
         safe_filename = Path(filename).name or "document.bin"
         source_type = "upload" if content_bytes else ("url" if source_url else "api")
 
-        bucket_id = await self._ensure_bucket_record(user_uuid)
+        resolved_content_bucket_id: UUID | None = None
+        if content_bucket_id and user_uuid:
+            candidate_uuid = UUID(content_bucket_id)
+            bucket_row = await self._get_bucket_row(
+                user_uuid=user_uuid,
+                bucket_id=candidate_uuid,
+            )
+            if bucket_row:
+                resolved_content_bucket_id = candidate_uuid
+
+        if resolved_content_bucket_id is None:
+            resolved_content_bucket_id = await self._ensure_storage_bucket_record(
+                user_uuid
+            )
+
+        minio_storage_bucket_name = self.config.minio_bucket
 
         storage_key: str | None = None
         if content_bytes:
@@ -1416,6 +2592,8 @@ class KnowledgePersistence:
             "images_count": len(structured.images),
             "chunk_count": len(structured.chunks),
         }
+        if routing_metadata:
+            extracted_metadata["bucket_routing"] = routing_metadata
         if dedup:
             extracted_metadata["dedup"] = {
                 "normalized_sha256": dedup.get("normalized_sha256"),
@@ -1509,7 +2687,7 @@ class KnowledgePersistence:
                 created = await connection.fetchrow(
                     document_insert,
                     document_id,
-                    bucket_id,
+                    resolved_content_bucket_id,
                     Path(filename).stem,
                     structured.format.value,
                     mime_type,
@@ -1517,7 +2695,7 @@ class KnowledgePersistence:
                     source_url,
                     json.dumps(source_metadata),
                     "minio" if storage_key else "inline",
-                    self.config.minio_bucket if storage_key else None,
+                    minio_storage_bucket_name if storage_key else None,
                     storage_key,
                     file_size,
                     checksum,
@@ -1560,7 +2738,11 @@ class KnowledgePersistence:
                     chunk_metadata = dict(chunk.metadata or {})
                     chunk_metadata["document_id"] = str(document_id)
                     chunk_metadata["source_document_id"] = str(document_id)
-                    chunk_metadata["bucket_id"] = str(bucket_id) if bucket_id else None
+                    chunk_metadata["bucket_id"] = (
+                        str(resolved_content_bucket_id)
+                        if resolved_content_bucket_id
+                        else None
+                    )
                     if integrity_checkpoints:
                         chunk_metadata["integrity_final_checksum_md5"] = (
                             integrity_checkpoints[-1].checksum_md5
@@ -1632,11 +2814,22 @@ class KnowledgePersistence:
                 checkpoints=integrity_checkpoints,
             )
 
+        if user_uuid:
+            await self._refresh_bucket_document_counts(user_uuid)
+
         return {
             "document_id": str(created["id"]),
             "created_at": created["created_at"].isoformat(),
             "storage_key": storage_key,
-            "bucket_id": str(bucket_id) if bucket_id else None,
+            "bucket_id": (
+                str(resolved_content_bucket_id) if resolved_content_bucket_id else None
+            ),
+            "content_bucket_id": (
+                str(resolved_content_bucket_id) if resolved_content_bucket_id else None
+            ),
+            "minio_storage_bucket_name": (
+                minio_storage_bucket_name if storage_key else None
+            ),
         }
 
     async def list_documents_for_owner(self, owner_id: str) -> list[dict[str, Any]]:
@@ -1706,7 +2899,7 @@ class KnowledgePersistence:
         *,
         document_id: str,
         owner_id: str,
-        bucket_id: str | None,
+        content_bucket_id: str | None,
         content_type: str,
         chunks: list[DocumentChunk],
         created_at: str,
@@ -1815,18 +3008,24 @@ class KnowledgePersistence:
                 "chunk_id": chunk.chunk_id,
                 "chunk_index": index,
                 "user_id": owner_id,
-                "bucket_id": bucket_id,
+                "bucket_id": content_bucket_id,
                 "content_type": content_type,
+                "section_heading": (chunk.metadata or {}).get("section_heading"),
+                "page_range": (chunk.metadata or {}).get("page_range"),
+                "token_count": int((chunk.metadata or {}).get("token_count") or chunk.token_count or 0),
+                "char_count": int((chunk.metadata or {}).get("char_count") or chunk.char_count or 0),
+                "split_boundary": (chunk.metadata or {}).get("split_boundary"),
+                "parent_chunk_id": (chunk.metadata or {}).get("parent_chunk_id"),
                 "tags": list((chunk.metadata or {}).get("tags") or []),
                 "created_at": created_epoch,
                 "has_image": bool((chunk.metadata or {}).get("has_image")),
                 "embedding_source": "fallback" if use_fallback_collection else "gemini",
                 "requires_reembedding": bool(use_fallback_collection),
+                "text_preview": chunk.text[:200],
                 "text": chunk.text[:4000],
             }
-            point_id = str(uuid4())
             point = qmodels.PointStruct(
-                id=point_id,
+                id=chunk.chunk_id,
                 vector=vector,
                 payload=payload,
             )
@@ -1862,6 +3061,32 @@ class KnowledgePersistence:
                 points_fallback,
             )
 
+        if self._meili and chunk_records:
+            meili_docs = [
+                {
+                    "id": chunk.chunk_id,
+                    "document_id": document_id,
+                    "user_id": owner_id,
+                    "bucket_id": content_bucket_id or "",
+                    "content_type": content_type,
+                    "text": (chunk.text or "")[:10000],
+                    "created_at": created_epoch,
+                }
+                for _, chunk, _ in chunk_records
+                if chunk.chunk_id
+            ]
+            if meili_docs:
+                index_name = self.config.meilisearch_index
+
+                def _meili_upsert(docs: list[dict]) -> None:
+                    if self._meili:
+                        self._meili.index(index_name).add_documents(docs)
+
+                try:
+                    await asyncio.to_thread(_meili_upsert, meili_docs)
+                except Exception as exc:
+                    logger.warning("Meilisearch indexing failed for document %s: %s", document_id, exc)
+
     def _filter_conditions(
         self,
         owner_id: str,
@@ -1874,10 +3099,22 @@ class KnowledgePersistence:
         params: list[Any] = [UUID(owner_id)]
         index = start_index
 
-        bucket_id = filters.get("bucket_id")
-        if bucket_id:
+        bucket_ids = list(filters.get("bucket_ids") or [])
+        if bucket_ids:
+            conditions.append(f"bucket_id = ANY(${index}::uuid[])")
+            params.append(bucket_ids)
+            index += 1
+        else:
+            bucket_id = filters.get("bucket_id")
+            if bucket_id:
+                conditions.append(f"bucket_id = ${index}::uuid")
+                params.append(bucket_id)
+                index += 1
+
+        content_bucket_id = filters.get("content_bucket_id")
+        if content_bucket_id and not bucket_ids and not filters.get("bucket_id"):
             conditions.append(f"bucket_id = ${index}::uuid")
-            params.append(bucket_id)
+            params.append(content_bucket_id)
             index += 1
 
         content_type = filters.get("content_type")
@@ -1899,6 +3136,48 @@ class KnowledgePersistence:
             index += 1
 
         return " AND ".join(conditions), params
+
+    async def search_semantic_multi(
+        self,
+        *,
+        owner_id: str,
+        queries: list[str],
+        top_k: int,
+        ef_search: int,
+        filters: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Run semantic search for multiple query variants in parallel and merge.
+
+        Each variant is searched independently. For each unique document_id the
+        best score across all variants is kept, preserving maximum recall.
+        """
+        if not queries:
+            return []
+        search_tasks = [
+            self.search_semantic(
+                owner_id=owner_id,
+                query=q,
+                top_k=top_k,
+                ef_search=ef_search,
+                filters=filters,
+            )
+            for q in queries
+        ]
+        results_per_variant: list[list[dict[str, Any]]] = await asyncio.gather(
+            *search_tasks
+        )
+        merged: dict[str, float] = {}
+        for variant_results in results_per_variant:
+            for row in variant_results:
+                doc_id = str(row.get("document_id") or "")
+                score = float(row.get("score") or 0.0)
+                if doc_id and score > merged.get(doc_id, -1.0):
+                    merged[doc_id] = score
+        return sorted(
+            [{"document_id": doc_id, "score": score} for doc_id, score in merged.items()],
+            key=lambda r: r["score"],
+            reverse=True,
+        )[:top_k]
 
     async def search_keyword(
         self,
@@ -1933,6 +3212,56 @@ class KnowledgePersistence:
             for row in rows
         ]
 
+    async def _ensure_meili_index(self) -> None:
+        """Create and configure the Meilisearch index if it does not already exist."""
+        if not self._meili:
+            return
+        index_name = self.config.meilisearch_index
+        client = self._meili
+
+        def _setup() -> None:
+            try:
+                client.get_index(index_name)
+            except meilisearch.errors.MeilisearchApiError:
+                task = client.create_index(index_name, {"primaryKey": "id"})
+                client.wait_for_task(task.task_uid, timeout_in_ms=10000)
+            idx = client.index(index_name)
+            idx.update_settings(
+                {
+                    "searchableAttributes": ["text", "content_type"],
+                    "filterableAttributes": ["user_id", "bucket_id", "content_type"],
+                    "sortableAttributes": ["created_at"],
+                    "rankingRules": [
+                        "words",
+                        "typo",
+                        "proximity",
+                        "attribute",
+                        "sort",
+                        "exactness",
+                    ],
+                    "typoTolerance": {
+                        "enabled": True,
+                        "minWordSizeForTypos": {
+                            "oneTypo": 5,
+                            "twoTypos": 9,
+                        },
+                    },
+                }
+            )
+
+        await asyncio.to_thread(_setup)
+
+    async def check_meilisearch(self) -> str:
+        """Return health status for Meilisearch."""
+        if not self._meili:
+            return "disabled"
+        try:
+            result = await asyncio.to_thread(self._meili.health)
+            status = result.get("status") if isinstance(result, dict) else getattr(result, "status", None)
+            return "healthy" if status == "available" else "degraded"
+        except Exception:
+            return "unreachable"
+
     async def search_typo_tolerant(
         self,
         *,
@@ -1941,6 +3270,89 @@ class KnowledgePersistence:
         top_k: int,
         filters: dict[str, Any],
     ) -> list[dict[str, Any]]:
+        if self._meili:
+            return await self._search_typo_tolerant_meili(
+                owner_id=owner_id,
+                query=query,
+                top_k=top_k,
+                filters=filters,
+            )
+        return await self._search_typo_tolerant_pg(
+            owner_id=owner_id,
+            query=query,
+            top_k=top_k,
+            filters=filters,
+        )
+
+    async def _search_typo_tolerant_meili(
+        self,
+        *,
+        owner_id: str,
+        query: str,
+        top_k: int,
+        filters: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Typo-tolerant search powered by Meilisearch."""
+        index_name = self.config.meilisearch_index
+        filter_parts: list[str] = [f'user_id = "{owner_id}"']
+
+        bucket_ids = list(filters.get("bucket_ids") or [])
+        if bucket_ids:
+            ids_joined = " OR ".join(f'bucket_id = "{bid}"' for bid in bucket_ids)
+            filter_parts.append(f"({ids_joined})")
+        elif filters.get("bucket_id"):
+            filter_parts.append(f'bucket_id = "{filters["bucket_id"]}"')
+
+        if filters.get("content_type"):
+            filter_parts.append(f'content_type = "{filters["content_type"]}"')
+
+        meili_filter = " AND ".join(filter_parts)
+
+        def _do_search() -> list[dict[str, Any]]:
+            if not self._meili:
+                return []
+            result = self._meili.index(index_name).search(
+                query,
+                {
+                    "limit": top_k * 3,
+                    "filter": meili_filter,
+                    "showRankingScore": True,
+                    "attributesToRetrieve": ["document_id"],
+                },
+            )
+            hits: list[dict] = result.get("hits", []) if isinstance(result, dict) else []
+            aggregated: dict[str, float] = {}
+            for hit in hits:
+                doc_id = hit.get("document_id", "")
+                score = float(hit.get("_rankingScore", 0.0))
+                if doc_id and score > aggregated.get(doc_id, -1.0):
+                    aggregated[doc_id] = score
+            sorted_docs = sorted(aggregated.items(), key=lambda kv: kv[1], reverse=True)
+            return [
+                {"document_id": doc_id, "score": score}
+                for doc_id, score in sorted_docs[:top_k]
+            ]
+
+        try:
+            return await asyncio.to_thread(_do_search)
+        except Exception as exc:
+            logger.warning("Meilisearch search failed, falling back to pg_trgm: %s", exc)
+            return await self._search_typo_tolerant_pg(
+                owner_id=owner_id,
+                query=query,
+                top_k=top_k,
+                filters=filters,
+            )
+
+    async def _search_typo_tolerant_pg(
+        self,
+        *,
+        owner_id: str,
+        query: str,
+        top_k: int,
+        filters: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """pg_trgm similarity fallback used when Meilisearch is unavailable."""
         if not self._pool:
             return []
 
@@ -2010,7 +3422,15 @@ class KnowledgePersistence:
             ]
         )
 
-        if filters.get("bucket_id"):
+        bucket_ids = list(filters.get("bucket_ids") or [])
+        if bucket_ids:
+            qdrant_filter.must.append(
+                qmodels.FieldCondition(
+                    key="bucket_id",
+                    match=qmodels.MatchAny(any=[str(bucket_id) for bucket_id in bucket_ids]),
+                )
+            )
+        elif filters.get("bucket_id"):
             qdrant_filter.must.append(
                 qmodels.FieldCondition(
                     key="bucket_id",
@@ -2103,16 +3523,18 @@ class KnowledgePersistence:
 
         sql = """
             SELECT
-                id,
-                bucket_id,
-                title,
-                source_url,
-                content_type,
-                status,
-                created_at,
-                extracted_metadata
-            FROM documents
-            WHERE id = ANY($1::uuid[])
+                d.id,
+                d.bucket_id,
+                b.path AS bucket_path,
+                d.title,
+                d.source_url,
+                d.content_type,
+                d.status,
+                d.created_at,
+                d.extracted_metadata
+            FROM documents d
+            LEFT JOIN buckets b ON b.id = d.bucket_id
+            WHERE d.id = ANY($1::uuid[])
         """
         async with self._pool.acquire() as connection:
             rows = await connection.fetch(sql, uuids)
@@ -2128,6 +3550,7 @@ class KnowledgePersistence:
             documents[str(row["id"])] = {
                 "document_id": str(row["id"]),
                 "bucket_id": str(row["bucket_id"]) if row["bucket_id"] else None,
+                "bucket_path": row["bucket_path"],
                 "title": row["title"] or "document",
                 "source_url": row["source_url"],
                 "status": row["status"],

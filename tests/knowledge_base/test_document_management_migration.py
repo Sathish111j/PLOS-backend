@@ -45,6 +45,39 @@ def test_kb_tables_exist() -> None:
             cursor.execute(table_query, ("document_engagement",))
             assert cursor.fetchone()[0] is True
 
+            cursor.execute(table_query, ("bucket_routing_feedback",))
+            assert cursor.fetchone()[0] is True
+
+
+def test_bucket_hierarchy_columns_exist() -> None:
+    required_columns = {
+        "id",
+        "user_id",
+        "parent_bucket_id",
+        "depth",
+        "name",
+        "description",
+        "icon_emoji",
+        "color_hex",
+        "document_count",
+        "is_default",
+        "is_deleted",
+        "path",
+    }
+
+    with psycopg.connect(_sync_dsn()) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'buckets'
+                """
+            )
+            found_columns = {row[0] for row in cursor.fetchall()}
+
+    assert required_columns.issubset(found_columns)
+
 
 def test_documents_critical_columns_exist() -> None:
     required_columns = {

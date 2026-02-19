@@ -32,8 +32,10 @@ class InfraHealthClient:
         qdrant_status = await self.check_qdrant()
         minio_status = await self.check_minio()
         postgres_status = await self.persistence.check_postgres()
+        meilisearch_status = await self.persistence.check_meilisearch()
         return {
             "qdrant": qdrant_status,
             "minio": minio_status,
             "postgres": postgres_status,
+            "meilisearch": meilisearch_status,
         }

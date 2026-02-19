@@ -33,6 +33,9 @@ class KnowledgeBaseConfig:
     minio_bucket: str
     minio_access_key: str
     minio_secret_key: str
+    meilisearch_url: str
+    meilisearch_master_key: str
+    meilisearch_index: str
     database_url: str
     redis_url: str
 
@@ -103,6 +106,9 @@ def get_kb_config() -> KnowledgeBaseConfig:
         minio_bucket=os.getenv("MINIO_BUCKET", "knowledge-base-documents"),
         minio_access_key=os.getenv("MINIO_ACCESS_KEY", "plos_minio_admin"),
         minio_secret_key=os.getenv("MINIO_SECRET_KEY", "plos_minio_secure_2026"),
+        meilisearch_url=os.getenv("MEILISEARCH_URL", "http://meilisearch:7700"),
+        meilisearch_master_key=os.getenv("MEILISEARCH_MASTER_KEY", ""),
+        meilisearch_index=os.getenv("MEILISEARCH_INDEX", "kb_chunks"),
         database_url=os.getenv(
             "DATABASE_URL",
             "postgresql+asyncpg://postgres:plos_db_secure_2025@supabase-db:5432/plos",

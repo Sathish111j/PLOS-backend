@@ -208,6 +208,40 @@ services:
         max-file: "3"
     restart: unless-stopped
 
+  # Meilisearch - Typo-tolerant full-text search engine
+  meilisearch:
+    image: getmeili/meilisearch:v1.11
+    container_name: plos-meilisearch
+    environment:
+      MEILI_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-plos_meili_secure_2025}
+      MEILI_ENV: ${MEILI_ENV:-production}
+    ports:
+      - "${MEILISEARCH_PORT:-7700}:7700"
+    volumes:
+      - meilisearch_data:/meili_data
+    networks:
+      - plos-network
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          cpus: "0.1"
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
   # MinIO object storage
   minio:
     image: minio/minio:latest
@@ -466,6 +500,8 @@ services:
         condition: service_started
       minio:
         condition: service_healthy
+      meilisearch:
+        condition: service_healthy
     environment:
       SERVICE_NAME: knowledge-base
       SERVICE_PORT: ${KNOWLEDGE_BASE_PORT:-8003}
@@ -486,6 +522,9 @@ services:
       MINIO_BUCKET: ${MINIO_BUCKET:-knowledge-base-documents}
       MINIO_SECURE: ${MINIO_SECURE:-false}
       MINIO_REGION: ${MINIO_REGION:-}
+      MEILISEARCH_URL: ${MEILISEARCH_URL:-http://meilisearch:7700}
+      MEILISEARCH_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-plos_meili_secure_2025}
+      MEILISEARCH_INDEX: ${MEILISEARCH_INDEX:-kb_chunks}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
       GEMINI_DEFAULT_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-2.5-flash}
@@ -547,6 +586,8 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_started
+      meilisearch:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-plos_db_secure_2025}@supabase-db:5432/${POSTGRES_DB:-plos}
       REDIS_URL: redis://:${REDIS_PASSWORD:-plos_redis_secure_2025}@redis:6379/0
@@ -560,6 +601,9 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-plos_minio_admin}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-plos_minio_secure_2026}
       MINIO_BUCKET: ${MINIO_BUCKET:-knowledge-base-documents}
+      MEILISEARCH_URL: http://meilisearch:7700
+      MEILISEARCH_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-plos_meili_secure_2025}
+      MEILISEARCH_INDEX: ${MEILISEARCH_INDEX:-kb_chunks}
       PYTHONPATH: /workspace/services/knowledge-base/src:/workspace
     volumes:
       - ./:/workspace:ro
@@ -705,4 +749,6 @@ volumes:
   knowledge_base_storage:
     driver: local
   minio_data:
+    driver: local
+  meilisearch_data:
     driver: local

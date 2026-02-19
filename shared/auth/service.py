@@ -71,6 +71,8 @@ class AuthService:
         if not user:
             raise ValidationError(message="Failed to create user")
 
+        await self.user_repo.create_default_buckets(user["id"])
+
         # Update last login
         await self.user_repo.update_last_login(user["id"])
 

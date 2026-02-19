@@ -284,3 +284,96 @@ class UserRepository:
         query = text("SELECT 1 FROM users WHERE username = :username")
         result = await self.db.execute(query, {"username": username})
         return result.fetchone() is not None
+
+    async def create_default_buckets(self, user_id: UUID) -> None:
+        root_buckets = [
+            {
+                "name": "Research and Reference",
+                "description": "Academic papers, technical documentation, and reference resources for study and citation.",
+                "icon": "book",
+                "color": "#4F46E5",
+                "is_default": True,
+            },
+            {
+                "name": "Work and Projects",
+                "description": "Work files, project documentation, meeting notes, reports, and professional materials.",
+                "icon": "briefcase",
+                "color": "#0EA5E9",
+                "is_default": True,
+            },
+            {
+                "name": "Web and Media Saves",
+                "description": "Web pages, articles, social and media content, and online resources to revisit.",
+                "icon": "globe",
+                "color": "#10B981",
+                "is_default": True,
+            },
+            {
+                "name": "Needs Classification",
+                "description": "Temporary inbox for documents that require manual bucket assignment.",
+                "icon": "inbox",
+                "color": "#F59E0B",
+                "is_default": False,
+            },
+        ]
+
+        insert_query = text(
+            """
+            INSERT INTO buckets (
+                name,
+                description,
+                storage_backend,
+                storage_bucket,
+                is_active,
+                created_by,
+                updated_by,
+                user_id,
+                parent_bucket_id,
+                depth,
+                path,
+                icon_emoji,
+                color_hex,
+                document_count,
+                is_default,
+                is_deleted
+            )
+            VALUES (
+                :name,
+                :description,
+                'minio',
+                'knowledge-base-documents',
+                TRUE,
+                :user_id,
+                :user_id,
+                :user_id,
+                NULL,
+                0,
+                :path,
+                :icon_emoji,
+                :color_hex,
+                0,
+                :is_default,
+                FALSE
+            )
+            ON CONFLICT DO NOTHING
+            """
+        )
+
+        for bucket in root_buckets:
+            slug = (
+                bucket["name"].strip().lower().replace(" and ", "-").replace(" ", "-")
+            )
+            await self.db.execute(
+                insert_query,
+                {
+                    "name": bucket["name"],
+                    "description": bucket["description"],
+                    "user_id": str(user_id),
+                    "path": f"/root/{slug}",
+                    "icon_emoji": bucket["icon"],
+                    "color_hex": bucket["color"],
+                    "is_default": bool(bucket["is_default"]),
+                },
+            )
+
+        await self.db.commit()
