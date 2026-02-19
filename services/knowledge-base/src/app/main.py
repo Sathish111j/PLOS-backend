@@ -1,3 +1,4 @@
+from app.api.graph_router import graph_router
 from app.api.router import router as api_router
 from app.core.config import get_kb_config
 from app.dependencies.container import lifespan
@@ -27,6 +28,7 @@ app.add_middleware(
 )
 
 app.include_router(api_router)
+app.include_router(graph_router)
 
 
 @app.get("/")

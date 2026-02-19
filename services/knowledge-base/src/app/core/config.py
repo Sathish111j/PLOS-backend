@@ -38,6 +38,18 @@ class KnowledgeBaseConfig:
     meilisearch_index: str
     database_url: str
     redis_url: str
+    # --- graph ---
+    graph_enabled: bool
+    graph_db_path: str
+    graph_ner_window_tokens: int
+    graph_ner_overlap_tokens: int
+    graph_ner_confidence_threshold: float
+    graph_disambig_vector_high: float
+    graph_disambig_vector_low: float
+    graph_wikidata_cache_ttl_seconds: int
+    graph_pagerank_damping: float
+    graph_pagerank_iterations: int
+    graph_celery_queue: str
 
     @property
     def minio_health_url(self) -> str:
@@ -116,4 +128,23 @@ def get_kb_config() -> KnowledgeBaseConfig:
         redis_url=os.getenv(
             "REDIS_URL", "redis://:plos_redis_secure_2025@redis:6379/0"
         ),
+        graph_enabled=_parse_bool(os.getenv("GRAPH_ENABLED"), True),
+        graph_db_path=os.getenv("GRAPH_DB_PATH", "/var/plos/graph/kuzu_db"),
+        graph_ner_window_tokens=int(os.getenv("GRAPH_NER_WINDOW_TOKENS", "2000")),
+        graph_ner_overlap_tokens=int(os.getenv("GRAPH_NER_OVERLAP_TOKENS", "200")),
+        graph_ner_confidence_threshold=float(
+            os.getenv("GRAPH_NER_CONFIDENCE_THRESHOLD", "0.60")
+        ),
+        graph_disambig_vector_high=float(
+            os.getenv("GRAPH_DISAMBIG_VECTOR_HIGH", "0.92")
+        ),
+        graph_disambig_vector_low=float(
+            os.getenv("GRAPH_DISAMBIG_VECTOR_LOW", "0.80")
+        ),
+        graph_wikidata_cache_ttl_seconds=int(
+            os.getenv("GRAPH_WIKIDATA_CACHE_TTL_SECONDS", str(30 * 24 * 60 * 60))
+        ),
+        graph_pagerank_damping=float(os.getenv("GRAPH_PAGERANK_DAMPING", "0.85")),
+        graph_pagerank_iterations=int(os.getenv("GRAPH_PAGERANK_ITERATIONS", "20")),
+        graph_celery_queue=os.getenv("GRAPH_CELERY_QUEUE", "graph_extraction"),
     )

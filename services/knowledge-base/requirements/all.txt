@@ -3,3 +3,4 @@
 -r storage.txt
 -r ai.txt
 -r processing.txt
+-r graph.txt

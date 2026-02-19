@@ -16,6 +16,7 @@ COPY services/knowledge-base/requirements/storage.txt /tmp/requirements/storage.
 COPY services/knowledge-base/requirements/ai.txt /tmp/requirements/ai.txt
 COPY services/knowledge-base/requirements/processing.txt /tmp/requirements/processing.txt
 COPY services/knowledge-base/requirements/test.txt /tmp/requirements/test.txt
+COPY services/knowledge-base/requirements/graph.txt /tmp/requirements/graph.txt
 
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r /tmp/requirements/base.txt && \
@@ -23,6 +24,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r /tmp/requirements/storage.txt && \
     pip install --no-cache-dir -r /tmp/requirements/processing.txt && \
     pip install --no-cache-dir -r /tmp/requirements/ai.txt && \
+    pip install --no-cache-dir -r /tmp/requirements/graph.txt && \
     pip install --no-cache-dir -r /tmp/requirements/test.txt
 
 WORKDIR /workspace
