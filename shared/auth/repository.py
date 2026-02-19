@@ -317,8 +317,7 @@ class UserRepository:
             },
         ]
 
-        insert_query = text(
-            """
+        insert_query = text("""
             INSERT INTO buckets (
                 name,
                 description,
@@ -356,8 +355,7 @@ class UserRepository:
                 FALSE
             )
             ON CONFLICT DO NOTHING
-            """
-        )
+            """)
 
         for bucket in root_buckets:
             slug = (

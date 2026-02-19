@@ -136,7 +136,9 @@ class KnowledgePersistence:
         except Exception:
             return "unreachable"
 
-    async def _ensure_storage_bucket_record(self, user_uuid: UUID | None) -> UUID | None:
+    async def _ensure_storage_bucket_record(
+        self, user_uuid: UUID | None
+    ) -> UUID | None:
         if not self._pool:
             return None
 
@@ -319,7 +321,13 @@ class KnowledgePersistence:
             ]
 
             async with connection.transaction():
-                for name, description, icon_name, color_hex, is_default in default_specs:
+                for (
+                    name,
+                    description,
+                    icon_name,
+                    color_hex,
+                    is_default,
+                ) in default_specs:
                     slug = self._bucket_slug(name)
                     await connection.execute(
                         """
@@ -435,7 +443,9 @@ class KnowledgePersistence:
         parent_path = "/root"
         if parent_bucket_id:
             parent_uuid = UUID(parent_bucket_id)
-            parent_row = await self._get_bucket_row(user_uuid=user_uuid, bucket_id=parent_uuid)
+            parent_row = await self._get_bucket_row(
+                user_uuid=user_uuid, bucket_id=parent_uuid
+            )
             if not parent_row:
                 raise PermissionError(
                     "Parent bucket not found or not accessible to this user"
@@ -509,7 +519,9 @@ class KnowledgePersistence:
             raise RuntimeError("Valid authenticated user is required")
 
         bucket_uuid = UUID(bucket_id)
-        bucket_row = await self._get_bucket_row(user_uuid=user_uuid, bucket_id=bucket_uuid)
+        bucket_row = await self._get_bucket_row(
+            user_uuid=user_uuid, bucket_id=bucket_uuid
+        )
         if not bucket_row:
             raise RuntimeError("Bucket not found")
 
@@ -525,7 +537,9 @@ class KnowledgePersistence:
             if parent_uuid == bucket_uuid:
                 raise RuntimeError("Cannot move a bucket into itself")
 
-            parent_row = await self._get_bucket_row(user_uuid=user_uuid, bucket_id=parent_uuid)
+            parent_row = await self._get_bucket_row(
+                user_uuid=user_uuid, bucket_id=parent_uuid
+            )
             if not parent_row:
                 raise RuntimeError("Target parent bucket not found")
 
@@ -604,7 +618,9 @@ class KnowledgePersistence:
         user_uuid: UUID,
         root_bucket_uuid: UUID,
     ) -> list[UUID]:
-        row = await self._get_bucket_row(user_uuid=user_uuid, bucket_id=root_bucket_uuid)
+        row = await self._get_bucket_row(
+            user_uuid=user_uuid, bucket_id=root_bucket_uuid
+        )
         if not row or not self._pool:
             return []
 
@@ -673,8 +689,12 @@ class KnowledgePersistence:
                 )
 
     @staticmethod
-    def _routing_content_fingerprint(title: str | None, text_preview: str | None) -> str:
-        base = re.sub(r"\s+", " ", f"{title or ''} {text_preview or ''}".strip().lower())
+    def _routing_content_fingerprint(
+        title: str | None, text_preview: str | None
+    ) -> str:
+        base = re.sub(
+            r"\s+", " ", f"{title or ''} {text_preview or ''}".strip().lower()
+        )
         return hashlib.sha256(base.encode("utf-8")).hexdigest()
 
     async def _record_bucket_routing_feedback_rows(
@@ -747,8 +767,12 @@ class KnowledgePersistence:
         if source_uuid == target_uuid:
             return {"moved_documents": 0}
 
-        source_row = await self._get_bucket_row(user_uuid=user_uuid, bucket_id=source_uuid)
-        target_row = await self._get_bucket_row(user_uuid=user_uuid, bucket_id=target_uuid)
+        source_row = await self._get_bucket_row(
+            user_uuid=user_uuid, bucket_id=source_uuid
+        )
+        target_row = await self._get_bucket_row(
+            user_uuid=user_uuid, bucket_id=target_uuid
+        )
         if not source_row or not target_row:
             raise RuntimeError("Source or target bucket not found")
 
@@ -812,6 +836,7 @@ class KnowledgePersistence:
         moved_count = len(moved_document_ids)
 
         if moved_document_ids and self._qdrant:
+
             def _set_payload_for_collection(collection_name: str) -> None:
                 client = self._qdrant
                 if not client:
@@ -847,7 +872,9 @@ class KnowledgePersistence:
                     wait=False,
                 )
 
-            await asyncio.to_thread(_set_payload_for_collection, self.config.qdrant_collection)
+            await asyncio.to_thread(
+                _set_payload_for_collection, self.config.qdrant_collection
+            )
             await asyncio.to_thread(
                 _set_payload_for_collection,
                 self.config.qdrant_fallback_collection,
@@ -868,7 +895,9 @@ class KnowledgePersistence:
             raise RuntimeError("Valid authenticated user is required")
 
         bucket_uuid = UUID(bucket_id)
-        bucket_row = await self._get_bucket_row(user_uuid=user_uuid, bucket_id=bucket_uuid)
+        bucket_row = await self._get_bucket_row(
+            user_uuid=user_uuid, bucket_id=bucket_uuid
+        )
         if not bucket_row:
             raise RuntimeError("Bucket not found")
         if bool(bucket_row["is_default"]):
@@ -885,7 +914,9 @@ class KnowledgePersistence:
                 await self._ensure_user_default_buckets(user_uuid)
                 fallback = await self._find_needs_classification_bucket(user_uuid)
             if fallback is None:
-                raise RuntimeError("No valid target bucket available for redistribution")
+                raise RuntimeError(
+                    "No valid target bucket available for redistribution"
+                )
             target_uuid = fallback
 
         subtree_bucket_ids = await self._resolve_subtree_bucket_ids(
@@ -896,7 +927,9 @@ class KnowledgePersistence:
             return {"redistributed_documents": 0, "deleted_buckets": 0}
 
         if target_uuid in subtree_bucket_ids:
-            raise RuntimeError("Cannot redistribute documents into the bucket being deleted")
+            raise RuntimeError(
+                "Cannot redistribute documents into the bucket being deleted"
+            )
 
         async with self._pool.acquire() as connection:
             async with connection.transaction():
@@ -945,6 +978,7 @@ class KnowledgePersistence:
         )
 
         if moved_document_ids and self._qdrant:
+
             def _set_payload_for_collection(collection_name: str) -> None:
                 client = self._qdrant
                 if not client:
@@ -980,7 +1014,9 @@ class KnowledgePersistence:
                     wait=False,
                 )
 
-            await asyncio.to_thread(_set_payload_for_collection, self.config.qdrant_collection)
+            await asyncio.to_thread(
+                _set_payload_for_collection, self.config.qdrant_collection
+            )
             await asyncio.to_thread(
                 _set_payload_for_collection,
                 self.config.qdrant_fallback_collection,
@@ -1044,9 +1080,11 @@ class KnowledgePersistence:
         source_text = " ".join(
             [title.strip(), preview_text.strip()[:500], (bucket_hint or "").strip()]
         ).strip()
-        normalized_source = normalize_text = re.sub(r"\s+", " ", source_text.lower())
+        normalized_source = re.sub(r"\s+", " ", source_text.lower())
         tokens = {token for token in re.findall(r"[a-z0-9]{3,}", normalized_source)}
-        content_fingerprint = hashlib.sha256(normalized_source.encode("utf-8")).hexdigest()
+        content_fingerprint = hashlib.sha256(
+            normalized_source.encode("utf-8")
+        ).hexdigest()
         boosts = await self._bucket_routing_feedback_boost(
             user_uuid=user_uuid,
             content_fingerprint=content_fingerprint,
@@ -1068,9 +1106,20 @@ class KnowledgePersistence:
             denom = max(1, len(tokens))
             overlap_score = overlap / denom
             name_bonus = 0.15 if any(t in name.lower() for t in tokens) else 0.0
-            hint_bonus = 0.2 if bucket_hint and any(t in (name + ' ' + description).lower() for t in re.findall(r"[a-z0-9]{3,}", bucket_hint.lower())) else 0.0
+            hint_bonus = (
+                0.2
+                if bucket_hint
+                and any(
+                    t in (name + " " + description).lower()
+                    for t in re.findall(r"[a-z0-9]{3,}", bucket_hint.lower())
+                )
+                else 0.0
+            )
             feedback_boost = float(boosts.get(str(bucket["bucket_id"]), 0.0))
-            confidence = min(0.99, max(0.05, overlap_score + name_bonus + hint_bonus + feedback_boost))
+            confidence = min(
+                0.99,
+                max(0.05, overlap_score + name_bonus + hint_bonus + feedback_boost),
+            )
             scored.append(
                 {
                     "bucket_id": str(bucket["bucket_id"]),
@@ -1111,9 +1160,7 @@ class KnowledgePersistence:
             f"<preview>{preview_text[:500]}</preview>"
             f"<hint>{hint_value}</hint>"
             "</document_summary>"
-            "<available_buckets>"
-            + "".join(bucket_lines)
-            + "</available_buckets>"
+            "<available_buckets>" + "".join(bucket_lines) + "</available_buckets>"
             "<classification_instruction>"
             "Return ONLY JSON with a top-level key 'candidates'."
             "Each candidate must include: bucket_id (string), confidence (0..1), reasoning (string)."
@@ -1279,7 +1326,9 @@ class KnowledgePersistence:
 
         top = candidates[0]
         top_confidence = float(top["confidence"])
-        needs_classification_bucket = await self._find_needs_classification_bucket(user_uuid)
+        needs_classification_bucket = await self._find_needs_classification_bucket(
+            user_uuid
+        )
 
         if top_confidence >= self.ROUTING_AUTO_CONFIDENCE_THRESHOLD:
             mode = "hint_auto" if bucket_hint else "auto"
@@ -1304,7 +1353,9 @@ class KnowledgePersistence:
         return {
             "mode": "needs_classification",
             "selected_bucket_id": (
-                str(needs_classification_bucket) if needs_classification_bucket else top["bucket_id"]
+                str(needs_classification_bucket)
+                if needs_classification_bucket
+                else top["bucket_id"]
             ),
             "selected_confidence": top_confidence,
             "requires_confirmation": True,
@@ -3012,8 +3063,12 @@ class KnowledgePersistence:
                 "content_type": content_type,
                 "section_heading": (chunk.metadata or {}).get("section_heading"),
                 "page_range": (chunk.metadata or {}).get("page_range"),
-                "token_count": int((chunk.metadata or {}).get("token_count") or chunk.token_count or 0),
-                "char_count": int((chunk.metadata or {}).get("char_count") or chunk.char_count or 0),
+                "token_count": int(
+                    (chunk.metadata or {}).get("token_count") or chunk.token_count or 0
+                ),
+                "char_count": int(
+                    (chunk.metadata or {}).get("char_count") or chunk.char_count or 0
+                ),
                 "split_boundary": (chunk.metadata or {}).get("split_boundary"),
                 "parent_chunk_id": (chunk.metadata or {}).get("parent_chunk_id"),
                 "tags": list((chunk.metadata or {}).get("tags") or []),
@@ -3085,7 +3140,11 @@ class KnowledgePersistence:
                 try:
                     await asyncio.to_thread(_meili_upsert, meili_docs)
                 except Exception as exc:
-                    logger.warning("Meilisearch indexing failed for document %s: %s", document_id, exc)
+                    logger.warning(
+                        "Meilisearch indexing failed for document %s: %s",
+                        document_id,
+                        exc,
+                    )
 
     def _filter_conditions(
         self,
@@ -3174,7 +3233,10 @@ class KnowledgePersistence:
                 if doc_id and score > merged.get(doc_id, -1.0):
                     merged[doc_id] = score
         return sorted(
-            [{"document_id": doc_id, "score": score} for doc_id, score in merged.items()],
+            [
+                {"document_id": doc_id, "score": score}
+                for doc_id, score in merged.items()
+            ],
             key=lambda r: r["score"],
             reverse=True,
         )[:top_k]
@@ -3257,7 +3319,11 @@ class KnowledgePersistence:
             return "disabled"
         try:
             result = await asyncio.to_thread(self._meili.health)
-            status = result.get("status") if isinstance(result, dict) else getattr(result, "status", None)
+            status = (
+                result.get("status")
+                if isinstance(result, dict)
+                else getattr(result, "status", None)
+            )
             return "healthy" if status == "available" else "degraded"
         except Exception:
             return "unreachable"
@@ -3320,7 +3386,9 @@ class KnowledgePersistence:
                     "attributesToRetrieve": ["document_id"],
                 },
             )
-            hits: list[dict] = result.get("hits", []) if isinstance(result, dict) else []
+            hits: list[dict] = (
+                result.get("hits", []) if isinstance(result, dict) else []
+            )
             aggregated: dict[str, float] = {}
             for hit in hits:
                 doc_id = hit.get("document_id", "")
@@ -3336,7 +3404,9 @@ class KnowledgePersistence:
         try:
             return await asyncio.to_thread(_do_search)
         except Exception as exc:
-            logger.warning("Meilisearch search failed, falling back to pg_trgm: %s", exc)
+            logger.warning(
+                "Meilisearch search failed, falling back to pg_trgm: %s", exc
+            )
             return await self._search_typo_tolerant_pg(
                 owner_id=owner_id,
                 query=query,
@@ -3427,7 +3497,9 @@ class KnowledgePersistence:
             qdrant_filter.must.append(
                 qmodels.FieldCondition(
                     key="bucket_id",
-                    match=qmodels.MatchAny(any=[str(bucket_id) for bucket_id in bucket_ids]),
+                    match=qmodels.MatchAny(
+                        any=[str(bucket_id) for bucket_id in bucket_ids]
+                    ),
                 )
             )
         elif filters.get("bucket_id"):

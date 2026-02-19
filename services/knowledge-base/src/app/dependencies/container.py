@@ -33,7 +33,9 @@ async def lifespan(app):
     if config.graph_enabled:
         try:
             graph_store.connect()
-            logger.info("KuzuGraphStore connected", extra={"db_path": config.graph_db_path})
+            logger.info(
+                "KuzuGraphStore connected", extra={"db_path": config.graph_db_path}
+            )
         except Exception as exc:
             logger.warning(
                 "KuzuGraphStore failed to connect — graph features disabled",
@@ -58,4 +60,3 @@ async def lifespan(app):
         except Exception:
             pass
     logger.info("Knowledge Base shutting down")
-

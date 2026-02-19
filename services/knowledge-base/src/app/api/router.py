@@ -188,7 +188,9 @@ async def move_bucket(
     return BucketItem(**bucket)
 
 
-@router.delete("/buckets/{bucket_id}", response_model=BucketOperationResponse, tags=["buckets"])
+@router.delete(
+    "/buckets/{bucket_id}", response_model=BucketOperationResponse, tags=["buckets"]
+)
 async def delete_bucket(
     bucket_id: str,
     request: BucketDeleteRequest,
@@ -256,7 +258,10 @@ async def route_bucket_preview(
         selected_bucket_id=str(result.get("selected_bucket_id") or ""),
         selected_confidence=float(result.get("selected_confidence") or 0.0),
         requires_confirmation=bool(result.get("requires_confirmation")),
-        candidates=[BucketRoutingCandidate(**candidate) for candidate in result.get("candidates") or []],
+        candidates=[
+            BucketRoutingCandidate(**candidate)
+            for candidate in result.get("candidates") or []
+        ],
     )
 
 

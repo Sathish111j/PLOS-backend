@@ -11,17 +11,14 @@ Canonicalization rules (Section 3.3) are applied before storage.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import re
-import time
 import unicodedata
 import uuid
 from typing import Any
 
 import httpx
-
 from app.application.graph.models import CanonicalEntity, RawEntity
 from app.core.config import KnowledgeBaseConfig
 
@@ -93,6 +90,7 @@ def canonicalize_name(name: str, entity_type: str) -> str:
 # Cosine similarity
 # ---------------------------------------------------------------------------
 
+
 def _cosine(a: list[float], b: list[float]) -> float:
     if len(a) != len(b) or not a:
         return 0.0
@@ -105,6 +103,7 @@ def _cosine(a: list[float], b: list[float]) -> float:
 # ---------------------------------------------------------------------------
 # Wikidata helpers
 # ---------------------------------------------------------------------------
+
 
 async def _wikidata_search(
     name: str,
@@ -141,7 +140,9 @@ async def _wikidata_search(
                 return None
             data = resp.json()
     except Exception as exc:
-        logger.warning("Wikidata lookup failed", extra={"entity_name": name, "error": str(exc)})
+        logger.warning(
+            "Wikidata lookup failed", extra={"entity_name": name, "error": str(exc)}
+        )
         return None
 
     results = data.get("search", [])
@@ -277,7 +278,9 @@ class EntityDisambiguator:
         """
         Resolve a RawEntity to a CanonicalEntity via the three-signal pipeline.
         """
-        canonical_name = canonicalize_name(raw.canonical_form or raw.name, raw.entity_type)
+        canonical_name = canonicalize_name(
+            raw.canonical_form or raw.name, raw.entity_type
+        )
         embedding = await self._embed_text(canonical_name)
 
         # Signal 1 — vector similarity
@@ -296,7 +299,9 @@ class EntityDisambiguator:
         if sim >= self._low_threshold and candidate is not None:
             answer = await self._signal_2_coref(raw, candidate)
             if answer == "YES":
-                entity = self._merge(candidate, raw, canonical_name, embedding, (sim + 1.0) / 2)
+                entity = self._merge(
+                    candidate, raw, canonical_name, embedding, (sim + 1.0) / 2
+                )
                 logger.debug(
                     "Signal 2 merge (co-ref YES)",
                     extra={"name": raw.name, "candidate": candidate.canonical_name},

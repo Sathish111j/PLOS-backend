@@ -86,7 +86,7 @@ class Window(NamedTuple):
     """
 
     start: int  # approximate token offset (inclusive)
-    end: int    # approximate token offset (exclusive)
+    end: int  # approximate token offset (exclusive)
     text: str
 
 
@@ -111,7 +111,9 @@ def _build_windows(text: str, window_tokens: int, overlap_tokens: int) -> list[W
         char_end = char_start + window_chars
         tok_start = char_start // _AVG_CHARS_PER_TOKEN
         tok_end = min(char_end, len(text)) // _AVG_CHARS_PER_TOKEN
-        windows.append(Window(start=tok_start, end=tok_end, text=text[char_start:char_end]))
+        windows.append(
+            Window(start=tok_start, end=tok_end, text=text[char_start:char_end])
+        )
         if char_end >= len(text):
             break
         char_start += step
@@ -121,6 +123,7 @@ def _build_windows(text: str, window_tokens: int, overlap_tokens: int) -> list[W
 # ---------------------------------------------------------------------------
 # JSON parsing helpers
 # ---------------------------------------------------------------------------
+
 
 def _extract_json_array(raw: str) -> Any:
     """Strip markdown fences and parse the first JSON array found."""
@@ -207,7 +210,9 @@ class GeminiNERPipeline:
             return response.get("text", "") or str(response)
         return str(response)
 
-    async def _extract_window(self, window_text: str, window_index: int) -> list[RawEntity]:
+    async def _extract_window(
+        self, window_text: str, window_index: int
+    ) -> list[RawEntity]:
         """Run NER on a single window; retry once on JSON parse failure."""
         prompt = _NER_PROMPT.format(window_text=window_text)
 
@@ -221,7 +226,9 @@ class GeminiNERPipeline:
                 extra={"window_index": window_index, "error": str(first_error)},
             )
             try:
-                repair_prompt = _REPAIR_PROMPT.format(bad_output=raw if "raw" in dir() else "")
+                repair_prompt = _REPAIR_PROMPT.format(
+                    bad_output=raw if "raw" in dir() else ""
+                )
                 raw2 = await self._call_gemini(repair_prompt)
                 parsed2 = _extract_json_array(raw2)
                 return _parse_entities(parsed2, window_index)

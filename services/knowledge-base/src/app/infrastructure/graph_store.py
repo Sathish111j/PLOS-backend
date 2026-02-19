@@ -15,7 +15,6 @@ on first connect and opened on subsequent starts.
 
 from __future__ import annotations
 
-import asyncio
 import os
 import threading
 from contextlib import contextmanager
@@ -147,10 +146,16 @@ class KuzuGraphStore:
                 except Exception as exc:
                     # Kuzu raises if table already exists even with IF NOT EXISTS
                     # in older versions — swallow "already exists" errors.
-                    if "already exist" in str(exc).lower() or "already exists" in str(exc).lower():
+                    if (
+                        "already exist" in str(exc).lower()
+                        or "already exists" in str(exc).lower()
+                    ):
                         pass
                     else:
-                        logger.warning("Schema DDL warning", extra={"error": str(exc), "ddl": ddl[:80]})
+                        logger.warning(
+                            "Schema DDL warning",
+                            extra={"error": str(exc), "ddl": ddl[:80]},
+                        )
         finally:
             del conn
 
@@ -284,13 +289,10 @@ class KuzuGraphStore:
             if "already exist" in str(exc).lower():
                 set_parts = ", ".join(f"n.{k} = ${k}" for k in fields if k != pk_field)
                 upd = (
-                    f"MATCH (n:{table} {{{pk_field}: ${pk_field}}}) "
-                    f"SET {set_parts}"
+                    f"MATCH (n:{table} {{{pk_field}: ${pk_field}}}) " f"SET {set_parts}"
                 )
                 conn.execute(upd, fields)
             else:
-                placeholders = ", ".join(f"${k}" for k in fields)
-                col_names = ", ".join(fields.keys())
                 insert = f"CREATE (n:{table} {{{cols}}})"
                 try:
                     conn.execute(insert, fields)
@@ -403,7 +405,6 @@ class KuzuGraphStore:
         Upsert a RELATED_TO relationship between two entities.
         If it already exists, update the strength with an EMA: 0.8*old + 0.2*new.
         """
-        import time as _time
 
         with self._write_ctx() as conn:
             # Check if relationship already exists
@@ -491,7 +492,9 @@ class KuzuGraphStore:
                 if row:
                     entity_ids.append(str(row[0]))
         except Exception as exc:
-            logger.warning("Entity lookup before delete failed", extra={"error": str(exc)})
+            logger.warning(
+                "Entity lookup before delete failed", extra={"error": str(exc)}
+            )
         finally:
             del conn
 
@@ -552,7 +555,9 @@ class KuzuGraphStore:
             except Exception as exc:
                 logger.warning("mention_count update failed", extra={"error": str(exc)})
 
-    def delete_weak_related_to(self, document_id: str, strength_threshold: float = 0.3) -> None:
+    def delete_weak_related_to(
+        self, document_id: str, strength_threshold: float = 0.3
+    ) -> None:
         """Delete RELATED_TO relationships whose only evidence is this document."""
         with self._write_ctx() as conn:
             try:
@@ -600,7 +605,9 @@ class KuzuGraphStore:
             result = conn.execute(query, params or {})
             return self._rows(result)
         except Exception as exc:
-            logger.warning("Read query failed", extra={"error": str(exc), "query": query[:100]})
+            logger.warning(
+                "Read query failed", extra={"error": str(exc), "query": query[:100]}
+            )
             return []
         finally:
             del conn

@@ -19,8 +19,6 @@ All endpoints enforce user_id isolation.
 
 from __future__ import annotations
 
-from typing import Any
-
 from app.api.graph_schemas import (
     CentralityResponse,
     CoOccurringResponse,
@@ -39,7 +37,7 @@ from app.dependencies.container import graph_query_service, graph_update_service
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from shared.auth.dependencies import get_current_user, get_current_user_optional
+from shared.auth.dependencies import get_current_user_optional
 from shared.auth.models import TokenData
 from shared.utils.logger import get_logger
 
@@ -103,7 +101,9 @@ async def get_entity(
 # ---------------------------------------------------------------------------
 
 
-@graph_router.get("/document/{doc_id}/entities", response_model=DocumentEntitiesResponse)
+@graph_router.get(
+    "/document/{doc_id}/entities", response_model=DocumentEntitiesResponse
+)
 async def document_entities(
     doc_id: str,
     current_user: TokenData | None = Depends(get_current_user_optional),

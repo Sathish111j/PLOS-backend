@@ -24,7 +24,9 @@ class GraphQueryService:
     Read-only (no write lock needed) query service over the Kuzu graph.
     """
 
-    def __init__(self, config: KnowledgeBaseConfig, graph_store: KuzuGraphStore) -> None:
+    def __init__(
+        self, config: KnowledgeBaseConfig, graph_store: KuzuGraphStore
+    ) -> None:
         self._config = config
         self._store = graph_store
 
@@ -32,7 +34,9 @@ class GraphQueryService:
     # 1. Entity detail — all documents mentioning entity X
     # ------------------------------------------------------------------
 
-    def entity_detail(self, entity_id: str, user_id: str, limit: int = 50) -> dict[str, Any]:
+    def entity_detail(
+        self, entity_id: str, user_id: str, limit: int = 50
+    ) -> dict[str, Any]:
         """Return entity metadata and the documents that mention it."""
         # Entity node
         entity_rows = self._store.execute_read(
@@ -110,9 +114,7 @@ class GraphQueryService:
     # 3. All entities mentioned in a document
     # ------------------------------------------------------------------
 
-    def document_entities(
-        self, document_id: str, user_id: str
-    ) -> list[dict[str, Any]]:
+    def document_entities(self, document_id: str, user_id: str) -> list[dict[str, Any]]:
         """Return all entities mentioned in a document."""
         rows = self._store.execute_read(
             "MATCH (d:Document {document_id: $doc_id})-[m:MENTIONS]->(e:Entity) "
@@ -303,9 +305,7 @@ class GraphQueryService:
     # 8. Temporal analysis — entity mentions by month
     # ------------------------------------------------------------------
 
-    def entity_timeline(
-        self, entity_id: str, user_id: str
-    ) -> list[dict[str, Any]]:
+    def entity_timeline(self, entity_id: str, user_id: str) -> list[dict[str, Any]]:
         """Return monthly mention frequencies for an entity."""
         seconds_per_month = 2_592_000
         rows = self._store.execute_read(
@@ -316,10 +316,7 @@ class GraphQueryService:
             "ORDER BY month_bucket ASC",
             {"eid": entity_id, "uid": user_id, "spm": seconds_per_month},
         )
-        return [
-            {"month_bucket": r[0], "monthly_mentions": r[1]}
-            for r in rows
-        ]
+        return [{"month_bucket": r[0], "monthly_mentions": r[1]} for r in rows]
 
     # ------------------------------------------------------------------
     # Two-hop traversal (used internally by RAG context assembler)

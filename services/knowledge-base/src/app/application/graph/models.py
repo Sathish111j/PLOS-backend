@@ -11,7 +11,6 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-
 # ---------------------------------------------------------------------------
 # Allowed entity types
 # ---------------------------------------------------------------------------
@@ -129,7 +128,9 @@ class EntityRelationship:
     created_at: int = field(default_factory=lambda: int(time.time()))
 
     def is_valid(self) -> bool:
-        return self.relationship_type in RELATIONSHIP_TYPES and 0.0 <= self.strength <= 1.0
+        return (
+            self.relationship_type in RELATIONSHIP_TYPES and 0.0 <= self.strength <= 1.0
+        )
 
 
 # ---------------------------------------------------------------------------

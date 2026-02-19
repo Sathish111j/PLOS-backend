@@ -18,9 +18,6 @@ from __future__ import annotations
 
 import asyncio
 
-from celery import Celery
-from celery.signals import worker_process_init
-
 from app.application.graph.background import (
     run_health_check,
     run_orphan_cleanup,
@@ -31,6 +28,8 @@ from app.application.graph.disambiguation import EntityDisambiguator
 from app.application.graph.models import GraphExtractionTask
 from app.application.graph.updates import GraphUpdateService
 from app.core.config import get_kb_config
+from celery import Celery
+from celery.signals import worker_process_init
 
 from shared.utils.logger import get_logger
 
@@ -213,9 +212,7 @@ def graph_run_pagerank(*, user_id: str = "all") -> dict:
     store = _get_store()
     if user_id == "all":
         # Get all distinct user_ids from Entity table
-        rows = store.execute_read(
-            "MATCH (e:Entity) RETURN DISTINCT e.user_id", {}
-        )
+        rows = store.execute_read("MATCH (e:Entity) RETURN DISTINCT e.user_id", {})
         results = []
         for row in rows:
             uid = str(row[0]) if row else None
@@ -230,9 +227,7 @@ def graph_run_orphan_cleanup(*, user_id: str = "all") -> dict:
     """Run orphan entity and dangling relationship cleanup."""
     store = _get_store()
     if user_id == "all":
-        rows = store.execute_read(
-            "MATCH (e:Entity) RETURN DISTINCT e.user_id", {}
-        )
+        rows = store.execute_read("MATCH (e:Entity) RETURN DISTINCT e.user_id", {})
         results = []
         for row in rows:
             uid = str(row[0]) if row else None

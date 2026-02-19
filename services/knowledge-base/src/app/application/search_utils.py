@@ -36,7 +36,9 @@ def detect_query_intent_weights(query: str) -> dict[str, float]:
     if normalized.startswith(conceptual_prefixes):
         return {"semantic": 0.8, "keyword": 0.15, "typo": 0.05}
 
-    if re.search(r'"[^"]+"', query) or re.search(r"\b[A-Z]{2,}-?\d+[A-Z0-9-]*\b", query):
+    if re.search(r'"[^"]+"', query) or re.search(
+        r"\b[A-Z]{2,}-?\d+[A-Z0-9-]*\b", query
+    ):
         return {"semantic": 0.3, "keyword": 0.6, "typo": 0.1}
 
     if "find" in normalized or "document" in normalized or "report" in normalized:

@@ -398,9 +398,11 @@ class KnowledgeService:
         }
 
         if request.bucket_id:
-            subtree_bucket_ids = await self._persistence.resolve_subtree_bucket_ids_for_owner(
-                owner_id=owner_id,
-                root_bucket_id=request.bucket_id,
+            subtree_bucket_ids = (
+                await self._persistence.resolve_subtree_bucket_ids_for_owner(
+                    owner_id=owner_id,
+                    root_bucket_id=request.bucket_id,
+                )
             )
             if subtree_bucket_ids:
                 filters["bucket_ids"] = subtree_bucket_ids

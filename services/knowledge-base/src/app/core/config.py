@@ -138,9 +138,7 @@ def get_kb_config() -> KnowledgeBaseConfig:
         graph_disambig_vector_high=float(
             os.getenv("GRAPH_DISAMBIG_VECTOR_HIGH", "0.92")
         ),
-        graph_disambig_vector_low=float(
-            os.getenv("GRAPH_DISAMBIG_VECTOR_LOW", "0.80")
-        ),
+        graph_disambig_vector_low=float(os.getenv("GRAPH_DISAMBIG_VECTOR_LOW", "0.80")),
         graph_wikidata_cache_ttl_seconds=int(
             os.getenv("GRAPH_WIKIDATA_CACHE_TTL_SECONDS", str(30 * 24 * 60 * 60))
         ),

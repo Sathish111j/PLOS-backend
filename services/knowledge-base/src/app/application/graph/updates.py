@@ -12,7 +12,6 @@ relationships are cleaned up after each modification.
 
 from __future__ import annotations
 
-import time
 from typing import Any
 
 from app.application.graph.construction import GraphConstructor

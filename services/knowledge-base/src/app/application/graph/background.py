@@ -144,7 +144,10 @@ def run_orphan_cleanup(
                 deleted += 1
                 logger.debug(
                     "Orphan entity deleted",
-                    extra={"entity_id": entity_id, "name": str(row[1]) if len(row) > 1 else ""},
+                    extra={
+                        "entity_id": entity_id,
+                        "name": str(row[1]) if len(row) > 1 else "",
+                    },
                 )
             except Exception as exc:
                 logger.warning(

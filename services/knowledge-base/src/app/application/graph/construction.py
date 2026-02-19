@@ -270,7 +270,9 @@ class GraphConstructor:
         now = int(time.time())
 
         for sentence in sentences:
-            present = [e for e in entities if _entity_mention_in_sentence(sentence, e.name)]
+            present = [
+                e for e in entities if _entity_mention_in_sentence(sentence, e.name)
+            ]
             if len(present) < 2:
                 continue
             # All pairs in the sentence
@@ -317,7 +319,9 @@ class GraphConstructor:
         entity_name_to_id = {e.canonical_name: e.entity_id for e in entities}
 
         for paragraph in paragraphs:
-            present = [e for e in entities if _entity_mention_in_sentence(paragraph, e.name)]
+            present = [
+                e for e in entities if _entity_mention_in_sentence(paragraph, e.name)
+            ]
             if len(present) < _PROXIMITY_GEMINI_ENTITY_COUNT:
                 continue
 
