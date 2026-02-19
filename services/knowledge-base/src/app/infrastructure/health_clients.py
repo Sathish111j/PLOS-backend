@@ -1,7 +1,6 @@
 from typing import Dict
 
 import httpx
-
 from app.core.config import KnowledgeBaseConfig
 from app.infrastructure.persistence import KnowledgePersistence
 

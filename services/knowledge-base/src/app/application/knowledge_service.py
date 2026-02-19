@@ -1,6 +1,5 @@
-from datetime import datetime, timezone
-from typing import Any, Dict, List
 import base64
+from typing import Any, Dict, List
 
 from app.application.ingestion.chunking import SemanticChunkingEngine
 from app.application.ingestion.unified_processor import UnifiedDocumentProcessor
@@ -53,7 +52,9 @@ class KnowledgeService:
             "status": "completed",
             "content_type": structured.format.value,
             "strategy": structured.strategy_used.value,
-            "word_count": structured.metadata.get("word_count", len(structured.text.split())),
+            "word_count": structured.metadata.get(
+                "word_count", len(structured.text.split())
+            ),
             "char_count": structured.metadata.get("char_count", len(structured.text)),
             "text_preview": structured.text[:300],
             "metadata": structured.metadata,

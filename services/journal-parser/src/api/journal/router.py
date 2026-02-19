@@ -287,9 +287,7 @@ async def resolve_gaps_with_paragraph(
                 ClarificationQuestion(**q)
                 for q in result.get("remaining_questions", [])
             ],
-            updated_activities=[
-                ActivityResponse(**a) for a in normalized_activities
-            ],
+            updated_activities=[ActivityResponse(**a) for a in normalized_activities],
             updated_consumptions=[
                 ConsumptionResponse(**c) for c in normalized_consumptions
             ],

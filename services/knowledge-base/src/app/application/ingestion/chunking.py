@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass
 import re
 import time
+from dataclasses import dataclass
 from typing import Any, Callable, Iterator
 from uuid import uuid4
 
@@ -67,7 +67,9 @@ class FastTokenEstimator:
 class SemanticChunkingEngine:
     def __init__(self, config: ChunkingConfig | None = None):
         self._config = config or ChunkingConfig()
-        self._estimator = FastTokenEstimator(self._config.token_spot_check_interval_chars)
+        self._estimator = FastTokenEstimator(
+            self._config.token_spot_check_interval_chars
+        )
 
     def chunk_document(
         self,
@@ -104,7 +106,9 @@ class SemanticChunkingEngine:
         queue_is_full: Callable[[], bool] | None = None,
     ) -> Iterator[DocumentChunk]:
         units = self._build_units(filename, structured)
-        if self._use_fixed_size_strategy(filename, structured.text, structured.metadata):
+        if self._use_fixed_size_strategy(
+            filename, structured.text, structured.metadata
+        ):
             candidate_chunks = self._chunk_fixed_size(units)
             strategy = "fixed_overlap"
         else:
@@ -129,7 +133,9 @@ class SemanticChunkingEngine:
                 "content_type": chunk.content_type,
                 "line_range": list(chunk.line_range) if chunk.line_range else None,
                 "has_image": bool(structured.images),
-                "image_ids": [img.get("id") for img in structured.images if img.get("id")],
+                "image_ids": [
+                    img.get("id") for img in structured.images if img.get("id")
+                ],
                 "chunking_strategy": strategy,
             }
             if chunk.language:
@@ -143,7 +149,9 @@ class SemanticChunkingEngine:
                 char_count=len(chunk.text),
             )
 
-    def _build_units(self, filename: str, structured: StructuredDocument) -> list[_ChunkUnit]:
+    def _build_units(
+        self, filename: str, structured: StructuredDocument
+    ) -> list[_ChunkUnit]:
         units: list[_ChunkUnit] = []
 
         table_units = self._table_units(structured.tables)
@@ -168,7 +176,10 @@ class SemanticChunkingEngine:
             header = rows[0] if rows else []
             header_line = " | ".join("" if col is None else str(col) for col in header)
 
-            all_lines = [" | ".join("" if cell is None else str(cell) for cell in row) for row in rows]
+            all_lines = [
+                " | ".join("" if cell is None else str(cell) for cell in row)
+                for row in rows
+            ]
             rendered = "\n".join(all_lines)
             token_count = self._estimator.estimate(rendered)
 
@@ -185,9 +196,14 @@ class SemanticChunkingEngine:
             data_rows = rows[1:] if len(rows) > 1 else rows
             row_bucket: list[str] = []
             for row in data_rows:
-                row_bucket.append(" | ".join("" if cell is None else str(cell) for cell in row))
+                row_bucket.append(
+                    " | ".join("" if cell is None else str(cell) for cell in row)
+                )
                 candidate = "\n".join([header_line + " (continued)", *row_bucket])
-                if self._estimator.estimate(candidate) > self._config.target_tokens and len(row_bucket) > 1:
+                if (
+                    self._estimator.estimate(candidate) > self._config.target_tokens
+                    and len(row_bucket) > 1
+                ):
                     carry = row_bucket.pop()
                     split_text = "\n".join([header_line + " (continued)", *row_bucket])
                     table_units.append(
@@ -281,7 +297,9 @@ class SemanticChunkingEngine:
         return units
 
     def _generic_code_blocks(self, text: str) -> list[_ChunkUnit]:
-        blocks = [block.strip() for block in re.split(r"\n\s*\n", text) if block.strip()]
+        blocks = [
+            block.strip() for block in re.split(r"\n\s*\n", text) if block.strip()
+        ]
         return [_ChunkUnit(text=block, content_type="code") for block in blocks]
 
     def _text_units(self, text: str) -> list[_ChunkUnit]:
@@ -354,7 +372,11 @@ class SemanticChunkingEngine:
         return output
 
     def _split_by_sections(self, text: str) -> list[str]:
-        chunks = [part.strip() for part in re.split(r"(?m)(?=^#{1,6}\s+)|(?=^\[Page\s+\d+\])", text) if part.strip()]
+        chunks = [
+            part.strip()
+            for part in re.split(r"(?m)(?=^#{1,6}\s+)|(?=^\[Page\s+\d+\])", text)
+            if part.strip()
+        ]
         return chunks if chunks else [text]
 
     def _split_by_paragraphs(self, text: str) -> list[str]:
@@ -362,11 +384,17 @@ class SemanticChunkingEngine:
         return chunks if chunks else [text]
 
     def _split_by_sentences(self, text: str) -> list[str]:
-        chunks = [part.strip() for part in re.split(r"(?<=[.!?])\s+(?=[A-Z])", text) if part.strip()]
+        chunks = [
+            part.strip()
+            for part in re.split(r"(?<=[.!?])\s+(?=[A-Z])", text)
+            if part.strip()
+        ]
         return chunks if chunks else [text]
 
     def _split_by_clauses(self, text: str) -> list[str]:
-        chunks = [part.strip() for part in re.split(r"(?<=[,;:])\s+", text) if part.strip()]
+        chunks = [
+            part.strip() for part in re.split(r"(?<=[,;:])\s+", text) if part.strip()
+        ]
         return chunks if chunks else [text]
 
     def _split_by_words(self, text: str) -> list[str]:
@@ -394,7 +422,9 @@ class SemanticChunkingEngine:
         output: list[_ChunkUnit] = []
         cursor = 0
         while cursor < len(words):
-            block = " ".join(words[cursor : cursor + self._config.target_tokens]).strip()
+            block = " ".join(
+                words[cursor : cursor + self._config.target_tokens]
+            ).strip()
             if block:
                 output.append(_ChunkUnit(text=block))
             cursor += step
@@ -411,8 +441,17 @@ class SemanticChunkingEngine:
                 continue
 
             candidate = f"{current}\n\n{unit_text}".strip() if current else unit_text
-            if current and self._estimator.estimate(candidate) > self._config.target_tokens:
-                output.append(_ChunkUnit(text=current, section_heading=current_heading, content_type=unit.content_type))
+            if (
+                current
+                and self._estimator.estimate(candidate) > self._config.target_tokens
+            ):
+                output.append(
+                    _ChunkUnit(
+                        text=current,
+                        section_heading=current_heading,
+                        content_type=unit.content_type,
+                    )
+                )
                 overlap = self._tail_overlap(current)
                 current = f"{overlap}\n\n{unit_text}".strip() if overlap else unit_text
                 current_heading = unit.section_heading or current_heading
@@ -444,7 +483,8 @@ class SemanticChunkingEngine:
                 merged.append(
                     _ChunkUnit(
                         text=merged_text,
-                        section_heading=previous.section_heading or chunk.section_heading,
+                        section_heading=previous.section_heading
+                        or chunk.section_heading,
                         content_type=previous.content_type,
                     )
                 )
@@ -453,9 +493,22 @@ class SemanticChunkingEngine:
 
         return merged
 
-    def _use_fixed_size_strategy(self, filename: str, text: str, metadata: dict[str, Any]) -> bool:
+    def _use_fixed_size_strategy(
+        self, filename: str, text: str, metadata: dict[str, Any]
+    ) -> bool:
         suffix = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-        if suffix in {"py", "js", "ts", "tsx", "jsx", "json", "log", "yaml", "yml", "xml"}:
+        if suffix in {
+            "py",
+            "js",
+            "ts",
+            "tsx",
+            "jsx",
+            "json",
+            "log",
+            "yaml",
+            "yml",
+            "xml",
+        }:
             return True
 
         if metadata.get("text_subtype") in {"json", "xml", "csv", "log"}:

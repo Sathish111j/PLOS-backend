@@ -1,24 +1,26 @@
 from __future__ import annotations
 
+import csv
+import hashlib
 import io
+import json
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import hashlib
-import json
 from pathlib import Path
 from typing import Any
-import csv
-import xml.etree.ElementTree as ET
 
 import httpx
-
 from app.application.ingestion.models import (
     ContentClass,
     DocumentFormat,
     ExtractionStrategy,
     StructuredDocument,
 )
-from app.application.ingestion.normalizer import infer_sections_from_text, normalize_text
+from app.application.ingestion.normalizer import (
+    infer_sections_from_text,
+    normalize_text,
+)
 
 
 @dataclass
@@ -93,7 +95,9 @@ class PdfProcessor:
             return ContentClass.MIXED
         return ContentClass.TEXT_BASED
 
-    def _extract_text_pdfplumber(self, payload: ProcessorInput) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
+    def _extract_text_pdfplumber(
+        self, payload: ProcessorInput
+    ) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
         try:
             import pdfplumber
         except Exception:
@@ -115,9 +119,15 @@ class PdfProcessor:
                     tables.append({"page": index, "rows": table})
 
         combined = normalize_text("\n".join(text_parts))
-        return combined, tables, {"pdfplumber_available": True, "page_count": page_count}
+        return (
+            combined,
+            tables,
+            {"pdfplumber_available": True, "page_count": page_count},
+        )
 
-    def _extract_image_pdf_fallback(self, payload: ProcessorInput, content_class: ContentClass) -> StructuredDocument:
+    def _extract_image_pdf_fallback(
+        self, payload: ProcessorInput, content_class: ContentClass
+    ) -> StructuredDocument:
         metadata = _base_metadata(payload)
         metadata.update(
             {
@@ -178,8 +188,8 @@ class ImageProcessor:
         confidence = 0.2
 
         try:
-            from PIL import Image
             import pytesseract
+            from PIL import Image
 
             image = Image.open(io.BytesIO(payload.content_bytes or b""))
             text = normalize_text(pytesseract.image_to_string(image))
@@ -217,14 +227,18 @@ class OfficeProcessor:
         except Exception:
             return "", {"xlsx_parser": "unavailable"}
 
-        workbook = load_workbook(io.BytesIO(payload.content_bytes or b""), data_only=False)
+        workbook = load_workbook(
+            io.BytesIO(payload.content_bytes or b""), data_only=False
+        )
         markdown_parts: list[str] = []
         for sheet in workbook.worksheets:
             markdown_parts.append(f"## Sheet: {sheet.title}")
             for row in sheet.iter_rows(values_only=True):
                 values = ["" if cell is None else str(cell) for cell in row]
                 markdown_parts.append(" | ".join(values))
-        return normalize_text("\n".join(markdown_parts)), {"sheet_count": len(workbook.worksheets)}
+        return normalize_text("\n".join(markdown_parts)), {
+            "sheet_count": len(workbook.worksheets)
+        }
 
     def _process_pptx(self, payload: ProcessorInput) -> tuple[str, dict[str, Any]]:
         try:
@@ -240,7 +254,9 @@ class OfficeProcessor:
                 text = getattr(shape, "text", "")
                 if text and text.strip():
                     lines.append(text.strip())
-        return normalize_text("\n".join(lines)), {"slide_count": len(presentation.slides)}
+        return normalize_text("\n".join(lines)), {
+            "slide_count": len(presentation.slides)
+        }
 
     def process(self, payload: ProcessorInput) -> StructuredDocument:
         extension = Path(payload.filename).suffix.lower()
@@ -288,8 +304,8 @@ class WebProcessor:
             pass
 
         try:
-            from readability import Document
             from bs4 import BeautifulSoup
+            from readability import Document
 
             summary_html = Document(html).summary()
             text = BeautifulSoup(summary_html, "lxml").get_text("\n")

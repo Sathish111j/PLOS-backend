@@ -1,9 +1,8 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-
 from app.api.router import router as api_router
 from app.core.config import get_kb_config
 from app.dependencies.container import lifespan
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from shared.utils.logger import get_logger
 from shared.utils.logging_config import setup_logging

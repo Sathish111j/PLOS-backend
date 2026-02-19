@@ -3,11 +3,11 @@
 import time
 from uuid import UUID
 
-from src.core.metrics import metrics
-from src.dependencies.container import cache_manager, context_engine
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import PlainTextResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from src.core.metrics import metrics
+from src.dependencies.container import cache_manager, context_engine
 
 from shared.models.context import ContextUpdate, UserContext
 from shared.utils.errors import ErrorResponse, NotFoundError, SuccessResponse

@@ -24,7 +24,11 @@ def infer_sections_from_text(text: str) -> list[StructuredSection]:
                 StructuredSection(section_type="heading", level=level, content=content)
             )
         elif re.match(r"^[-*]\s+", stripped):
-            sections.append(StructuredSection(section_type="list_item", content=stripped))
+            sections.append(
+                StructuredSection(section_type="list_item", content=stripped)
+            )
         else:
-            sections.append(StructuredSection(section_type="paragraph", content=stripped))
+            sections.append(
+                StructuredSection(section_type="paragraph", content=stripped)
+            )
     return sections

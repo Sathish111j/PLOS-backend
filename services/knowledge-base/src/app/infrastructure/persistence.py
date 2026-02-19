@@ -6,11 +6,10 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import asyncpg
-from minio import Minio
-from minio.error import S3Error
-
 from app.application.ingestion.models import StructuredDocument
 from app.core.config import KnowledgeBaseConfig
+from minio import Minio
+from minio.error import S3Error
 
 
 class KnowledgePersistence:
@@ -90,7 +89,9 @@ class KnowledgePersistence:
 
         await asyncio.to_thread(_ensure)
 
-    async def _upload_bytes(self, object_key: str, content: bytes, mime_type: str | None) -> None:
+    async def _upload_bytes(
+        self, object_key: str, content: bytes, mime_type: str | None
+    ) -> None:
         if not self.config.minio_enabled:
             return
 
@@ -215,7 +216,11 @@ class KnowledgePersistence:
             "source_url": source_url,
         }
 
-        file_size = len(content_bytes) if content_bytes else structured.metadata.get("file_size")
+        file_size = (
+            len(content_bytes)
+            if content_bytes
+            else structured.metadata.get("file_size")
+        )
         checksum = structured.metadata.get("checksum")
         word_count = structured.metadata.get("word_count", len(structured.text.split()))
         char_count = structured.metadata.get("char_count", len(structured.text))
@@ -278,8 +283,16 @@ class KnowledgePersistence:
                     chunk_metadata["source_document_id"] = str(document_id)
 
                     page_range = chunk_metadata.get("page_range") or []
-                    page_start = page_range[0] if isinstance(page_range, list) and len(page_range) >= 1 else None
-                    page_end = page_range[1] if isinstance(page_range, list) and len(page_range) >= 2 else page_start
+                    page_start = (
+                        page_range[0]
+                        if isinstance(page_range, list) and len(page_range) >= 1
+                        else None
+                    )
+                    page_end = (
+                        page_range[1]
+                        if isinstance(page_range, list) and len(page_range) >= 2
+                        else page_start
+                    )
 
                     image_ids = chunk_metadata.get("image_ids") or []
                     if not isinstance(image_ids, list):

@@ -22,6 +22,7 @@ from .schemas import (
     NutritionSummary,
     SocialDaily,
     SocialSummary,
+    TimeSeriesOverviewResponse,
     WeeklyActivityResponse,
     WeeklyHealthResponse,
     WeeklyMetricResponse,
@@ -29,7 +30,6 @@ from .schemas import (
     WeeklyOverviewResponse,
     WeeklySocialResponse,
     WeeklyWorkResponse,
-    TimeSeriesOverviewResponse,
     WorkDaily,
     WorkSummary,
 )

@@ -83,7 +83,9 @@ class UnifiedDocumentProcessor:
             result = await self._web_processor.process(payload)
         elif detected.format == DocumentFormat.TEXT:
             result = self._text_processor.process(payload)
-            result.metadata.update(parse_text_subtype(result.text, detected.text_subtype))
+            result.metadata.update(
+                parse_text_subtype(result.text, detected.text_subtype)
+            )
         else:
             result = self._fallback_processor.process(payload)
 

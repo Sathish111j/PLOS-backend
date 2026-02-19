@@ -1,9 +1,7 @@
 import csv
-import io
 import json
-from pathlib import Path
-from typing import Any
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 from app.application.ingestion.models import DetectedFormat, DocumentFormat
 
@@ -122,7 +120,11 @@ def detect_document_format(
             detected_format, confidence = DocumentFormat.IMAGE, 0.9
         elif normalized_mime == "application/pdf":
             detected_format, confidence = DocumentFormat.PDF, 0.9
-        elif "word" in normalized_mime or "excel" in normalized_mime or "powerpoint" in normalized_mime:
+        elif (
+            "word" in normalized_mime
+            or "excel" in normalized_mime
+            or "powerpoint" in normalized_mime
+        ):
             detected_format, confidence = DocumentFormat.OFFICE, 0.88
         elif normalized_mime.startswith("text/"):
             detected_format, confidence = DocumentFormat.TEXT, 0.85

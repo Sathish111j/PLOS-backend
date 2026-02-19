@@ -1,6 +1,6 @@
+import os
 from dataclasses import dataclass
 from functools import lru_cache
-import os
 
 from shared.utils.unified_config import get_unified_settings
 

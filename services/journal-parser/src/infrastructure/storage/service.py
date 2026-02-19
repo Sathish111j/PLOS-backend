@@ -484,17 +484,41 @@ class StorageService:
                 "ts": datetime.combine(entry_date, time_type.min),
                 "extraction_id": extraction_id,
                 "entry_date": entry_date,
-                "calories_in": float(snapshot[0]) if snapshot and snapshot[0] is not None else None,
-                "sleep_hours": float(snapshot[1]) if snapshot and snapshot[1] is not None else None,
-                "sleep_quality": float(snapshot[2]) if snapshot and snapshot[2] is not None else None,
-                "mood_score": float(snapshot[3]) if snapshot and snapshot[3] is not None else None,
-                "water_ml": float(snapshot[4]) if snapshot and snapshot[4] is not None else None,
-                "steps": int(snapshot[5]) if snapshot and snapshot[5] is not None else None,
-                "activity_minutes": int(snapshot[6]) if snapshot and snapshot[6] is not None else None,
-                "activity_calories": int(snapshot[7]) if snapshot and snapshot[7] is not None else None,
-                "protein_g": float(snapshot[8]) if snapshot and snapshot[8] is not None else None,
-                "carbs_g": float(snapshot[9]) if snapshot and snapshot[9] is not None else None,
-                "fat_g": float(snapshot[10]) if snapshot and snapshot[10] is not None else None,
+                "calories_in": (
+                    float(snapshot[0]) if snapshot and snapshot[0] is not None else None
+                ),
+                "sleep_hours": (
+                    float(snapshot[1]) if snapshot and snapshot[1] is not None else None
+                ),
+                "sleep_quality": (
+                    float(snapshot[2]) if snapshot and snapshot[2] is not None else None
+                ),
+                "mood_score": (
+                    float(snapshot[3]) if snapshot and snapshot[3] is not None else None
+                ),
+                "water_ml": (
+                    float(snapshot[4]) if snapshot and snapshot[4] is not None else None
+                ),
+                "steps": (
+                    int(snapshot[5]) if snapshot and snapshot[5] is not None else None
+                ),
+                "activity_minutes": (
+                    int(snapshot[6]) if snapshot and snapshot[6] is not None else None
+                ),
+                "activity_calories": (
+                    int(snapshot[7]) if snapshot and snapshot[7] is not None else None
+                ),
+                "protein_g": (
+                    float(snapshot[8]) if snapshot and snapshot[8] is not None else None
+                ),
+                "carbs_g": (
+                    float(snapshot[9]) if snapshot and snapshot[9] is not None else None
+                ),
+                "fat_g": (
+                    float(snapshot[10])
+                    if snapshot and snapshot[10] is not None
+                    else None
+                ),
             },
         )
 
