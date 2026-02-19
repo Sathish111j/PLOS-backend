@@ -12,11 +12,11 @@ from app.application.ingestion.models import DocumentChunk, StructuredDocument
 
 @dataclass(frozen=True)
 class ChunkingConfig:
-    target_tokens: int = 384
-    max_tokens: int = 512
+    target_tokens: int = 512
+    max_tokens: int = 768
     min_tokens: int = 100
-    overlap_tokens: int = 76
-    table_single_chunk_limit: int = 300
+    overlap_tokens: int = 100
+    table_single_chunk_limit: int = 400
     token_spot_check_interval_chars: int = 1000
 
 
@@ -28,6 +28,10 @@ class _ChunkUnit:
     page_range: tuple[int, int] | None = None
     line_range: tuple[int, int] | None = None
     language: str | None = None
+    file_path: str | None = None
+    split_boundary: str = "section"
+    parent_chunk_id: str | None = None
+    image_ids: list[str] | None = None
 
 
 class FastTokenEstimator:
@@ -77,7 +81,7 @@ class SemanticChunkingEngine:
         source_document_id: str,
         filename: str,
         structured: StructuredDocument,
-        embedding_model: str = "all-MiniLM-L6-v2",
+        embedding_model: str = "gemini-embedding-001",
         queue_is_full: Callable[[], bool] | None = None,
     ) -> list[DocumentChunk]:
         chunks = list(
@@ -102,7 +106,7 @@ class SemanticChunkingEngine:
         source_document_id: str,
         filename: str,
         structured: StructuredDocument,
-        embedding_model: str = "all-MiniLM-L6-v2",
+        embedding_model: str = "gemini-embedding-001",
         queue_is_full: Callable[[], bool] | None = None,
     ) -> Iterator[DocumentChunk]:
         units = self._build_units(filename, structured)
@@ -122,24 +126,31 @@ class SemanticChunkingEngine:
 
             chunk_id = str(uuid4())
             token_count = self._estimator.estimate(chunk.text)
+            image_ids = list(chunk.image_ids or [])
             metadata = {
-                "source_document_id": source_document_id,
+                "chunk_id": chunk_id,
+                "document_id": source_document_id,
                 "section_heading": chunk.section_heading,
                 "page_range": list(chunk.page_range) if chunk.page_range else None,
-                "parent_chunk": None,
+                "parent_chunk_id": chunk.parent_chunk_id,
                 "token_count": token_count,
                 "char_count": len(chunk.text),
                 "embedding_model": embedding_model,
                 "content_type": chunk.content_type,
+                "split_boundary": chunk.split_boundary,
                 "line_range": list(chunk.line_range) if chunk.line_range else None,
-                "has_image": bool(structured.images),
-                "image_ids": [
-                    img.get("id") for img in structured.images if img.get("id")
-                ],
+                "has_image": bool(image_ids),
+                "image_ids": image_ids,
+                "bucket_id": None,
                 "chunking_strategy": strategy,
             }
             if chunk.language:
                 metadata["language"] = chunk.language
+            if chunk.file_path:
+                metadata["file_path"] = chunk.file_path
+            if chunk.line_range:
+                metadata["start_line"] = chunk.line_range[0]
+                metadata["end_line"] = chunk.line_range[1]
 
             yield DocumentChunk(
                 chunk_id=chunk_id,
@@ -163,8 +174,48 @@ class SemanticChunkingEngine:
         else:
             units.extend(self._text_units(structured.text))
 
+        image_pair_units = self._image_pair_units(structured.text, structured.images)
+        units.extend(image_pair_units)
+
         if not units and structured.text.strip():
-            units.append(_ChunkUnit(text=structured.text.strip()))
+            units.append(_ChunkUnit(text=structured.text.strip(), split_boundary="section"))
+        return units
+
+    def _image_pair_units(self, text: str, images: list[dict[str, Any]]) -> list[_ChunkUnit]:
+        if not images:
+            return []
+
+        paragraphs = [part.strip() for part in re.split(r"\n\s*\n", text) if part.strip()]
+        if not paragraphs:
+            paragraphs = [text.strip()] if text.strip() else []
+
+        units: list[_ChunkUnit] = []
+        for index, image in enumerate(images):
+            image_id = str(image.get("id") or uuid4())
+            page = image.get("page")
+            ocr_text = str(image.get("ocr_text") or image.get("description") or "").strip()
+
+            before = paragraphs[max(0, index - 1)] if paragraphs else ""
+            after = paragraphs[min(len(paragraphs) - 1, index)] if paragraphs else ""
+            combined = "\n\n".join(part for part in [before, ocr_text, after] if part).strip()
+            if not combined:
+                continue
+
+            page_range = None
+            if isinstance(page, int):
+                page_range = (page, page)
+
+            units.append(
+                _ChunkUnit(
+                    text=combined,
+                    content_type="image_pair",
+                    page_range=page_range,
+                    split_boundary="section",
+                    image_ids=[image_id],
+                    section_heading=f"Image {index + 1}",
+                )
+            )
+
         return units
 
     def _table_units(self, tables: list[dict[str, Any]]) -> list[_ChunkUnit]:
@@ -189,6 +240,7 @@ class SemanticChunkingEngine:
                         text=rendered,
                         content_type="table",
                         section_heading=f"Table {table_index + 1}",
+                        split_boundary="section",
                     )
                 )
                 continue
@@ -211,6 +263,7 @@ class SemanticChunkingEngine:
                             text=split_text,
                             content_type="table",
                             section_heading=f"Table {table_index + 1}",
+                            split_boundary="clause",
                         )
                     )
                     row_bucket = [carry]
@@ -222,6 +275,7 @@ class SemanticChunkingEngine:
                         text=split_text,
                         content_type="table",
                         section_heading=f"Table {table_index + 1}",
+                        split_boundary="clause",
                     )
                 )
 
@@ -230,12 +284,12 @@ class SemanticChunkingEngine:
     def _code_units(self, filename: str, text: str) -> list[_ChunkUnit]:
         suffix = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
         if suffix == "py":
-            return self._python_code_units(text)
+            return self._python_code_units(filename, text)
         if suffix in {"js", "mjs", "cjs", "ts", "tsx", "jsx"}:
-            return self._javascript_code_units(text)
+            return self._javascript_code_units(filename, text)
         return []
 
-    def _python_code_units(self, text: str) -> list[_ChunkUnit]:
+    def _python_code_units(self, filename: str, text: str) -> list[_ChunkUnit]:
         if not text.strip():
             return []
 
@@ -259,6 +313,8 @@ class SemanticChunkingEngine:
                             language="python",
                             line_range=(start, end),
                             section_heading=getattr(node, "name", None),
+                            file_path=filename,
+                            split_boundary="section",
                         )
                     )
 
@@ -266,7 +322,7 @@ class SemanticChunkingEngine:
             return code_units
         return self._generic_code_blocks(text)
 
-    def _javascript_code_units(self, text: str) -> list[_ChunkUnit]:
+    def _javascript_code_units(self, filename: str, text: str) -> list[_ChunkUnit]:
         if not text.strip():
             return []
 
@@ -292,6 +348,8 @@ class SemanticChunkingEngine:
                         content_type="code",
                         language="javascript",
                         line_range=(line_start, line_end),
+                        file_path=filename,
+                        split_boundary="section",
                     )
                 )
         return units
@@ -300,7 +358,10 @@ class SemanticChunkingEngine:
         blocks = [
             block.strip() for block in re.split(r"\n\s*\n", text) if block.strip()
         ]
-        return [_ChunkUnit(text=block, content_type="code") for block in blocks]
+        return [
+            _ChunkUnit(text=block, content_type="code", split_boundary="paragraph")
+            for block in blocks
+        ]
 
     def _text_units(self, text: str) -> list[_ChunkUnit]:
         if not text.strip():
@@ -310,7 +371,7 @@ class SemanticChunkingEngine:
         sections = section_pattern.split(text)
 
         if len(sections) <= 1:
-            return [_ChunkUnit(text=text.strip())]
+            return [_ChunkUnit(text=text.strip(), split_boundary="section")]
 
         units: list[_ChunkUnit] = []
         current_heading: str | None = None
@@ -321,7 +382,13 @@ class SemanticChunkingEngine:
             if section_pattern.match(normalized):
                 current_heading = normalized.lstrip("#").strip()
                 continue
-            units.append(_ChunkUnit(text=normalized, section_heading=current_heading))
+            units.append(
+                _ChunkUnit(
+                    text=normalized,
+                    section_heading=current_heading,
+                    split_boundary="section",
+                )
+            )
         return units
 
     def _chunk_semantic(self, units: list[_ChunkUnit]) -> list[_ChunkUnit]:
@@ -336,18 +403,19 @@ class SemanticChunkingEngine:
         if self._estimator.estimate(unit.text) <= self._config.max_tokens:
             return [unit]
 
-        splitters = [
-            self._split_by_sections,
-            self._split_by_paragraphs,
-            self._split_by_sentences,
-            self._split_by_clauses,
-            self._split_by_words,
+        splitters: list[tuple[str, Callable[[str], list[str]]]] = [
+            ("section", self._split_by_sections),
+            ("paragraph", self._split_by_paragraphs),
+            ("sentence", self._split_by_sentences),
+            ("clause", self._split_by_clauses),
+            ("word", self._split_by_words),
         ]
 
         if level >= len(splitters):
             return [unit]
 
-        parts = splitters[level](unit.text)
+        split_boundary, splitter = splitters[level]
+        parts = splitter(unit.text)
         if len(parts) <= 1:
             return self._recursive_split_unit(unit, level + 1)
 
@@ -365,6 +433,9 @@ class SemanticChunkingEngine:
                         page_range=unit.page_range,
                         line_range=unit.line_range,
                         language=unit.language,
+                        file_path=unit.file_path,
+                        split_boundary=split_boundary,
+                        image_ids=unit.image_ids,
                     ),
                     level + 1,
                 )
@@ -404,12 +475,12 @@ class SemanticChunkingEngine:
 
         pieces: list[str] = []
         cursor = 0
-        step = max(50, self._config.target_tokens)
+        approx_words = max(50, self._config.target_tokens)
         while cursor < len(words):
-            segment = " ".join(words[cursor : cursor + step]).strip()
+            segment = " ".join(words[cursor : cursor + approx_words]).strip()
             if segment:
                 pieces.append(segment)
-            cursor += step
+            cursor += approx_words
         return pieces if pieces else [text]
 
     def _chunk_fixed_size(self, units: list[_ChunkUnit]) -> list[_ChunkUnit]:
@@ -426,7 +497,7 @@ class SemanticChunkingEngine:
                 words[cursor : cursor + self._config.target_tokens]
             ).strip()
             if block:
-                output.append(_ChunkUnit(text=block))
+                output.append(_ChunkUnit(text=block, split_boundary="word"))
             cursor += step
         return output
 
@@ -434,10 +505,42 @@ class SemanticChunkingEngine:
         output: list[_ChunkUnit] = []
         current = ""
         current_heading: str | None = None
+        current_content_type: str | None = None
+        current_split_boundary: str = "section"
+        current_language: str | None = None
+        current_line_range: tuple[int, int] | None = None
+        current_file_path: str | None = None
+        current_image_ids: list[str] = []
 
         for unit in units:
             unit_text = unit.text.strip()
             if not unit_text:
+                continue
+
+            if unit.content_type in {"table", "code", "image_pair"}:
+                if current:
+                    output.append(
+                        _ChunkUnit(
+                            text=current,
+                            section_heading=current_heading,
+                            content_type=current_content_type or "text",
+                            split_boundary=current_split_boundary,
+                            language=current_language,
+                            line_range=current_line_range,
+                            file_path=current_file_path,
+                            image_ids=list(current_image_ids),
+                        )
+                    )
+                    current = ""
+                    current_heading = None
+                    current_content_type = None
+                    current_split_boundary = "section"
+                    current_language = None
+                    current_line_range = None
+                    current_file_path = None
+                    current_image_ids = []
+
+                output.append(unit)
                 continue
 
             candidate = f"{current}\n\n{unit_text}".strip() if current else unit_text
@@ -449,18 +552,49 @@ class SemanticChunkingEngine:
                     _ChunkUnit(
                         text=current,
                         section_heading=current_heading,
-                        content_type=unit.content_type,
+                        content_type=current_content_type or unit.content_type,
+                        split_boundary=current_split_boundary,
+                        language=current_language,
+                        line_range=current_line_range,
+                        file_path=current_file_path,
+                        image_ids=list(current_image_ids),
                     )
                 )
                 overlap = self._tail_overlap(current)
                 current = f"{overlap}\n\n{unit_text}".strip() if overlap else unit_text
                 current_heading = unit.section_heading or current_heading
+                current_content_type = unit.content_type
+                current_split_boundary = unit.split_boundary
+                current_language = unit.language
+                current_line_range = unit.line_range
+                current_file_path = unit.file_path
+                current_image_ids = list(unit.image_ids or [])
             else:
                 current = candidate
                 current_heading = unit.section_heading or current_heading
+                if current_content_type and current_content_type != unit.content_type:
+                    current_content_type = "mixed"
+                else:
+                    current_content_type = unit.content_type
+                current_split_boundary = unit.split_boundary
+                current_language = unit.language or current_language
+                current_line_range = unit.line_range or current_line_range
+                current_file_path = unit.file_path or current_file_path
+                current_image_ids = list({*current_image_ids, *(unit.image_ids or [])})
 
         if current:
-            output.append(_ChunkUnit(text=current, section_heading=current_heading))
+            output.append(
+                _ChunkUnit(
+                    text=current,
+                    section_heading=current_heading,
+                    content_type=current_content_type or "text",
+                    split_boundary=current_split_boundary,
+                    language=current_language,
+                    line_range=current_line_range,
+                    file_path=current_file_path,
+                    image_ids=list(current_image_ids),
+                )
+            )
 
         return output
 
@@ -477,15 +611,33 @@ class SemanticChunkingEngine:
         merged: list[_ChunkUnit] = []
         for chunk in chunks:
             token_count = self._estimator.estimate(chunk.text)
-            if merged and token_count < self._config.min_tokens:
+            if (
+                merged
+                and token_count < self._config.min_tokens
+                and chunk.content_type not in {"table", "code", "image_pair"}
+                and merged[-1].content_type not in {"table", "code", "image_pair"}
+            ):
                 previous = merged.pop()
                 merged_text = f"{previous.text}\n\n{chunk.text}".strip()
+                if self._estimator.estimate(merged_text) > self._config.max_tokens:
+                    merged.append(previous)
+                    merged.append(chunk)
+                    continue
                 merged.append(
                     _ChunkUnit(
                         text=merged_text,
                         section_heading=previous.section_heading
                         or chunk.section_heading,
-                        content_type=previous.content_type,
+                        content_type=(
+                            previous.content_type
+                            if previous.content_type == chunk.content_type
+                            else "mixed"
+                        ),
+                        split_boundary=chunk.split_boundary,
+                        language=previous.language or chunk.language,
+                        line_range=previous.line_range or chunk.line_range,
+                        file_path=previous.file_path or chunk.file_path,
+                        image_ids=list({*(previous.image_ids or []), *(chunk.image_ids or [])}),
                     )
                 )
             else:
@@ -497,18 +649,7 @@ class SemanticChunkingEngine:
         self, filename: str, text: str, metadata: dict[str, Any]
     ) -> bool:
         suffix = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-        if suffix in {
-            "py",
-            "js",
-            "ts",
-            "tsx",
-            "jsx",
-            "json",
-            "log",
-            "yaml",
-            "yml",
-            "xml",
-        }:
+        if suffix in {"json", "log", "yaml", "yml", "xml"}:
             return True
 
         if metadata.get("text_subtype") in {"json", "xml", "csv", "log"}:

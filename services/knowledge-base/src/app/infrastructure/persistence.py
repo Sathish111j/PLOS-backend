@@ -799,7 +799,9 @@ class KnowledgePersistence:
                 total_chunks = len(structured.chunks)
                 for chunk_index, chunk in enumerate(structured.chunks):
                     chunk_metadata = dict(chunk.metadata or {})
+                    chunk_metadata["document_id"] = str(document_id)
                     chunk_metadata["source_document_id"] = str(document_id)
+                    chunk_metadata["bucket_id"] = str(bucket_id) if bucket_id else None
                     if integrity_checkpoints:
                         chunk_metadata["integrity_final_checksum_md5"] = (
                             integrity_checkpoints[-1].checksum_md5
@@ -821,13 +823,15 @@ class KnowledgePersistence:
                     if not isinstance(image_ids, list):
                         image_ids = []
 
-                    parent_chunk = chunk_metadata.get("parent_chunk")
+                    parent_chunk = chunk_metadata.get("parent_chunk_id") or chunk_metadata.get("parent_chunk")
                     parent_chunk_uuid = None
                     if isinstance(parent_chunk, str):
                         try:
                             parent_chunk_uuid = UUID(parent_chunk)
                         except Exception:
                             parent_chunk_uuid = None
+
+                    chunk_metadata["parent_chunk_id"] = str(parent_chunk_uuid) if parent_chunk_uuid else None
 
                     await connection.execute(
                         chunk_insert,
