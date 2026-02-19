@@ -110,10 +110,11 @@ jobs:
         run: |
           docker build -f services/context-broker/Dockerfile -t plos-context-broker:test .
           docker build -f services/journal-parser/Dockerfile -t plos-journal-parser:test .
+          docker build -f services/knowledge-base/Dockerfile -t plos-knowledge-base:test .
 
       - name: Start infrastructure
         run: |
-          docker compose -f docker-compose.yml up -d supabase-db redis kafka
+          docker compose -f docker-compose.yml up -d supabase-db redis kafka qdrant minio
           echo "Waiting for infrastructure to be ready..."
           sleep 60
 
@@ -131,9 +132,17 @@ jobs:
           docker exec $(docker ps -q --filter name=kafka) kafka-topics --bootstrap-server localhost:9092 --list >/dev/null || exit 1
           echo "✓ Kafka is ready"
 
+          # Check Qdrant
+          timeout 60 bash -c 'until curl -f http://localhost:6333/healthz >/dev/null 2>&1; do sleep 5; done' || exit 1
+          echo "✓ Qdrant is ready"
+
+          # Check MinIO
+          timeout 60 bash -c 'until curl -f http://localhost:9000/minio/health/live >/dev/null 2>&1; do sleep 5; done' || exit 1
+          echo "✓ MinIO is ready"
+
       - name: Start services
         run: |
-          docker compose -f docker-compose.yml up -d context-broker journal-parser
+          docker compose -f docker-compose.yml up -d context-broker journal-parser knowledge-base
           echo "Waiting for services to start..."
           sleep 90
 
@@ -147,6 +156,10 @@ jobs:
           timeout 60 bash -c 'until curl -f http://localhost:8002/health >/dev/null 2>&1; do sleep 5; done' || exit 1
           echo "✓ Journal Parser is healthy"
 
+          # Check knowledge-base health
+          timeout 60 bash -c 'until curl -f http://localhost:8003/health >/dev/null 2>&1; do sleep 5; done' || exit 1
+          echo "✓ Knowledge Base is healthy"
+
       - name: Run basic API tests
         run: |
           # Test basic endpoints
@@ -155,6 +168,9 @@ jobs:
 
           curl -f http://localhost:8002/docs >/dev/null 2>&1 || exit 1
           echo "✓ Journal Parser API docs accessible"
+
+          curl -f http://localhost:8003/docs >/dev/null 2>&1 || exit 1
+          echo "✓ Knowledge Base API docs accessible"
 
       - name: Cleanup
         if: always()
@@ -172,6 +188,7 @@ jobs:
         service:
           - context-broker
           - journal-parser
+          - knowledge-base
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -188,6 +205,33 @@ jobs:
           tags: plos-${{ matrix.service }}:test
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # ============================================================================
+  # Knowledge Base Tests
+  # ============================================================================
+  knowledge-base-tests:
+    name: Knowledge Base DB Tests
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: plos_db_secure_2025
+      POSTGRES_DB: plos
+      REDIS_PASSWORD: plos_redis_secure_2025
+      MINIO_ROOT_USER: plos_minio_admin
+      MINIO_ROOT_PASSWORD: plos_minio_secure_2026
+      MINIO_BUCKET: knowledge-base-documents
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Knowledge Base tests
+        run: |
+          bash scripts/test/knowledge-base-db-tests.sh
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker compose -f docker-compose.yml down -v
 
   # ============================================================================
   # Docker Compose Validation
