@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import os
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -130,6 +131,13 @@ def test_upload_document_exact_duplicate_reuses_existing_document() -> None:
             )
             if not dedup_table_exists or not integrity_table_exists:
                 pytest.skip("Deduplication/integrity migration is not applied yet")
+
+            has_gemini_keys = bool(
+                (os.getenv("GEMINI_API_KEY") or "").strip()
+                or (os.getenv("GEMINI_API_KEYS") or "").strip()
+            )
+            if not has_gemini_keys:
+                pytest.skip("Gemini API keys are required in strict embedding mode")
 
             owner_id = str(uuid4())
             marker_a = uuid4().hex

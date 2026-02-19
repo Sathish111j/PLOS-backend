@@ -1,5 +1,6 @@
 import asyncio
 
+import pytest
 from app.application.embeddings import GeminiEmbeddingProvider
 from app.core.config import get_kb_config
 
@@ -35,12 +36,15 @@ def test_embedding_provider_normalize_is_unit_vector() -> None:
     assert abs(magnitude - 1.0) < 1e-6
 
 
-def test_embedding_provider_fallback_to_deterministic_when_gemini_fails() -> None:
+def test_embedding_provider_raises_when_gemini_fails() -> None:
     provider = GeminiEmbeddingProvider(get_kb_config())
 
     async def scenario() -> None:
-        provider._gemini_embedding = lambda _text, task_type: asyncio.sleep(0, result=None)
-        vector = await provider.embed_text("fallback check")
-        assert len(vector) == 384
+        async def _raise(_text: str, *, task_type: str) -> list[float]:
+            raise RuntimeError("gemini unavailable")
+
+        provider._gemini_embedding = _raise
+        with pytest.raises(RuntimeError, match="gemini unavailable"):
+            await provider.embed_text("strict failure check")
 
     _run(scenario())
