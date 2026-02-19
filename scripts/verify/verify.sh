@@ -50,6 +50,13 @@ else
     echo -e "${RED}[X]${NC} Kafka"
 fi
 
+# Qdrant
+if curl -s http://localhost:${QDRANT_HTTP_PORT:-6333}/healthz &>/dev/null; then
+    echo -e "${GREEN}[OK]${NC} Qdrant"
+else
+    echo -e "${RED}[X]${NC} Qdrant"
+fi
+
 echo ""
 echo "2. Application Services"
 echo "-----------------------"
@@ -66,6 +73,13 @@ if curl -s http://localhost:8002/health &>/dev/null; then
     echo -e "${GREEN}[OK]${NC} Journal Parser (http://localhost:8002/health)"
 else
     echo -e "${RED}[X]${NC} Journal Parser"
+fi
+
+# Knowledge Base
+if curl -s http://localhost:8003/health &>/dev/null; then
+    echo -e "${GREEN}[OK]${NC} Knowledge Base (http://localhost:8003/health)"
+else
+    echo -e "${RED}[X]${NC} Knowledge Base"
 fi
 
 echo ""
@@ -113,6 +127,8 @@ echo "Access Points:"
 echo "  API Gateway:     http://localhost:8000"
 echo "  Context Broker:  http://localhost:8001"
 echo "  Journal Parser:  http://localhost:8002"
+echo "  Knowledge Base:  http://localhost:8003"
+echo "  Qdrant:          http://localhost:${QDRANT_HTTP_PORT:-6333}"
 echo "  Kafka UI:        http://localhost:18080"
 echo "  Grafana:         http://localhost:3333"
 echo "=========================================="

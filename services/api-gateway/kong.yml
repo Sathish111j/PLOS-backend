@@ -58,6 +58,22 @@ services:
           replace:
             uri: "$(uri_captures.path)"
 
+  # Knowledge Base Service
+  # External: /api/v1/search -> Internal: /api/v1/search
+  - name: knowledge-base
+    url: http://knowledge-base:8003
+    routes:
+      - name: knowledge-base-route
+        paths:
+          - ~/api/v1(?<path>/(upload|documents|buckets|search|chat).*)$
+        strip_path: false
+        regex_priority: 90
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: "$(uri_captures.path)"
+
 
   # Health Check Routes - Direct access to each service
   - name: health-journal
@@ -74,6 +90,14 @@ services:
       - name: health-context-route
         paths:
           - /health/context
+        strip_path: true
+
+  - name: health-knowledge-base
+    url: http://knowledge-base:8003/health
+    routes:
+      - name: health-knowledge-base-route
+        paths:
+          - /health/knowledge-base
         strip_path: true
 
   # Root health check

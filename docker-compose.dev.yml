@@ -50,3 +50,21 @@ services:
           cpus: '2.0'
           memory: 1G
 
+  knowledge-base:
+    build:
+      context: .
+      dockerfile: ./services/knowledge-base/Dockerfile
+    volumes:
+      - ./services/knowledge-base/src:/app:rw
+      - ./shared:/app/shared:rw
+    environment:
+      LOG_LEVEL: DEBUG
+      PYTHONUNBUFFERED: 1
+      WATCHFILES_FORCE_POLLING: "true"
+    command: uvicorn app.main:app --host 0.0.0.0 --port ${KNOWLEDGE_BASE_PORT:-8003} --reload --reload-dir /app --reload-dir /app/shared
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+

@@ -21,7 +21,7 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
 # Test 1: Supabase PostgreSQL Database
-Write-Host "[1/8] Supabase PostgreSQL Database..." -ForegroundColor Yellow
+Write-Host "[1/9] Supabase PostgreSQL Database..." -ForegroundColor Yellow
 try {
     $pgReady = docker exec plos-supabase-db pg_isready -U $pgUser 2>&1
     if ($pgReady -match "accepting connections") {
@@ -37,7 +37,7 @@ try {
 
 # Test 2: Supabase Studio
 Write-Host ""
-Write-Host "[2/8] Supabase Studio..." -ForegroundColor Yellow
+Write-Host "[2/9] Supabase Studio..." -ForegroundColor Yellow
 try {
     $response = Invoke-WebRequest -Uri http://localhost:3000/api/profile -UseBasicParsing -TimeoutSec 10
     if ($response.StatusCode -eq 200) {
@@ -53,7 +53,7 @@ try {
 
 # Test 3: Redis Cache
 Write-Host ""
-Write-Host "[3/8] Redis Cache..." -ForegroundColor Yellow
+Write-Host "[3/9] Redis Cache..." -ForegroundColor Yellow
 try {
     $redisPing = docker exec plos-redis redis-cli -a $redisPassword --no-auth-warning ping 2>&1 | Select-String "PONG"
     if ($redisPing) {
@@ -70,9 +70,25 @@ try {
     $ErrorCount++
 }
 
-# Test 4: Zookeeper
+# Test 4: Qdrant
 Write-Host ""
-Write-Host "[4/8] Zookeeper..." -ForegroundColor Yellow
+Write-Host "[4/9] Qdrant Vector DB..." -ForegroundColor Yellow
+try {
+    $response = Invoke-WebRequest -Uri http://localhost:6333/healthz -UseBasicParsing -TimeoutSec 10
+    if ($response.StatusCode -eq 200) {
+        Write-Host "  Status: Healthy" -ForegroundColor Green
+    } else {
+        Write-Host "  WARNING: Unexpected status" -ForegroundColor Yellow
+        $WarningCount++
+    }
+} catch {
+    Write-Host "  ERROR: $_" -ForegroundColor Red
+    $ErrorCount++
+}
+
+# Test 5: Zookeeper
+Write-Host ""
+Write-Host "[5/9] Zookeeper..." -ForegroundColor Yellow
 try {
     # Zookeeper 3.5+ has four-letter-word commands disabled by default for security
     # Check if the process is running instead
@@ -97,9 +113,9 @@ try {
     $ErrorCount++
 }
 
-# Test 5: Kafka Message Queue
+# Test 6: Kafka Message Queue
 Write-Host ""
-Write-Host "[5/8] Kafka Message Queue..." -ForegroundColor Yellow
+Write-Host "[6/9] Kafka Message Queue..." -ForegroundColor Yellow
 try {
     $topics = docker exec plos-kafka kafka-topics --bootstrap-server localhost:9092 --list 2>&1 | Where-Object { $_ -notmatch "WARN" }
     $topicCount = ($topics | Measure-Object).Count
@@ -120,9 +136,9 @@ try {
     $ErrorCount++
 }
 
-# Test 6: Prometheus
+# Test 7: Prometheus
 Write-Host ""
-Write-Host "[6/7] Prometheus Monitoring..." -ForegroundColor Yellow
+Write-Host "[7/9] Prometheus Monitoring..." -ForegroundColor Yellow
 try {
     $response = Invoke-WebRequest -Uri http://localhost:9090/-/healthy -UseBasicParsing
     if ($response.StatusCode -eq 200) {
@@ -136,9 +152,9 @@ try {
     $ErrorCount++
 }
 
-# Test 7: Grafana
+# Test 8: Grafana
 Write-Host ""
-Write-Host "[7/7] Grafana Dashboard..." -ForegroundColor Yellow
+Write-Host "[8/9] Grafana Dashboard..." -ForegroundColor Yellow
 $grafanaHealthy = $false
 for ($attempt = 1; $attempt -le 5; $attempt++) {
     try {
@@ -158,6 +174,22 @@ for ($attempt = 1; $attempt -le 5; $attempt++) {
 
 if (-not $grafanaHealthy) {
     Write-Host "  ERROR: Grafana health check failed" -ForegroundColor Red
+    $ErrorCount++
+}
+
+# Test 9: Knowledge Base service
+Write-Host ""
+Write-Host "[9/9] Knowledge Base Service..." -ForegroundColor Yellow
+try {
+    $response = Invoke-WebRequest -Uri http://localhost:8003/health -UseBasicParsing -TimeoutSec 10
+    if ($response.StatusCode -eq 200) {
+        Write-Host "  Status: Healthy" -ForegroundColor Green
+    } else {
+        Write-Host "  WARNING: Unexpected status" -ForegroundColor Yellow
+        $WarningCount++
+    }
+} catch {
+    Write-Host "  ERROR: $_" -ForegroundColor Red
     $ErrorCount++
 }
 

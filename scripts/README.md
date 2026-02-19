@@ -66,7 +66,7 @@ scripts/
 | `scripts/stop/stop.ps1` | Stop all services | End of day, clean state |
 | `scripts/stop/stop.ps1 -CleanVolumes` | Stop and delete all data | Fresh start needed |
 | `scripts/setup/seed.ps1` | Populate database with initial data | Optional - run after start-all.ps1 if needed |
-| `scripts/verify/verify-infrastructure.ps1` | Comprehensive verification (6 tests) | Check system health |
+| `scripts/verify/verify-infrastructure.ps1` | Comprehensive verification (9 tests) | Check system health |
 | `scripts/verify/smoke-e2e.ps1` | Production smoke test via API gateway | Auth + journal + reports |
 | `scripts/lint/lint.ps1` | Run code linting | Before commits |
 | `scripts/lint/lint.ps1 -Fix` | Auto-fix linting issues | Fix formatting |
@@ -88,8 +88,8 @@ scripts/
 ### start-all.ps1
 Complete system startup with proper sequencing and health checks:
 1. Starts infrastructure (supabase-db, redis, kafka, zookeeper, prometheus, grafana, kafka-ui)
-2. Verifies infrastructure health (7 tests)
-3. Starts application services (context-broker, journal-parser, api-gateway)
+2. Verifies infrastructure health (9 tests)
+3. Starts application services (context-broker, journal-parser, knowledge-base, api-gateway)
 4. Verifies services health (health endpoints)
 5. Database is automatically initialized via init.sql
 
@@ -108,7 +108,7 @@ Use when:
 Starts only application services:
 1. Verifies infrastructure is running
 2. Builds service images (if code changed)
-3. Starts all 3 services
+3. Starts all core services
 
 Use when:
 - Infrastructure already running
@@ -132,14 +132,17 @@ Use `-CleanVolumes` when:
 - Testing from scratch
 
 ### verify-infrastructure.ps1
-Comprehensive 6-step verification:
+Comprehensive 9-step verification:
 
 1. PostgreSQL - Connection
-2. Redis - Connection, memory usage
-3. Zookeeper - Process status, Kafka connection
-4. Kafka - Topics, message queue
-5. Prometheus - Health status
-6. Grafana - Dashboard availability
+2. Supabase Studio - Health status
+3. Redis - Connection, memory usage
+4. Qdrant - Health status
+5. Zookeeper - Process status, Kafka connection
+6. Kafka - Topics, message queue
+7. Prometheus - Health status
+8. Grafana - Dashboard availability
+9. Knowledge Base - Service health endpoint
 
 Output:
 - "ALL TESTS PASSED" = Everything working
@@ -162,7 +165,7 @@ Production smoke checks through the API gateway:
 - Docker Desktop installed and running
 - PowerShell (Windows) or Bash (Linux/Mac)
 - At least 8GB RAM available
-- Ports 5432, 6379, 9092, 2181, 9090, 3333, 18080, 3001, 8000-8002 available
+- Ports 5432, 6379, 6333, 9092, 2181, 9090, 3333, 18080, 3001, 8000-8003 available
 
 ### Complete Setup Steps
 

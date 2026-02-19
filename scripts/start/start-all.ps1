@@ -74,6 +74,7 @@ $infraServices = @(
     "supabase-meta",
     "supabase-studio",
     "redis",
+    "qdrant",
     "zookeeper",
     "kafka",
     "prometheus",
@@ -83,6 +84,7 @@ $infraServices = @(
 $coreServices = @(
     "context-broker",
     "journal-parser",
+    "knowledge-base",
     "api-gateway"
 )
 

@@ -182,6 +182,55 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # Qdrant Vector Database
+  qdrant:
+    image: qdrant/qdrant:v1.12.0
+    container_name: plos-qdrant
+    ports:
+      - "${QDRANT_HTTP_PORT:-6333}:6333"
+      - "${QDRANT_GRPC_PORT:-6334}:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - plos-network
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    restart: unless-stopped
+
+  # MinIO object storage
+  minio:
+    image: minio/minio:latest
+    container_name: plos-minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-plos_minio_admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-plos_minio_secure_2026}
+    command: server /data --console-address ":9001"
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - plos-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
   # Zookeeper (Required for Kafka)
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
@@ -402,6 +451,114 @@ services:
       start_period: 30s
     restart: unless-stopped
 
+  # Knowledge Base - document ingestion, retrieval and RAG chat
+  knowledge-base:
+    build:
+      context: .
+      dockerfile: ./services/knowledge-base/Dockerfile
+    container_name: plos-knowledge-base
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      minio:
+        condition: service_healthy
+    environment:
+      SERVICE_NAME: knowledge-base
+      SERVICE_PORT: ${KNOWLEDGE_BASE_PORT:-8003}
+      PORT: ${KNOWLEDGE_BASE_PORT:-8003}
+      ENVIRONMENT: ${APP_ENV:-production}
+      DEBUG: ${DEBUG:-false}
+      WORKERS: ${KNOWLEDGE_BASE_WORKERS:-4}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-plos_db_secure_2025}@supabase-db:5432/${POSTGRES_DB:-plos}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-plos_redis_secure_2025}@redis:6379/0
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-documents}
+      MINIO_ENABLED: ${MINIO_ENABLED:-true}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-plos_minio_admin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-plos_minio_secure_2026}
+      MINIO_BUCKET: ${MINIO_BUCKET:-knowledge-base-documents}
+      MINIO_SECURE: ${MINIO_SECURE:-false}
+      MINIO_REGION: ${MINIO_REGION:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
+      GEMINI_DEFAULT_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-2.5-flash}
+      GEMINI_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-2.5-flash}
+      GEMINI_EMBEDDING_MODEL: ${GEMINI_EMBEDDING_MODEL:-text-embedding-004}
+      GEMINI_API_KEY_ROTATION_ENABLED: ${GEMINI_API_KEY_ROTATION_ENABLED:-true}
+      GEMINI_API_KEY_ROTATION_MAX_RETRIES: ${GEMINI_API_KEY_ROTATION_MAX_RETRIES:-3}
+      GEMINI_API_KEY_ROTATION_BACKOFF_SECONDS: ${GEMINI_API_KEY_ROTATION_BACKOFF_SECONDS:-60}
+      EMBEDDING_PROVIDER: ${KNOWLEDGE_BASE_EMBEDDING_PROVIDER:-gemini}
+      STORAGE_PATH: ${KNOWLEDGE_BASE_STORAGE_PATH:-./storage/documents}
+      TEMP_PATH: ${KNOWLEDGE_BASE_TEMP_PATH:-./storage/temp}
+      GRAPH_DB_PATH: ${KNOWLEDGE_BASE_GRAPH_DB_PATH:-./storage/knowledge_graph}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
+      PYTHONPATH: /app
+    ports:
+      - "${KNOWLEDGE_BASE_PORT:-8003}:8003"
+    volumes:
+      - ./shared:/app/shared:ro
+      - knowledge_base_storage:/app/storage
+    networks:
+      - plos-network
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8003
+    restart: unless-stopped
+
+  knowledge-base-test:
+    profiles: ["test"]
+    build:
+      context: .
+      dockerfile: ./services/knowledge-base/Dockerfile.test
+    container_name: plos-knowledge-base-test
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-plos_db_secure_2025}@supabase-db:5432/${POSTGRES_DB:-plos}
+      MINIO_ENABLED: "true"
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-plos_minio_admin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-plos_minio_secure_2026}
+      MINIO_BUCKET: ${MINIO_BUCKET:-knowledge-base-documents}
+      PYTHONPATH: /workspace/services/knowledge-base/src:/workspace
+    volumes:
+      - ./:/workspace:ro
+    working_dir: /workspace
+    user: root
+    command: pytest -q -p no:cacheprovider tests/knowledge_base
+    networks:
+      - plos-network
+    restart: "no"
+
 
   # ==========================================================================
   # MONITORING & OBSERVABILITY
@@ -520,6 +677,8 @@ volumes:
     driver: local
   redis_data:
     driver: local
+  qdrant_data:
+    driver: local
   kafka_data:
     driver: local
   zookeeper_data:
@@ -531,4 +690,8 @@ volumes:
   grafana_data:
     driver: local
   metabase_data:
+    driver: local
+  knowledge_base_storage:
+    driver: local
+  minio_data:
     driver: local

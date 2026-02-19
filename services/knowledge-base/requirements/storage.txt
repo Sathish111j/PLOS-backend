@@ -1,0 +1,5 @@
+minio==7.2.12
+qdrant-client==1.12.1
+redis[hiredis]==5.0.1
+sqlalchemy[asyncio]==2.0.25
+asyncpg==0.29.0
