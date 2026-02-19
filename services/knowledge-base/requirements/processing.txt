@@ -11,3 +11,4 @@ beautifulsoup4==4.12.3
 readability-lxml==0.8.1
 Pillow==11.1.0
 pytesseract==0.3.13
+playwright==1.51.0

@@ -44,6 +44,11 @@ def test_unified_processor_text_flow() -> None:
 
     assert result.format == DocumentFormat.TEXT
     assert result.strategy_used.value == "text_direct"
+    assert result.source_type.value == "text"
+    assert result.document_id
+    assert result.raw_text == result.text
+    assert 0.0 <= result.confidence_score <= 1.0
+    assert result.extraction_path == "text_direct"
     assert len(result.sections) >= 2
     assert "detected_format" in result.metadata
 
@@ -60,3 +65,4 @@ def test_unified_processor_web_detection_without_content() -> None:
     )
     assert result.format == DocumentFormat.WEB
     assert result.strategy_used.value == "web_static_dynamic"
+    assert result.source_type.value in {"web_static", "web_dynamic"}

@@ -15,6 +15,7 @@ from app.application.ingestion.models import (
     ContentClass,
     DocumentFormat,
     ExtractionStrategy,
+    SourceType,
     StructuredDocument,
 )
 from app.application.ingestion.normalizer import (
@@ -72,10 +73,14 @@ class TextProcessor:
             }
         )
         return StructuredDocument(
+            source_type=SourceType.TEXT,
+            raw_text=normalized,
             text=normalized,
             sections=infer_sections_from_text(normalized),
             metadata=metadata,
             confidence_scores={"text_extraction": 0.99},
+            confidence_score=0.99,
+            extraction_path="text_direct",
             strategy_used=ExtractionStrategy.TEXT_DIRECT,
             format=DocumentFormat.TEXT,
             content_class=ContentClass.TEXT_BASED,
@@ -125,21 +130,137 @@ class PdfProcessor:
             {"pdfplumber_available": True, "page_count": page_count},
         )
 
+    def _extract_with_mineru(
+        self,
+        payload: ProcessorInput,
+    ) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+        try:
+            import mineru  # type: ignore
+        except Exception:
+            return "", [], [], {"mineru_available": False}
+
+        try:
+            if hasattr(mineru, "extract"):
+                result = mineru.extract(payload.content_bytes or b"")
+                text = normalize_text(str(result.get("text") or ""))
+                tables = list(result.get("tables") or [])
+                images = list(result.get("images") or [])
+                return text, tables, images, {"mineru_available": True}
+        except Exception as error:
+            return "", [], [], {"mineru_available": True, "mineru_error": str(error)}
+
+        return "", [], [], {"mineru_available": True, "mineru_adapter": "missing"}
+
+    def _extract_with_paddleocr(self, payload: ProcessorInput) -> tuple[str, dict[str, Any]]:
+        try:
+            from paddleocr import PaddleOCR  # type: ignore
+            from PIL import Image
+        except Exception:
+            return "", {"paddleocr_available": False}
+
+        try:
+            image = Image.open(io.BytesIO(payload.content_bytes or b""))
+            ocr = PaddleOCR(use_angle_cls=True, lang="en")
+            result = ocr.ocr(image, cls=True)
+            lines: list[str] = []
+            for region in result or []:
+                for item in region or []:
+                    if len(item) >= 2 and item[1]:
+                        text_value = item[1][0]
+                        score = float(item[1][1]) if len(item[1]) > 1 else 0.0
+                        if score >= 0.85:
+                            lines.append(str(text_value))
+            text = normalize_text("\n".join(lines))
+            return text, {"paddleocr_available": True}
+        except Exception as error:
+            return "", {"paddleocr_available": True, "paddleocr_error": str(error)}
+
+    def _extract_with_gemini_vision(self, payload: ProcessorInput) -> tuple[str, dict[str, Any]]:
+        try:
+            from google import genai
+            from google.genai import types
+            from shared.gemini.config import get_gemini_config
+        except Exception:
+            return "", {"gemini_vision_available": False}
+
+        if not payload.content_bytes:
+            return "", {"gemini_vision_available": False, "reason": "empty_content"}
+
+        try:
+            import os
+
+            api_key = (os.getenv("GEMINI_API_KEY") or "").strip()
+            if not api_key:
+                return "", {"gemini_vision_available": False, "reason": "missing_api_key"}
+
+            client = genai.Client(api_key=api_key)
+            config = get_gemini_config()
+            response = client.models.generate_content(
+                model=config.vision_model,
+                contents=[
+                    types.Part.from_text(
+                        "Extract all readable text from this document image. Return plain text only."
+                    ),
+                    types.Part.from_bytes(data=payload.content_bytes, mime_type=payload.mime_type or "image/png"),
+                ],
+            )
+            text = normalize_text(response.text or "")
+            return text, {"gemini_vision_available": True, "gemini_vision_model": config.vision_model}
+        except Exception as error:
+            return "", {"gemini_vision_available": True, "gemini_vision_error": str(error)}
+
     def _extract_image_pdf_fallback(
         self, payload: ProcessorInput, content_class: ContentClass
     ) -> StructuredDocument:
+        mineru_text, mineru_tables, mineru_images, mineru_meta = self._extract_with_mineru(payload)
+        paddle_text, paddle_meta = self._extract_with_paddleocr(payload)
+
+        tesseract_text = ""
+        tesseract_meta: dict[str, Any] = {}
+        try:
+            import pytesseract
+            from PIL import Image
+
+            image = Image.open(io.BytesIO(payload.content_bytes or b""))
+            tesseract_text = normalize_text(pytesseract.image_to_string(image))
+            tesseract_meta = {"tesseract_available": True}
+        except Exception as error:
+            tesseract_meta = {"tesseract_available": False, "tesseract_error": str(error)}
+
+        gemini_text, gemini_meta = self._extract_with_gemini_vision(payload)
+
+        text = mineru_text or paddle_text or tesseract_text or gemini_text
+        tables = mineru_tables
+        images = mineru_images
+
         metadata = _base_metadata(payload)
         metadata.update(
             {
-                "ocr_chain": ["mineru", "paddleocr", "tesseract"],
-                "note": "High-accuracy OCR pipeline placeholders are wired. Install and configure OCR runtimes for full extraction.",
+                "ocr_chain": ["mineru", "paddleocr", "tesseract", "gemini_vision"],
+                **mineru_meta,
+                **paddle_meta,
+                **tesseract_meta,
+                **gemini_meta,
             }
         )
+        confidence = 0.9 if text else 0.2
         return StructuredDocument(
-            text="",
-            sections=[],
+            source_type=(
+                SourceType.PDF_SCANNED
+                if content_class == ContentClass.IMAGE_BASED
+                else SourceType.PDF_MIXED
+            ),
+            raw_text=text,
+            text=text,
+            sections=infer_sections_from_text(text),
+            tables=tables,
+            images=images,
             metadata=metadata,
-            confidence_scores={"text_extraction": 0.2},
+            confidence_scores={"text_extraction": confidence},
+            confidence_score=confidence,
+            extraction_path=(
+                "mineru->paddleocr->tesseract->gemini_vision"
+            ),
             strategy_used=(
                 ExtractionStrategy.PDF_SCANNED_HIGH_ACCURACY
                 if content_class == ContentClass.IMAGE_BASED
@@ -166,11 +287,15 @@ class PdfProcessor:
                 }
             )
             return StructuredDocument(
+                source_type=SourceType.PDF_TEXT,
+                raw_text=text,
                 text=text,
                 sections=infer_sections_from_text(text),
                 tables=tables,
                 metadata=metadata,
                 confidence_scores={"text_extraction": 0.95, "table_extraction": 0.7},
+                confidence_score=0.95,
+                extraction_path="pdfplumber",
                 strategy_used=ExtractionStrategy.PDF_TEXT_FAST,
                 format=DocumentFormat.PDF,
                 content_class=content_class,
@@ -182,7 +307,7 @@ class PdfProcessor:
 class ImageProcessor:
     def process(self, payload: ProcessorInput) -> StructuredDocument:
         metadata = _base_metadata(payload)
-        metadata["ocr_chain"] = ["paddleocr", "tesseract"]
+        metadata["ocr_chain"] = ["paddleocr", "tesseract", "gemini_vision"]
 
         text = ""
         confidence = 0.2
@@ -199,10 +324,14 @@ class ImageProcessor:
             metadata["ocr_engine"] = "fallback_chain_unavailable"
 
         return StructuredDocument(
+            source_type=SourceType.IMAGE,
+            raw_text=text,
             text=text,
             sections=infer_sections_from_text(text),
             metadata=metadata,
             confidence_scores={"ocr_confidence": confidence},
+            confidence_score=confidence,
+            extraction_path="paddleocr->tesseract->gemini_vision",
             strategy_used=ExtractionStrategy.IMAGE_OCR_CHAIN,
             format=DocumentFormat.IMAGE,
             content_class=ContentClass.IMAGE_BASED,
@@ -275,10 +404,20 @@ class OfficeProcessor:
         metadata["office_extension"] = extension
 
         return StructuredDocument(
+            source_type=(
+                SourceType.DOCX
+                if extension in {".docx", ".doc"}
+                else SourceType.XLSX
+                if extension in {".xlsx", ".xls"}
+                else SourceType.PPTX
+            ),
+            raw_text=text,
             text=text,
             sections=infer_sections_from_text(text),
             metadata=metadata,
             confidence_scores={"text_extraction": 0.9 if text else 0.2},
+            confidence_score=0.9 if text else 0.2,
+            extraction_path="office_native",
             strategy_used=ExtractionStrategy.OFFICE_NATIVE,
             format=DocumentFormat.OFFICE,
             content_class=ContentClass.TEXT_BASED,
@@ -318,19 +457,70 @@ class WebProcessor:
         text = BeautifulSoup(html, "lxml").get_text("\n")
         return normalize_text(text), {"extractor": "beautifulsoup"}
 
+    async def _render_dynamic(self, url: str) -> tuple[str, dict[str, Any]]:
+        try:
+            from playwright.async_api import async_playwright
+        except Exception:
+            return "", {"playwright_available": False}
+
+        try:
+            async with async_playwright() as playwright:
+                browser = await playwright.chromium.launch(headless=True)
+                context = await browser.new_context()
+                page = await context.new_page()
+                async def handle_route(route):
+                    if route.request.resource_type in {"image", "font", "media"}:
+                        await route.abort()
+                    else:
+                        await route.continue_()
+
+                await page.route("**/*", handle_route)
+                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                await page.wait_for_load_state("networkidle", timeout=30000)
+                html = await page.content()
+                await context.close()
+                await browser.close()
+        except Exception as error:
+            return "", {"playwright_available": True, "playwright_error": str(error)}
+
+        text, details = self._extract_static(html)
+        merged = {"playwright_available": True, "extractor": f"playwright->{details.get('extractor', 'static')}"}
+        merged.update(details)
+        return text, merged
+
+    @staticmethod
+    def _is_dynamic_candidate(html: str) -> bool:
+        sample = html.lower()
+        signals = ["id=\"root\"", "id='root'", "__next", "data-reactroot", "ng-app", "vue"]
+        text_density = len("".join(ch for ch in sample[:4000] if ch.isalpha())) / max(1, len(sample[:4000]))
+        return any(signal in sample for signal in signals) or text_density < 0.2
+
     async def process(self, payload: ProcessorInput) -> StructuredDocument:
         if not payload.source_url:
             return StructuredDocument(
+                source_type=SourceType.WEB_STATIC,
+                raw_text="",
                 text="",
                 metadata={"error": "missing source_url"},
                 confidence_scores={"text_extraction": 0.0},
+                confidence_score=0.0,
+                extraction_path="web_missing_url",
                 strategy_used=ExtractionStrategy.WEB_STATIC_DYNAMIC,
                 format=DocumentFormat.WEB,
             )
 
         try:
             html = await self._fetch_html(payload.source_url)
-            text, details = self._extract_static(html)
+            if self._is_dynamic_candidate(html):
+                dynamic_text, dynamic_details = await self._render_dynamic(payload.source_url)
+                if dynamic_text:
+                    text, details = dynamic_text, dynamic_details
+                else:
+                    static_text, static_details = self._extract_static(html)
+                    text = static_text
+                    details = {**dynamic_details, **static_details}
+            else:
+                text, details = self._extract_static(html)
         except Exception as error:
             text = ""
             details = {"extractor": "network_fallback", "error": str(error)}
@@ -338,11 +528,21 @@ class WebProcessor:
         metadata.update(details)
         metadata["word_count"] = len(text.split())
 
+        source_type = (
+            SourceType.WEB_DYNAMIC
+            if str(details.get("extractor", "")).startswith("playwright")
+            else SourceType.WEB_STATIC
+        )
+
         return StructuredDocument(
+            source_type=source_type,
+            raw_text=text,
             text=text,
             sections=infer_sections_from_text(text),
             metadata=metadata,
             confidence_scores={"text_extraction": 0.9 if text else 0.2},
+            confidence_score=0.9 if text else 0.2,
+            extraction_path=str(details.get("extractor", "web_unknown")),
             strategy_used=ExtractionStrategy.WEB_STATIC_DYNAMIC,
             format=DocumentFormat.WEB,
             content_class=ContentClass.TEXT_BASED,
@@ -355,10 +555,14 @@ class FallbackProcessor:
         normalized = normalize_text(text)
         metadata = _base_metadata(payload)
         return StructuredDocument(
+            source_type=SourceType.TEXT,
+            raw_text=normalized,
             text=normalized,
             sections=infer_sections_from_text(normalized),
             metadata=metadata,
             confidence_scores={"text_extraction": 0.4},
+            confidence_score=0.4,
+            extraction_path="fallback_generic",
             strategy_used=ExtractionStrategy.FALLBACK_GENERIC,
             format=DocumentFormat.UNKNOWN,
         )

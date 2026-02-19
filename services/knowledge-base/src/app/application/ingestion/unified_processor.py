@@ -5,6 +5,7 @@ from app.application.ingestion.models import (
     ContentClass,
     DocumentFormat,
     ExtractionStrategy,
+    SourceType,
     StructuredDocument,
 )
 from app.application.ingestion.processors import (
@@ -50,6 +51,30 @@ class UnifiedDocumentProcessor:
             return ExtractionStrategy.TEXT_DIRECT
         return ExtractionStrategy.FALLBACK_GENERIC
 
+    @staticmethod
+    def _resolve_source_type(result: StructuredDocument) -> SourceType:
+        if result.format == DocumentFormat.PDF:
+            if result.content_class == ContentClass.TEXT_BASED:
+                return SourceType.PDF_TEXT
+            if result.content_class == ContentClass.IMAGE_BASED:
+                return SourceType.PDF_SCANNED
+            return SourceType.PDF_MIXED
+        if result.format == DocumentFormat.IMAGE:
+            return SourceType.IMAGE
+        if result.format == DocumentFormat.WEB:
+            extractor = str((result.metadata or {}).get("extractor") or "")
+            if extractor.startswith("playwright"):
+                return SourceType.WEB_DYNAMIC
+            return SourceType.WEB_STATIC
+        if result.format == DocumentFormat.OFFICE:
+            extension = str((result.metadata or {}).get("office_extension") or "").lower()
+            if extension in {".doc", ".docx"}:
+                return SourceType.DOCX
+            if extension in {".xls", ".xlsx"}:
+                return SourceType.XLSX
+            return SourceType.PPTX
+        return SourceType.TEXT
+
     async def process(
         self,
         *,
@@ -91,6 +116,17 @@ class UnifiedDocumentProcessor:
 
         selected_strategy = self._select_strategy(result.format, result.content_class)
         result.strategy_used = selected_strategy
+        result.source_type = self._resolve_source_type(result)
+        result.extraction_path = selected_strategy.value
+        if result.raw_text and not result.text:
+            result.text = result.raw_text
+        if result.text and not result.raw_text:
+            result.raw_text = result.text
+        if result.confidence_scores and result.confidence_score <= 0.0:
+            result.confidence_score = max(
+                0.0,
+                min(1.0, sum(result.confidence_scores.values()) / len(result.confidence_scores)),
+            )
         result.metadata["detected_format"] = detected.format.value
         result.metadata["detector_confidence"] = detected.detector_confidence
         result.metadata["detected_extension"] = detected.extension

@@ -75,6 +75,35 @@ async def upload_document(
     )
 
 
+@router.post("/ingest", response_model=UploadResponse, tags=["documents"])
+async def ingest_document(
+    request: UploadRequest,
+    current_user: TokenData | None = Depends(get_current_user_optional),
+) -> UploadResponse:
+    start = time.perf_counter()
+    owner_id = _owner_id(current_user)
+    result = await knowledge_service.upload_document(
+        owner_id,
+        request.filename,
+        content_base64=request.content_base64,
+        mime_type=request.mime_type,
+        source_url=request.source_url,
+    )
+    duration = time.perf_counter() - start
+    REQUEST_COUNT.labels(method="POST", endpoint="/ingest", status="200").inc()
+    REQUEST_LATENCY.labels(method="POST", endpoint="/ingest").observe(duration)
+    return UploadResponse(
+        document_id=result["document_id"],
+        status=result["status"],
+        content_type=result["content_type"],
+        strategy=result["strategy"],
+        word_count=result["word_count"],
+        char_count=result["char_count"],
+        metadata=result["metadata"],
+        created_at=result["created_at"],
+    )
+
+
 @router.get("/documents", response_model=list[DocumentItem], tags=["documents"])
 async def list_documents(
     current_user: TokenData | None = Depends(get_current_user_optional),
