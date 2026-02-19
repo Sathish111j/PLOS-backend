@@ -21,6 +21,7 @@ class KnowledgeBaseConfig:
     minio_access_key: str
     minio_secret_key: str
     database_url: str
+    redis_url: str
 
     @property
     def minio_health_url(self) -> str:
@@ -55,5 +56,8 @@ def get_kb_config() -> KnowledgeBaseConfig:
         database_url=os.getenv(
             "DATABASE_URL",
             "postgresql+asyncpg://postgres:plos_db_secure_2025@supabase-db:5432/plos",
+        ),
+        redis_url=os.getenv(
+            "REDIS_URL", "redis://:plos_redis_secure_2025@redis:6379/0"
         ),
     )

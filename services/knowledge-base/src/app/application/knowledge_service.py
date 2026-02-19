@@ -1,6 +1,11 @@
 import base64
 from typing import Any, Dict, List
 
+from app.application.deduplication import (
+    build_dedup_computation,
+    build_integrity_chain,
+    md5_hex,
+)
 from app.application.ingestion.chunking import SemanticChunkingEngine
 from app.application.ingestion.unified_processor import UnifiedDocumentProcessor
 from app.infrastructure.persistence import KnowledgePersistence
@@ -28,6 +33,53 @@ class KnowledgeService:
             mime_type=mime_type,
             source_url=source_url,
         )
+
+        dedup_computation = build_dedup_computation(structured.text)
+        duplicate_candidate = await self._persistence.find_duplicate_candidate(
+            normalized_sha256=dedup_computation.normalized_sha256,
+            simhash=dedup_computation.simhash,
+            simhash_band_hashes=dedup_computation.simhash_band_hashes,
+            minhash_signature=dedup_computation.minhash_signature,
+            minhash_band_hashes=dedup_computation.minhash_band_hashes,
+        )
+
+        if duplicate_candidate:
+            dedup_stage = duplicate_candidate.get("dedup_stage", "exact")
+            dedup_score = duplicate_candidate.get("dedup_score")
+            updated = await self._persistence.register_duplicate_access(
+                document_id=duplicate_candidate["document_id"],
+                source_url=source_url,
+                dedup_stage=dedup_stage,
+                dedup_score=dedup_score,
+            )
+            duplicate_response = updated or duplicate_candidate
+            duplicate_metadata = dict(duplicate_response.get("metadata") or {})
+            duplicate_metadata["deduplication"] = {
+                "stage": dedup_stage,
+                "score": dedup_score,
+                "duplicate_of": duplicate_response["document_id"],
+            }
+
+            return {
+                "document_id": duplicate_response["document_id"],
+                "owner_id": duplicate_response.get("owner_id", owner_id),
+                "filename": filename,
+                "status": f"duplicate_{dedup_stage}",
+                "content_type": duplicate_response.get(
+                    "content_type", structured.format.value
+                ),
+                "strategy": duplicate_response.get(
+                    "strategy", structured.strategy_used.value
+                ),
+                "word_count": duplicate_response.get("word_count", 0),
+                "char_count": duplicate_response.get("char_count", 0),
+                "text_preview": None,
+                "metadata": duplicate_metadata,
+                "confidence_scores": structured.confidence_scores,
+                "chunk_count": 0,
+                "created_at": duplicate_response["created_at"],
+            }
+
         chunks = self._chunker.chunk_document(
             source_document_id="pending",
             filename=filename,
@@ -36,6 +88,25 @@ class KnowledgeService:
         structured.chunks = chunks
         structured.metadata["chunk_count"] = len(chunks)
 
+        ingestion_bytes = content_bytes or structured.text.encode("utf-8")
+        if not structured.metadata.get("checksum"):
+            structured.metadata["checksum"] = md5_hex(ingestion_bytes)
+        integrity_checkpoints = build_integrity_chain(
+            ingestion_bytes=ingestion_bytes,
+            extracted_text=structured.text,
+            chunk_texts=[chunk.text for chunk in chunks],
+        )
+        structured.metadata["integrity_chain"] = [
+            {
+                "stage": checkpoint.stage_name,
+                "checksum_md5": checkpoint.checksum_md5,
+                "previous_checksum_md5": checkpoint.previous_checksum_md5,
+                "chain_hash_sha256": checkpoint.chain_hash_sha256,
+                "is_verified": checkpoint.is_verified,
+            }
+            for checkpoint in integrity_checkpoints
+        ]
+
         persisted = await self._persistence.persist_processed_document(
             owner_id=owner_id,
             filename=filename,
@@ -43,6 +114,14 @@ class KnowledgeService:
             mime_type=mime_type,
             content_bytes=content_bytes,
             structured=structured,
+            dedup={
+                "normalized_sha256": dedup_computation.normalized_sha256,
+                "simhash": dedup_computation.simhash,
+                "simhash_band_hashes": dedup_computation.simhash_band_hashes,
+                "minhash_signature": dedup_computation.minhash_signature,
+                "minhash_band_hashes": dedup_computation.minhash_band_hashes,
+            },
+            integrity_checkpoints=integrity_checkpoints,
         )
 
         document = {

@@ -1,8 +1,11 @@
 import asyncio
+import base64
 from datetime import datetime, timezone
 from uuid import uuid4
 
 import asyncpg
+import pytest
+from app.application.knowledge_service import KnowledgeService
 
 from app.application.ingestion.models import (
     ContentClass,
@@ -68,6 +71,15 @@ def test_persist_processed_document_creates_db_rows() -> None:
     async def scenario():
         await persistence.connect()
         try:
+            dedup_table_exists = await _fetchval(
+                "SELECT to_regclass('public.document_dedup_signatures') IS NOT NULL"
+            )
+            integrity_table_exists = await _fetchval(
+                "SELECT to_regclass('public.document_integrity_checks') IS NOT NULL"
+            )
+            if not dedup_table_exists or not integrity_table_exists:
+                pytest.skip("Deduplication/integrity migration is not applied yet")
+
             owner_id = str(uuid4())
             result = await persistence.persist_processed_document(
                 owner_id=owner_id,
@@ -96,6 +108,65 @@ def test_persist_processed_document_creates_db_rows() -> None:
             assert version_exists is True
             assert chunks_count == 1
             assert result["storage_key"] is not None
+        finally:
+            await persistence.close()
+
+    _run(scenario())
+
+
+def test_upload_document_exact_duplicate_reuses_existing_document() -> None:
+    config = get_kb_config()
+    persistence = KnowledgePersistence(config)
+    service = KnowledgeService(persistence)
+
+    async def scenario():
+        await persistence.connect()
+        try:
+            dedup_table_exists = await _fetchval(
+                "SELECT to_regclass('public.document_dedup_signatures') IS NOT NULL"
+            )
+            integrity_table_exists = await _fetchval(
+                "SELECT to_regclass('public.document_integrity_checks') IS NOT NULL"
+            )
+            if not dedup_table_exists or not integrity_table_exists:
+                pytest.skip("Deduplication/integrity migration is not applied yet")
+
+            owner_id = str(uuid4())
+            content = "Duplicate me please. Same text should not create a second document.".encode(
+                "utf-8"
+            )
+            payload = base64.b64encode(content).decode("utf-8")
+
+            first = await service.upload_document(
+                owner_id=owner_id,
+                filename="dup-1.txt",
+                content_base64=payload,
+                mime_type="text/plain",
+                source_url="https://example.com/first",
+            )
+            second = await service.upload_document(
+                owner_id=owner_id,
+                filename="dup-2.txt",
+                content_base64=payload,
+                mime_type="text/plain",
+                source_url="https://example.com/second",
+            )
+
+            assert first["status"] == "completed"
+            assert second["status"] == "duplicate_exact"
+            assert second["document_id"] == first["document_id"]
+
+            dedup_rows = await _fetchval(
+                "SELECT COUNT(*) FROM document_dedup_signatures WHERE document_id = $1::uuid",
+                first["document_id"],
+            )
+            integrity_rows = await _fetchval(
+                "SELECT COUNT(*) FROM document_integrity_checks WHERE document_id = $1::uuid",
+                first["document_id"],
+            )
+
+            assert dedup_rows == 1
+            assert integrity_rows >= 4
         finally:
             await persistence.close()
 

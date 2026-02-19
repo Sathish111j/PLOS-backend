@@ -33,6 +33,12 @@ def test_kb_tables_exist() -> None:
             cursor.execute(table_query, ("document_chunks",))
             assert cursor.fetchone()[0] is True
 
+            cursor.execute(table_query, ("document_dedup_signatures",))
+            assert cursor.fetchone()[0] is True
+
+            cursor.execute(table_query, ("document_integrity_checks",))
+            assert cursor.fetchone()[0] is True
+
 
 def test_documents_critical_columns_exist() -> None:
     required_columns = {
@@ -142,6 +148,28 @@ def test_document_chunks_indexes_exist() -> None:
                 SELECT indexname
                 FROM pg_indexes
                 WHERE schemaname = 'public' AND tablename = 'document_chunks'
+                """
+            )
+            found_indexes = {row[0] for row in cursor.fetchall()}
+
+    assert expected_indexes.issubset(found_indexes)
+
+
+def test_document_dedup_indexes_exist() -> None:
+    expected_indexes = {
+        "idx_document_dedup_sha256",
+        "idx_document_dedup_simhash",
+        "idx_document_dedup_simhash_bands",
+        "idx_document_dedup_minhash_bands",
+    }
+
+    with psycopg.connect(_sync_dsn()) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT indexname
+                FROM pg_indexes
+                WHERE schemaname = 'public' AND tablename = 'document_dedup_signatures'
                 """
             )
             found_indexes = {row[0] for row in cursor.fetchall()}
