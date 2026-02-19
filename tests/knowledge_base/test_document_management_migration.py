@@ -39,6 +39,12 @@ def test_kb_tables_exist() -> None:
             cursor.execute(table_query, ("document_integrity_checks",))
             assert cursor.fetchone()[0] is True
 
+            cursor.execute(table_query, ("document_entities",))
+            assert cursor.fetchone()[0] is True
+
+            cursor.execute(table_query, ("document_engagement",))
+            assert cursor.fetchone()[0] is True
+
 
 def test_documents_critical_columns_exist() -> None:
     required_columns = {
@@ -175,3 +181,41 @@ def test_document_dedup_indexes_exist() -> None:
             found_indexes = {row[0] for row in cursor.fetchall()}
 
     assert expected_indexes.issubset(found_indexes)
+
+
+def test_entity_and_hybrid_search_indexes_exist() -> None:
+    expected_document_entity_indexes = {
+        "idx_document_entities_document",
+        "idx_document_entities_canonical",
+        "idx_document_entities_type",
+        "idx_document_entities_aliases",
+    }
+    expected_hybrid_indexes = {
+        "idx_documents_owner_created_at",
+        "idx_documents_owner_content_type",
+        "idx_document_chunks_content_trgm",
+        "idx_documents_title_trgm",
+    }
+
+    with psycopg.connect(_sync_dsn()) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT indexname
+                FROM pg_indexes
+                WHERE schemaname = 'public' AND tablename = 'document_entities'
+                """
+            )
+            entity_indexes = {row[0] for row in cursor.fetchall()}
+
+            cursor.execute(
+                """
+                SELECT indexname
+                FROM pg_indexes
+                WHERE schemaname = 'public' AND tablename IN ('documents', 'document_chunks')
+                """
+            )
+            hybrid_indexes = {row[0] for row in cursor.fetchall()}
+
+    assert expected_document_entity_indexes.issubset(entity_indexes)
+    assert expected_hybrid_indexes.issubset(hybrid_indexes)

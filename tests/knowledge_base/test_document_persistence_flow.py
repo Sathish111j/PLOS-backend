@@ -132,7 +132,10 @@ def test_upload_document_exact_duplicate_reuses_existing_document() -> None:
                 pytest.skip("Deduplication/integrity migration is not applied yet")
 
             owner_id = str(uuid4())
-            content = "Duplicate me please. Same text should not create a second document.".encode(
+            marker_a = uuid4().hex
+            marker_b = uuid4().hex
+            marker_c = uuid4().hex
+            content = f"{marker_a} {marker_b} {marker_c} zxqvplmtr qxjznv".encode(
                 "utf-8"
             )
             payload = base64.b64encode(content).decode("utf-8")

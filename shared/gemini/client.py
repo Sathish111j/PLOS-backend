@@ -243,6 +243,8 @@ class ResilientGeminiClient:
         self,
         content: Union[str, List[str]],
         model: Optional[str] = None,
+        task_type: Optional[str] = None,
+        output_dimensionality: Optional[int] = None,
         **kwargs,
     ) -> List[float]:
         """
@@ -260,7 +262,7 @@ class ResilientGeminiClient:
             AllKeysExhaustedError: If all API keys are exhausted
             GeminiAPICallError: If the API call fails after retries
         """
-        model = model or os.getenv("GEMINI_EMBEDDING_MODEL", "text-embedding-004")
+        model = model or os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
         last_error: Optional[Exception] = None
 
         for attempt in range(self.max_retries):
@@ -273,11 +275,21 @@ class ResilientGeminiClient:
                     f"with model={model}"
                 )
 
+                embed_config = None
+                if task_type is not None or output_dimensionality is not None:
+                    config_kwargs: Dict[str, Any] = {}
+                    if task_type is not None:
+                        config_kwargs["task_type"] = task_type
+                    if output_dimensionality is not None:
+                        config_kwargs["output_dimensionality"] = output_dimensionality
+                    embed_config = types.EmbedContentConfig(**config_kwargs)
+
                 # Use new SDK embed_content
                 result = await asyncio.to_thread(
                     self._client.models.embed_content,
                     model=model,
                     contents=content,
+                    config=embed_config,
                 )
 
                 await self.key_manager.mark_key_request_success(api_key)

@@ -1,13 +1,26 @@
 import base64
+from datetime import UTC, datetime
 from typing import Any, Dict, List
 
+from app.api.schemas import SearchRequest
 from app.application.deduplication import (
     build_dedup_computation,
     build_integrity_chain,
     md5_hex,
 )
+from app.application.entity_extraction import extract_entities
 from app.application.ingestion.chunking import SemanticChunkingEngine
 from app.application.ingestion.unified_processor import UnifiedDocumentProcessor
+from app.application.search_utils import (
+    bucket_context_score,
+    detect_query_intent_weights,
+    engagement_score,
+    normalize_query,
+    query_hash,
+    recency_score,
+    reciprocal_rank_fusion,
+    select_ef_search,
+)
 from app.infrastructure.persistence import KnowledgePersistence
 
 
@@ -124,6 +137,21 @@ class KnowledgeService:
             integrity_checkpoints=integrity_checkpoints,
         )
 
+        await self._persistence.index_document_vectors(
+            document_id=persisted["document_id"],
+            owner_id=owner_id,
+            bucket_id=persisted.get("bucket_id"),
+            content_type=structured.format.value,
+            chunks=structured.chunks,
+            created_at=persisted["created_at"],
+        )
+
+        entities = extract_entities(structured.text)
+        await self._persistence.store_document_entities(
+            document_id=persisted["document_id"],
+            entities=entities,
+        )
+
         document = {
             "document_id": persisted["document_id"],
             "owner_id": owner_id,
@@ -155,14 +183,165 @@ class KnowledgeService:
     async def list_buckets(self) -> List[Dict[str, str]]:
         return [{"name": "knowledge-base-documents", "provider": "minio"}]
 
-    async def search(self, owner_id: str, query: str, top_k: int) -> Dict[str, Any]:
-        return {
-            "query": query,
-            "top_k": top_k,
-            "results": [],
-            "owner_id": owner_id,
-            "message": "Search pipeline skeleton is ready for vector + keyword wiring.",
+    async def search(self, owner_id: str, request: SearchRequest) -> Dict[str, Any]:
+        if owner_id == "anonymous":
+            return {
+                "query": request.query,
+                "top_k": request.top_k,
+                "results": [],
+                "owner_id": owner_id,
+                "message": "Authentication is required for personalized hybrid search.",
+                "diagnostics": {
+                    "cache": "bypass",
+                    "reason": "anonymous_user",
+                },
+            }
+
+        started = datetime.now(UTC)
+        normalized_query = normalize_query(request.query)
+        weights = detect_query_intent_weights(normalized_query)
+
+        filters = {
+            "bucket_id": request.bucket_id,
+            "content_type": request.content_type,
+            "tags": request.tags or [],
+            "created_after": request.created_after,
+            "created_before": request.created_before,
         }
+
+        cache_fingerprint = query_hash(str(filters))
+        cache_key = (
+            f"kb:search:v2:{owner_id}:{query_hash(normalized_query)}:"
+            f"{cache_fingerprint}:{request.top_k}:{request.latency_budget_ms}:{int(request.enable_rerank)}"
+        )
+        cached = await self._persistence.get_cached_json(cache_key)
+        if cached:
+            diagnostics = dict(cached.get("diagnostics") or {})
+            diagnostics["cache"] = "hit"
+            cached["diagnostics"] = diagnostics
+            return cached
+
+        ef_search = select_ef_search(request.latency_budget_ms)
+        semantic_results = await self._persistence.search_semantic(
+            owner_id=owner_id,
+            query=normalized_query,
+            top_k=max(50, request.top_k),
+            ef_search=ef_search,
+            filters=filters,
+        )
+        keyword_results = await self._persistence.search_keyword(
+            owner_id=owner_id,
+            query=normalized_query,
+            top_k=max(50, request.top_k),
+            filters=filters,
+        )
+        typo_results = await self._persistence.search_typo_tolerant(
+            owner_id=owner_id,
+            query=normalized_query,
+            top_k=max(20, request.top_k),
+            filters=filters,
+        )
+
+        fused = reciprocal_rank_fusion(
+            [
+                (weights["semantic"], semantic_results),
+                (weights["keyword"], keyword_results),
+                (weights["typo"], typo_results),
+            ],
+            k=60,
+        )
+
+        candidate_ids = [document_id for document_id, _ in fused[:50]]
+        metadata_by_id = await self._persistence.fetch_documents_by_ids(candidate_ids)
+        engagement_by_id = await self._persistence.get_document_engagement(
+            candidate_ids
+        )
+        fused_by_id = {document_id: score for document_id, score in fused}
+
+        scored_results: list[dict[str, Any]] = []
+        for document_id in candidate_ids:
+            document = metadata_by_id.get(document_id)
+            if not document:
+                continue
+
+            engagement = engagement_by_id.get(document_id, {})
+            base_score = fused_by_id.get(document_id, 0.0)
+            recency = recency_score(document.get("created_at"))
+            engagement_value = engagement_score(
+                engagement.get("clicks"), engagement.get("impressions")
+            )
+            bucket_score = bucket_context_score(
+                document.get("bucket_id"), request.bucket_id
+            )
+
+            scored_results.append(
+                {
+                    **document,
+                    "base_score": base_score,
+                    "recency_score": recency,
+                    "engagement_score": engagement_value,
+                    "bucket_context_score": bucket_score,
+                }
+            )
+
+        rerank_candidates = [
+            {
+                "document_id": item["document_id"],
+                "text": (item.get("text_preview") or item.get("title") or "")[:1200],
+                "base_score": item["base_score"],
+            }
+            for item in scored_results
+        ]
+        rerank_scores = (
+            await self._persistence.rerank_query_documents(
+                query=normalized_query,
+                candidates=rerank_candidates,
+            )
+            if request.enable_rerank
+            else {}
+        )
+
+        for item in scored_results:
+            rerank_relevance = rerank_scores.get(
+                item["document_id"], item["base_score"]
+            )
+            item["score"] = (
+                0.6 * rerank_relevance
+                + 0.15 * item["recency_score"]
+                + 0.15 * item["engagement_score"]
+                + 0.1 * item["bucket_context_score"]
+            )
+
+        scored_results.sort(key=lambda value: value["score"], reverse=True)
+        final_results = scored_results[: request.top_k]
+        await self._persistence.record_search_impressions(
+            [result["document_id"] for result in final_results]
+        )
+
+        elapsed_ms = int((datetime.now(UTC) - started).total_seconds() * 1000)
+        response = {
+            "query": request.query,
+            "top_k": request.top_k,
+            "results": final_results,
+            "owner_id": owner_id,
+            "message": "Hybrid search pipeline executed with semantic, keyword, and typo-tolerant tiers.",
+            "diagnostics": {
+                "cache": "miss",
+                "latency_ms": elapsed_ms,
+                "ef_search": ef_search,
+                "weights": weights,
+                "candidate_counts": {
+                    "semantic": len(semantic_results),
+                    "keyword": len(keyword_results),
+                    "typo": len(typo_results),
+                    "fused": len(fused),
+                },
+            },
+        }
+
+        ttl_seconds = 3600 if len(final_results) >= 5 else 300
+        await self._persistence.set_cached_json(cache_key, response, ttl_seconds)
+        return response
 
     async def chat(self, owner_id: str, message: str) -> Dict[str, Any]:
         return {

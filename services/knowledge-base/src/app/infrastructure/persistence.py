@@ -1,6 +1,7 @@
 import asyncio
 import io
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -12,10 +13,14 @@ from app.application.deduplication import (
     minhash_similarity,
     to_unsigned_bigint,
 )
-from app.application.ingestion.models import StructuredDocument
+from app.application.embeddings import GeminiEmbeddingProvider
+from app.application.entity_extraction import ExtractedEntity
+from app.application.ingestion.models import DocumentChunk, StructuredDocument
 from app.core.config import KnowledgeBaseConfig
 from minio import Minio
 from minio.error import S3Error
+from qdrant_client import QdrantClient
+from qdrant_client.http import models as qmodels
 from redis.asyncio import Redis
 
 
@@ -24,7 +29,9 @@ class KnowledgePersistence:
         self.config = config
         self._pool: asyncpg.Pool | None = None
         self._redis: Redis | None = None
+        self._qdrant: QdrantClient | None = None
         self._table_exists_cache: dict[str, bool] = {}
+        self._embedding_provider = GeminiEmbeddingProvider(config)
         self._minio_client = Minio(
             config.minio_endpoint,
             access_key=config.minio_access_key,
@@ -35,6 +42,7 @@ class KnowledgePersistence:
     async def connect(self) -> None:
         dsn = self.config.database_url.replace("postgresql+asyncpg://", "postgresql://")
         self._pool = await asyncpg.create_pool(dsn=dsn, min_size=1, max_size=5)
+        self._qdrant = QdrantClient(url=self.config.qdrant_url, timeout=10)
         try:
             redis_client = Redis.from_url(
                 self.config.redis_url,
@@ -46,10 +54,15 @@ class KnowledgePersistence:
         except Exception:
             self._redis = None
 
+        await self.ensure_qdrant_collection()
+
     async def close(self) -> None:
         if self._redis:
             await self._redis.aclose()
             self._redis = None
+        if self._qdrant:
+            self._qdrant.close()
+            self._qdrant = None
         if self._pool:
             await self._pool.close()
 
@@ -129,6 +142,75 @@ class KnowledgePersistence:
             )
 
         await asyncio.to_thread(_put)
+
+    async def ensure_qdrant_collection(self) -> None:
+        if not self._qdrant:
+            return
+
+        def _ensure() -> None:
+            client = self._qdrant
+            if not client:
+                return
+            collection_name = self.config.qdrant_collection
+            try:
+                client.get_collection(collection_name=collection_name)
+                return
+            except Exception:
+                pass
+
+            client.create_collection(
+                collection_name=collection_name,
+                vectors_config=qmodels.VectorParams(
+                    size=384,
+                    distance=qmodels.Distance.COSINE,
+                    on_disk=False,
+                ),
+                hnsw_config=qmodels.HnswConfigDiff(
+                    m=16,
+                    ef_construct=100,
+                    full_scan_threshold=10000,
+                ),
+                quantization_config=qmodels.ScalarQuantization(
+                    scalar=qmodels.ScalarQuantizationConfig(
+                        type=qmodels.ScalarType.INT8,
+                        quantile=0.99,
+                        always_ram=True,
+                    )
+                ),
+            )
+
+            for field_name, schema in (
+                ("user_id", qmodels.PayloadSchemaType.KEYWORD),
+                ("bucket_id", qmodels.PayloadSchemaType.KEYWORD),
+                ("content_type", qmodels.PayloadSchemaType.KEYWORD),
+                ("created_at", qmodels.PayloadSchemaType.INTEGER),
+                ("tags", qmodels.PayloadSchemaType.KEYWORD),
+            ):
+                client.create_payload_index(
+                    collection_name=collection_name,
+                    field_name=field_name,
+                    field_schema=schema,
+                )
+
+        await asyncio.to_thread(_ensure)
+
+    async def get_cached_json(self, key: str) -> dict[str, Any] | None:
+        if not self._redis:
+            return None
+        payload = await self._redis.get(key)
+        if not payload:
+            return None
+        try:
+            return json.loads(payload)
+        except Exception:
+            return None
+
+    async def set_cached_json(
+        self, key: str, value: dict[str, Any], ttl_seconds: int
+    ) -> None:
+        if not self._redis:
+            return
+        await self._redis.set(key, json.dumps(value), ex=ttl_seconds)
 
     async def _has_table(self, table_name: str) -> bool:
         if table_name in self._table_exists_cache:
@@ -242,7 +324,9 @@ class KnowledgePersistence:
 
         return None
 
-    async def _find_exact_duplicate(self, normalized_sha256: str) -> dict[str, Any] | None:
+    async def _find_exact_duplicate(
+        self, normalized_sha256: str
+    ) -> dict[str, Any] | None:
         pool = self._pool
         if not pool:
             return None
@@ -839,3 +923,479 @@ class KnowledgePersistence:
                 }
             )
         return documents
+
+    @staticmethod
+    def _epoch_seconds(iso_value: str | None) -> int | None:
+        if not iso_value:
+            return None
+        try:
+            value = datetime.fromisoformat(iso_value.replace("Z", "+00:00"))
+            return int(value.astimezone(UTC).timestamp())
+        except Exception:
+            return None
+
+    async def index_document_vectors(
+        self,
+        *,
+        document_id: str,
+        owner_id: str,
+        bucket_id: str | None,
+        content_type: str,
+        chunks: list[DocumentChunk],
+        created_at: str,
+    ) -> None:
+        if not self._qdrant:
+            return
+        await self.ensure_qdrant_collection()
+
+        points: list[qmodels.PointStruct] = []
+        created_epoch = self._epoch_seconds(created_at) or int(
+            datetime.now(UTC).timestamp()
+        )
+
+        for index, chunk in enumerate(chunks):
+            vector = await self._embedding_provider.embed_document(chunk.text)
+            payload = {
+                "document_id": document_id,
+                "chunk_id": chunk.chunk_id,
+                "chunk_index": index,
+                "user_id": owner_id,
+                "bucket_id": bucket_id,
+                "content_type": content_type,
+                "tags": list((chunk.metadata or {}).get("tags") or []),
+                "created_at": created_epoch,
+                "text": chunk.text[:4000],
+            }
+            point_id = str(uuid4())
+            points.append(
+                qmodels.PointStruct(
+                    id=point_id,
+                    vector=vector,
+                    payload=payload,
+                )
+            )
+
+        if not points:
+            return
+
+        def _upsert() -> None:
+            client = self._qdrant
+            if not client:
+                return
+            client.upsert(
+                collection_name=self.config.qdrant_collection,
+                points=points,
+                wait=False,
+            )
+
+        await asyncio.to_thread(_upsert)
+
+    def _filter_conditions(
+        self,
+        owner_id: str,
+        filters: dict[str, Any],
+        *,
+        owner_column: str = "created_by",
+        start_index: int = 3,
+    ) -> tuple[str, list[Any]]:
+        conditions = [f"{owner_column} = $1"]
+        params: list[Any] = [UUID(owner_id)]
+        index = start_index
+
+        bucket_id = filters.get("bucket_id")
+        if bucket_id:
+            conditions.append(f"bucket_id = ${index}::uuid")
+            params.append(bucket_id)
+            index += 1
+
+        content_type = filters.get("content_type")
+        if content_type:
+            conditions.append(f"content_type = ${index}")
+            params.append(content_type)
+            index += 1
+
+        created_after = filters.get("created_after")
+        if created_after:
+            conditions.append(f"created_at >= ${index}::timestamptz")
+            params.append(created_after)
+            index += 1
+
+        created_before = filters.get("created_before")
+        if created_before:
+            conditions.append(f"created_at <= ${index}::timestamptz")
+            params.append(created_before)
+            index += 1
+
+        return " AND ".join(conditions), params
+
+    async def search_keyword(
+        self,
+        *,
+        owner_id: str,
+        query: str,
+        top_k: int,
+        filters: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        if not self._pool:
+            return []
+
+        where_clause, params = self._filter_conditions(owner_id, filters, start_index=3)
+        params.insert(1, query)
+        params.append(top_k)
+        limit_placeholder = f"${len(params)}"
+
+        sql = f"""
+            SELECT id, ts_rank(search_vector, plainto_tsquery('english', $2)) AS score
+            FROM documents
+            WHERE {where_clause}
+              AND search_vector @@ plainto_tsquery('english', $2)
+            ORDER BY score DESC, created_at DESC
+            LIMIT {limit_placeholder}
+        """
+
+        async with self._pool.acquire() as connection:
+            rows = await connection.fetch(sql, *params)
+
+        return [
+            {"document_id": str(row["id"]), "score": float(row["score"] or 0.0)}
+            for row in rows
+        ]
+
+    async def search_typo_tolerant(
+        self,
+        *,
+        owner_id: str,
+        query: str,
+        top_k: int,
+        filters: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        if not self._pool:
+            return []
+
+        where_clause, params = self._filter_conditions(
+            owner_id,
+            filters,
+            owner_column="d.created_by",
+            start_index=3,
+        )
+        params.insert(1, query)
+        similarity_threshold = 0.2
+        threshold_placeholder = f"${len(params) + 1}"
+        limit_placeholder = f"${len(params) + 2}"
+        params.extend([similarity_threshold, top_k])
+
+        sql = f"""
+            SELECT
+                d.id,
+                GREATEST(
+                    similarity(COALESCE(MAX(d.title), ''), $2),
+                    similarity(COALESCE(MAX(d.source_url), ''), $2),
+                    similarity(COALESCE(MAX(dc.content), ''), $2)
+                ) AS score
+            FROM documents d
+            LEFT JOIN document_chunks dc ON dc.document_id = d.id
+            WHERE {where_clause}
+            GROUP BY d.id
+            HAVING GREATEST(
+                similarity(COALESCE(MAX(d.title), ''), $2),
+                similarity(COALESCE(MAX(d.source_url), ''), $2),
+                similarity(COALESCE(MAX(dc.content), ''), $2)
+            ) >= {threshold_placeholder}
+            ORDER BY score DESC
+            LIMIT {limit_placeholder}
+        """
+
+        async with self._pool.acquire() as connection:
+            rows = await connection.fetch(sql, *params)
+
+        return [
+            {"document_id": str(row["id"]), "score": float(row["score"] or 0.0)}
+            for row in rows
+        ]
+
+    async def search_semantic(
+        self,
+        *,
+        owner_id: str,
+        query: str,
+        top_k: int,
+        ef_search: int,
+        filters: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        if not self._qdrant:
+            return []
+
+        query_vector = await self._embedding_provider.embed_query(query)
+        created_after = self._epoch_seconds(filters.get("created_after"))
+        created_before = self._epoch_seconds(filters.get("created_before"))
+
+        qdrant_filter = qmodels.Filter(
+            must=[
+                qmodels.FieldCondition(
+                    key="user_id",
+                    match=qmodels.MatchValue(value=owner_id),
+                )
+            ]
+        )
+
+        if filters.get("bucket_id"):
+            qdrant_filter.must.append(
+                qmodels.FieldCondition(
+                    key="bucket_id",
+                    match=qmodels.MatchValue(value=filters["bucket_id"]),
+                )
+            )
+
+        if filters.get("content_type"):
+            qdrant_filter.must.append(
+                qmodels.FieldCondition(
+                    key="content_type",
+                    match=qmodels.MatchValue(value=filters["content_type"]),
+                )
+            )
+
+        if filters.get("tags"):
+            qdrant_filter.must.append(
+                qmodels.FieldCondition(
+                    key="tags",
+                    match=qmodels.MatchAny(any=list(filters["tags"])),
+                )
+            )
+
+        if created_after is not None or created_before is not None:
+            qdrant_filter.must.append(
+                qmodels.FieldCondition(
+                    key="created_at",
+                    range=qmodels.Range(
+                        gte=created_after,
+                        lte=created_before,
+                    ),
+                )
+            )
+
+        def _search() -> list[qmodels.ScoredPoint]:
+            client = self._qdrant
+            if not client:
+                return []
+            hits = client.search(
+                collection_name=self.config.qdrant_collection,
+                query_vector=query_vector,
+                query_filter=qdrant_filter,
+                limit=top_k,
+                search_params=qmodels.SearchParams(
+                    hnsw_ef=ef_search,
+                    exact=False,
+                ),
+                with_payload=True,
+                with_vectors=False,
+            )
+            return list(hits)
+
+        try:
+            hits = await asyncio.to_thread(_search)
+        except Exception:
+            return []
+
+        best_by_document: dict[str, float] = {}
+        for hit in hits:
+            payload = hit.payload or {}
+            document_id = str(payload.get("document_id") or "")
+            if not document_id:
+                continue
+            score = float(hit.score or 0.0)
+            if score > best_by_document.get(document_id, -1.0):
+                best_by_document[document_id] = score
+
+        ranked = sorted(
+            best_by_document.items(), key=lambda item: item[1], reverse=True
+        )
+        return [
+            {"document_id": document_id, "score": score}
+            for document_id, score in ranked[:top_k]
+        ]
+
+    async def fetch_documents_by_ids(
+        self, document_ids: list[str]
+    ) -> dict[str, dict[str, Any]]:
+        if not self._pool or not document_ids:
+            return {}
+
+        uuids: list[UUID] = []
+        for raw_id in document_ids:
+            try:
+                uuids.append(UUID(raw_id))
+            except Exception:
+                continue
+        if not uuids:
+            return {}
+
+        sql = """
+            SELECT
+                id,
+                bucket_id,
+                title,
+                source_url,
+                content_type,
+                status,
+                created_at,
+                extracted_metadata
+            FROM documents
+            WHERE id = ANY($1::uuid[])
+        """
+        async with self._pool.acquire() as connection:
+            rows = await connection.fetch(sql, uuids)
+
+        documents: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            extracted = row["extracted_metadata"] or {}
+            if isinstance(extracted, str):
+                try:
+                    extracted = json.loads(extracted)
+                except Exception:
+                    extracted = {}
+            documents[str(row["id"])] = {
+                "document_id": str(row["id"]),
+                "bucket_id": str(row["bucket_id"]) if row["bucket_id"] else None,
+                "title": row["title"] or "document",
+                "source_url": row["source_url"],
+                "status": row["status"],
+                "content_type": row["content_type"],
+                "created_at": row["created_at"].isoformat(),
+                "text_preview": (extracted.get("text_preview") or "")[:300],
+                "metadata": extracted,
+            }
+        return documents
+
+    async def store_document_entities(
+        self,
+        *,
+        document_id: str,
+        entities: list[ExtractedEntity],
+    ) -> None:
+        if not self._pool or not entities:
+            return
+        if not await self._has_table("document_entities"):
+            return
+
+        insert_sql = """
+            INSERT INTO document_entities (
+                document_id,
+                entity_text,
+                canonical_name,
+                entity_type,
+                confidence,
+                aliases,
+                entity_metadata
+            )
+            VALUES ($1::uuid, $2, $3, $4, $5, $6::jsonb, $7::jsonb)
+            ON CONFLICT (document_id, canonical_name, entity_type)
+            DO UPDATE SET
+                confidence = GREATEST(document_entities.confidence, EXCLUDED.confidence),
+                aliases = EXCLUDED.aliases,
+                entity_metadata = EXCLUDED.entity_metadata,
+                updated_at = NOW()
+        """
+
+        async with self._pool.acquire() as connection:
+            for entity in entities:
+                await connection.execute(
+                    insert_sql,
+                    document_id,
+                    entity.text,
+                    entity.canonical_name,
+                    entity.entity_type,
+                    entity.confidence,
+                    json.dumps(entity.aliases),
+                    json.dumps(entity.metadata),
+                )
+
+    async def get_document_engagement(
+        self, document_ids: list[str]
+    ) -> dict[str, dict[str, int]]:
+        if not self._pool or not document_ids:
+            return {}
+        if not await self._has_table("document_engagement"):
+            return {}
+
+        valid_ids: list[UUID] = []
+        for raw_id in document_ids:
+            try:
+                valid_ids.append(UUID(raw_id))
+            except Exception:
+                continue
+        if not valid_ids:
+            return {}
+
+        sql = """
+            SELECT document_id, impressions, clicks
+            FROM document_engagement
+            WHERE document_id = ANY($1::uuid[])
+        """
+        async with self._pool.acquire() as connection:
+            rows = await connection.fetch(sql, valid_ids)
+
+        return {
+            str(row["document_id"]): {
+                "impressions": int(row["impressions"] or 0),
+                "clicks": int(row["clicks"] or 0),
+            }
+            for row in rows
+        }
+
+    async def record_search_impressions(self, document_ids: list[str]) -> None:
+        if not self._pool or not document_ids:
+            return
+        if not await self._has_table("document_engagement"):
+            return
+
+        upsert_sql = """
+            INSERT INTO document_engagement (
+                document_id,
+                impressions,
+                clicks,
+                last_impression_at
+            )
+            VALUES ($1::uuid, 1, 0, NOW())
+            ON CONFLICT (document_id)
+            DO UPDATE SET
+                impressions = document_engagement.impressions + 1,
+                last_impression_at = NOW(),
+                updated_at = NOW()
+        """
+        async with self._pool.acquire() as connection:
+            for raw_id in document_ids:
+                try:
+                    await connection.execute(upsert_sql, raw_id)
+                except Exception:
+                    continue
+
+    async def rerank_query_documents(
+        self,
+        *,
+        query: str,
+        candidates: list[dict[str, Any]],
+    ) -> dict[str, float]:
+        if not candidates:
+            return {}
+
+        try:
+            from sentence_transformers import CrossEncoder
+        except Exception:
+            return {
+                candidate["document_id"]: float(candidate.get("base_score") or 0.0)
+                for candidate in candidates
+            }
+
+        pairs = [(query, candidate.get("text") or "") for candidate in candidates]
+        try:
+            model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+            scores = await asyncio.to_thread(model.predict, pairs, 32)
+            return {
+                candidate["document_id"]: float(score)
+                for candidate, score in zip(candidates, scores)
+            }
+        except Exception:
+            return {
+                candidate["document_id"]: float(candidate.get("base_score") or 0.0)
+                for candidate in candidates
+            }

@@ -43,6 +43,13 @@ class BucketItem(BaseModel):
 class SearchRequest(BaseModel):
     query: str = Field(min_length=1)
     top_k: int = Field(default=10, ge=1, le=50)
+    latency_budget_ms: int = Field(default=100, ge=10, le=1000)
+    bucket_id: str | None = None
+    content_type: str | None = None
+    tags: List[str] | None = None
+    created_after: str | None = None
+    created_before: str | None = None
+    enable_rerank: bool = True
 
 
 class SearchResponse(BaseModel):
@@ -51,6 +58,7 @@ class SearchResponse(BaseModel):
     results: List[Dict[str, Any]]
     owner_id: str
     message: str
+    diagnostics: Dict[str, Any] | None = None
 
 
 class ChatRequest(BaseModel):

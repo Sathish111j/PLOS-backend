@@ -11,20 +11,17 @@ RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 COPY services/knowledge-base/requirements/base.txt /tmp/requirements/base.txt
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r /tmp/requirements/base.txt
-
 COPY services/knowledge-base/requirements/api.txt /tmp/requirements/api.txt
-RUN pip install --no-cache-dir -r /tmp/requirements/api.txt
-
 COPY services/knowledge-base/requirements/storage.txt /tmp/requirements/storage.txt
-RUN pip install --no-cache-dir -r /tmp/requirements/storage.txt
-
 COPY services/knowledge-base/requirements/ai.txt /tmp/requirements/ai.txt
-RUN pip install --no-cache-dir -r /tmp/requirements/ai.txt
-
 COPY services/knowledge-base/requirements/processing.txt /tmp/requirements/processing.txt
-RUN pip install --no-cache-dir -r /tmp/requirements/processing.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r /tmp/requirements/base.txt && \
+    pip install --no-cache-dir -r /tmp/requirements/api.txt && \
+    pip install --no-cache-dir -r /tmp/requirements/storage.txt && \
+    pip install --no-cache-dir -r /tmp/requirements/processing.txt && \
+    pip install --no-cache-dir -r /tmp/requirements/ai.txt && \
+    rm -rf /root/.cache/pip
 
 FROM python:3.11-slim AS production
 

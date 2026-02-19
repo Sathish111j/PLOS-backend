@@ -90,7 +90,10 @@ def shingles(text: str, *, size: int = 3) -> list[str]:
         return []
     if len(tokens) < size:
         return [" ".join(tokens)]
-    return [" ".join(tokens[index : index + size]) for index in range(0, len(tokens) - size + 1)]
+    return [
+        " ".join(tokens[index : index + size])
+        for index in range(0, len(tokens) - size + 1)
+    ]
 
 
 def simhash_64(shingle_values: Iterable[str]) -> int:

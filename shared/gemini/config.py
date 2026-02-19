@@ -22,7 +22,7 @@ class GeminiModelType(str, Enum):
     FLASH_LITE = "gemini-2.0-flash-lite"  # Fastest, lowest cost
 
     # Embedding Models
-    EMBEDDING = "text-embedding-004"  # Latest embedding model
+    EMBEDDING = "gemini-embedding-001"  # Stable embedding model
     EMBEDDING_LEGACY = "embedding-001"  # Legacy embedding model
 
     # Experimental Models
@@ -100,7 +100,7 @@ class GeminiConfig(BaseModel):
         default="gemini-2.5-flash", description="Model for vision/image tasks"
     )
     embedding_model: str = Field(
-        default="text-embedding-004", description="Model for embeddings"
+        default="gemini-embedding-001", description="Model for embeddings"
     )
 
     # Service-Specific Model Overrides
@@ -138,7 +138,7 @@ class GeminiConfig(BaseModel):
             pro_model=os.getenv("GEMINI_PRO_MODEL", "gemini-2.5-pro"),
             flash_model=os.getenv("GEMINI_FLASH_MODEL", "gemini-2.5-flash"),
             vision_model=os.getenv("GEMINI_VISION_MODEL", "gemini-2.5-flash"),
-            embedding_model=os.getenv("GEMINI_EMBEDDING_MODEL", "text-embedding-004"),
+            embedding_model=os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001"),
             journal_parser_model=os.getenv("GEMINI_JOURNAL_PARSER_MODEL"),
             context_broker_model=os.getenv("GEMINI_CONTEXT_BROKER_MODEL"),
             use_caching=os.getenv("USE_GEMINI_CACHING", "true").lower() == "true",

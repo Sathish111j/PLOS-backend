@@ -96,7 +96,7 @@ async def search(
     current_user: TokenData | None = Depends(get_current_user_optional),
 ) -> SearchResponse:
     owner_id = _owner_id(current_user)
-    result = await knowledge_service.search(owner_id, request.query, request.top_k)
+    result = await knowledge_service.search(owner_id, request)
     return SearchResponse(**result)
 
 

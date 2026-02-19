@@ -21,8 +21,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r /tmp/requirements/base.txt && \
     pip install --no-cache-dir -r /tmp/requirements/api.txt && \
     pip install --no-cache-dir -r /tmp/requirements/storage.txt && \
-    pip install --no-cache-dir -r /tmp/requirements/ai.txt && \
     pip install --no-cache-dir -r /tmp/requirements/processing.txt && \
+    pip install --no-cache-dir -r /tmp/requirements/ai.txt && \
     pip install --no-cache-dir -r /tmp/requirements/test.txt
 
 WORKDIR /workspace
