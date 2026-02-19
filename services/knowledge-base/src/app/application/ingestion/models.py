@@ -46,11 +46,20 @@ class StructuredSection(BaseModel):
     level: int | None = None
 
 
+class DocumentChunk(BaseModel):
+    chunk_id: str
+    text: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    token_count: int = 0
+    char_count: int = 0
+
+
 class StructuredDocument(BaseModel):
     text: str
     sections: list[StructuredSection] = Field(default_factory=list)
     tables: list[dict[str, Any]] = Field(default_factory=list)
     images: list[dict[str, Any]] = Field(default_factory=list)
+    chunks: list[DocumentChunk] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
     confidence_scores: dict[str, float] = Field(default_factory=dict)
     strategy_used: ExtractionStrategy

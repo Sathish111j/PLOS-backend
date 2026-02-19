@@ -1,8 +1,8 @@
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 import base64
-from uuid import uuid4
 
+from app.application.ingestion.chunking import SemanticChunkingEngine
 from app.application.ingestion.unified_processor import UnifiedDocumentProcessor
 from app.infrastructure.persistence import KnowledgePersistence
 
@@ -11,6 +11,7 @@ class KnowledgeService:
     def __init__(self, persistence: KnowledgePersistence):
         self._documents: Dict[str, Dict[str, Any]] = {}
         self._processor = UnifiedDocumentProcessor()
+        self._chunker = SemanticChunkingEngine()
         self._persistence = persistence
 
     async def upload_document(
@@ -21,7 +22,6 @@ class KnowledgeService:
         mime_type: str | None = None,
         source_url: str | None = None,
     ) -> Dict[str, Any]:
-        document_id = str(uuid4())
         content_bytes = base64.b64decode(content_base64) if content_base64 else None
         structured = await self._processor.process(
             filename=filename,
@@ -29,6 +29,13 @@ class KnowledgeService:
             mime_type=mime_type,
             source_url=source_url,
         )
+        chunks = self._chunker.chunk_document(
+            source_document_id="pending",
+            filename=filename,
+            structured=structured,
+        )
+        structured.chunks = chunks
+        structured.metadata["chunk_count"] = len(chunks)
 
         persisted = await self._persistence.persist_processed_document(
             owner_id=owner_id,
@@ -51,6 +58,7 @@ class KnowledgeService:
             "text_preview": structured.text[:300],
             "metadata": structured.metadata,
             "confidence_scores": structured.confidence_scores,
+            "chunk_count": len(chunks),
             "created_at": persisted["created_at"],
         }
         self._documents[persisted["document_id"]] = document

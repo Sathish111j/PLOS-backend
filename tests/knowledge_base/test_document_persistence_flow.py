@@ -6,6 +6,7 @@ import asyncpg
 
 from app.application.ingestion.models import (
     ContentClass,
+    DocumentChunk,
     DocumentFormat,
     ExtractionStrategy,
     StructuredDocument,
@@ -21,6 +22,21 @@ def _run(coroutine):
 def _sample_structured() -> StructuredDocument:
     return StructuredDocument(
         text="Sample extracted text",
+        chunks=[
+            DocumentChunk(
+                chunk_id=str(uuid4()),
+                text="Sample extracted text",
+                token_count=120,
+                char_count=22,
+                metadata={
+                    "chunk_index": 0,
+                    "total_chunks": 1,
+                    "section_heading": "Intro",
+                    "content_type": "text",
+                    "embedding_model": "all-MiniLM-L6-v2",
+                },
+            )
+        ],
         metadata={
             "word_count": 3,
             "char_count": 20,
@@ -72,8 +88,13 @@ def test_persist_processed_document_creates_db_rows() -> None:
                 "SELECT EXISTS (SELECT 1 FROM document_versions WHERE document_id = $1::uuid)",
                 document_id,
             )
+            chunks_count = await _fetchval(
+                "SELECT COUNT(*) FROM document_chunks WHERE document_id = $1::uuid",
+                document_id,
+            )
             assert doc_exists is True
             assert version_exists is True
+            assert chunks_count == 1
             assert result["storage_key"] is not None
         finally:
             await persistence.close()

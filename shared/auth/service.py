@@ -88,7 +88,7 @@ class AuthService:
             token_type="bearer",
             expires_in=settings.jwt_expiration,
             user=UserResponse(
-                id=user["id"],
+                user_id=user["id"],
                 email=user["email"],
                 username=user["username"],
                 full_name=user["full_name"],
@@ -148,7 +148,7 @@ class AuthService:
             token_type="bearer",
             expires_in=settings.jwt_expiration,
             user=UserResponse(
-                id=user["id"],
+                user_id=user["id"],
                 email=user["email"],
                 username=user["username"],
                 full_name=user["full_name"],
@@ -176,7 +176,7 @@ class AuthService:
             return None
 
         return UserResponse(
-            id=user["id"],
+            user_id=user["id"],
             email=user["email"],
             username=user["username"],
             full_name=user["full_name"],
@@ -204,7 +204,7 @@ class AuthService:
             return None
 
         return UserResponse(
-            id=user["id"],
+            user_id=user["id"],
             email=user["email"],
             username=user["username"],
             full_name=user["full_name"],

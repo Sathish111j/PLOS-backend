@@ -30,6 +30,9 @@ def test_kb_tables_exist() -> None:
             cursor.execute(table_query, ("document_versions",))
             assert cursor.fetchone()[0] is True
 
+            cursor.execute(table_query, ("document_chunks",))
+            assert cursor.fetchone()[0] is True
+
 
 def test_documents_critical_columns_exist() -> None:
     required_columns = {
@@ -120,3 +123,27 @@ def test_documents_search_trigger_exists() -> None:
                 """
             )
             assert cursor.fetchone()[0] is True
+
+
+def test_document_chunks_indexes_exist() -> None:
+    expected_indexes = {
+        "idx_document_chunks_document",
+        "idx_document_chunks_content_type",
+        "idx_document_chunks_tokens",
+        "idx_document_chunks_section_heading",
+        "idx_document_chunks_metadata",
+        "idx_document_chunks_image_ids",
+    }
+
+    with psycopg.connect(_sync_dsn()) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT indexname
+                FROM pg_indexes
+                WHERE schemaname = 'public' AND tablename = 'document_chunks'
+                """
+            )
+            found_indexes = {row[0] for row in cursor.fetchall()}
+
+    assert expected_indexes.issubset(found_indexes)

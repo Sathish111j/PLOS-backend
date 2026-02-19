@@ -51,7 +51,7 @@ class TokenResponse(BaseModel):
 class UserResponse(BaseModel):
     """User details response (no sensitive data)"""
 
-    id: UUID = Field(..., description="User UUID")
+    user_id: UUID = Field(..., description="User UUID")
     email: str = Field(..., description="User email")
     username: str = Field(..., description="Username")
     full_name: Optional[str] = Field(None, description="Full name")

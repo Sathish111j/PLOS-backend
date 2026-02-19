@@ -144,6 +144,7 @@ class KnowledgePersistence:
             "sections_count": len(structured.sections),
             "tables_count": len(structured.tables),
             "images_count": len(structured.images),
+            "chunk_count": len(structured.chunks),
         }
 
         processing_metadata = {
@@ -151,6 +152,30 @@ class KnowledgePersistence:
             "strategy": structured.strategy_used.value,
             "detected_format": structured.metadata.get("detected_format"),
         }
+
+        chunk_insert = """
+            INSERT INTO document_chunks (
+                document_id,
+                chunk_index,
+                total_chunks,
+                content,
+                token_count,
+                char_count,
+                page_start,
+                page_end,
+                section_heading,
+                parent_chunk_id,
+                content_type,
+                embedding_model,
+                chunk_metadata,
+                has_image,
+                image_ids,
+                created_by
+            )
+            VALUES (
+                $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15::jsonb,$16
+            )
+        """
 
         document_insert = """
             INSERT INTO documents (
@@ -244,6 +269,47 @@ class KnowledgePersistence:
                         checksum,
                         file_size,
                         "Initial ingestion version",
+                        user_uuid,
+                    )
+
+                total_chunks = len(structured.chunks)
+                for chunk_index, chunk in enumerate(structured.chunks):
+                    chunk_metadata = dict(chunk.metadata or {})
+                    chunk_metadata["source_document_id"] = str(document_id)
+
+                    page_range = chunk_metadata.get("page_range") or []
+                    page_start = page_range[0] if isinstance(page_range, list) and len(page_range) >= 1 else None
+                    page_end = page_range[1] if isinstance(page_range, list) and len(page_range) >= 2 else page_start
+
+                    image_ids = chunk_metadata.get("image_ids") or []
+                    if not isinstance(image_ids, list):
+                        image_ids = []
+
+                    parent_chunk = chunk_metadata.get("parent_chunk")
+                    parent_chunk_uuid = None
+                    if isinstance(parent_chunk, str):
+                        try:
+                            parent_chunk_uuid = UUID(parent_chunk)
+                        except Exception:
+                            parent_chunk_uuid = None
+
+                    await connection.execute(
+                        chunk_insert,
+                        document_id,
+                        chunk_index,
+                        total_chunks,
+                        chunk.text,
+                        chunk.token_count,
+                        chunk.char_count,
+                        page_start,
+                        page_end,
+                        chunk_metadata.get("section_heading"),
+                        parent_chunk_uuid,
+                        chunk_metadata.get("content_type", "text"),
+                        chunk_metadata.get("embedding_model"),
+                        json.dumps(chunk_metadata),
+                        bool(chunk_metadata.get("has_image")),
+                        json.dumps(image_ids),
                         user_uuid,
                     )
 
