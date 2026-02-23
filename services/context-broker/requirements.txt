@@ -18,7 +18,7 @@ email-validator==2.1.0
 google-genai>=1.0.0
 
 # Database
-psycopg2-binary==2.9.9
+psycopg2-binary==2.9.11
 sqlalchemy[asyncio]==2.0.25
 asyncpg==0.29.0
 
