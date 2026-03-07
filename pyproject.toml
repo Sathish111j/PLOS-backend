@@ -1,3 +1,8 @@
+[project]
+name = "plos-backend"
+version = "0.1.0"
+license = "GPL-3.0-or-later"
+
 [tool.black]
 line-length = 88
 target-version = ['py311']
