@@ -1,4 +1,4 @@
-FROM python:3.11-slim AS builder
+FROM python:3.14-slim AS builder
 
 WORKDIR /build
 
@@ -25,7 +25,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r /tmp/requirements/graph.txt && \
     rm -rf /root/.cache/pip
 
-FROM python:3.11-slim AS production
+FROM python:3.14-slim AS production
 
 RUN groupadd --gid 1000 plos && \
     useradd --uid 1000 --gid plos --shell /bin/bash --create-home plos
