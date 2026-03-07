@@ -72,6 +72,38 @@ class TestDetectPlatform:
         assert detect_platform("https://YOUTUBE.COM/shorts/abc12345678") == "youtube"
 
 
+# --- Helper functions ---
+
+
+class TestInstagramContentType:
+    def test_reel(self) -> None:
+        assert _instagram_content_type("https://www.instagram.com/reel/Cabc123/") == "reel"
+
+    def test_post(self) -> None:
+        assert _instagram_content_type("https://www.instagram.com/p/Bxyz789/") == "post"
+
+    def test_igtv(self) -> None:
+        assert _instagram_content_type("https://www.instagram.com/tv/Cdef456/") == "igtv"
+
+    def test_case_insensitive(self) -> None:
+        assert _instagram_content_type("https://www.instagram.com/REEL/Cabc123/") == "reel"
+        assert _instagram_content_type("https://www.instagram.com/TV/Cdef456/") == "igtv"
+
+
+class TestIsYoutubeShort:
+    def test_short_url(self) -> None:
+        assert _is_youtube_short("https://www.youtube.com/shorts/dQw4w9WgXcQ") is True
+
+    def test_regular_watch(self) -> None:
+        assert _is_youtube_short("https://www.youtube.com/watch?v=dQw4w9WgXcQ") is False
+
+    def test_short_link(self) -> None:
+        assert _is_youtube_short("https://youtu.be/dQw4w9WgXcQ") is False
+
+    def test_case_insensitive(self) -> None:
+        assert _is_youtube_short("https://www.youtube.com/SHORTS/dQw4w9WgXcQ") is True
+
+
 # --- Format detector integration ---
 
 
@@ -86,8 +118,11 @@ class TestFormatDetectorSocial:
             "https://x.com/user/status/789",
             "https://www.linkedin.com/posts/user-abc",
             "https://www.instagram.com/reel/Cabc123/",
+            "https://www.instagram.com/p/Bxyz789/",
+            "https://www.instagram.com/tv/Cdef456/",
             "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
             "https://youtu.be/dQw4w9WgXcQ",
+            "https://www.youtube.com/shorts/dQw4w9WgXcQ",
         ],
     )
     def test_social_url_detected_as_social(self, url: str) -> None:
@@ -181,8 +216,10 @@ class TestSocialMediaProcessor:
         mock_extract = AsyncMock(
             return_value={
                 "text": "Video transcript here",
+                "content_type": "video",
                 "transcript": "Video transcript here",
                 "transcript_method": "youtube_transcript_api",
+                "visual_description": "",
                 "title": "Test Video",
             }
         )
@@ -197,6 +234,55 @@ class TestSocialMediaProcessor:
         assert result.format == DocumentFormat.SOCIAL
         assert result.metadata["platform"] == "youtube"
         assert "Video transcript here" in result.text
+
+    @pytest.mark.asyncio
+    async def test_youtube_short_routes_correctly(self) -> None:
+        mock_extract = AsyncMock(
+            return_value={
+                "text": "Short content",
+                "content_type": "short",
+                "transcript": "Short transcript",
+                "transcript_method": "youtube_transcript_api",
+                "visual_description": "Person dancing in a park",
+                "title": "Fun Short",
+            }
+        )
+        with patch(
+            "app.application.ingestion.social_processor.YouTubeExtractor.extract",
+            mock_extract,
+        ), patch(_MOCK_GEMINI):
+            processor = SocialMediaProcessor()
+            payload = _make_payload(
+                "https://www.youtube.com/shorts/dQw4w9WgXcQ"
+            )
+            result = await processor.process(payload)
+
+        assert result.format == DocumentFormat.SOCIAL
+        assert result.metadata["platform"] == "youtube"
+        assert "Short content" in result.text
+
+    @pytest.mark.asyncio
+    async def test_instagram_post_routes_correctly(self) -> None:
+        mock_extract = AsyncMock(
+            return_value={
+                "text": "Instagram post content",
+                "content_type": "post",
+                "caption": "A cool photo",
+                "audio_transcript": "",
+                "visual_description": "A sunset",
+            }
+        )
+        with patch(
+            "app.application.ingestion.social_processor.InstagramExtractor.extract",
+            mock_extract,
+        ), patch(_MOCK_GEMINI):
+            processor = SocialMediaProcessor()
+            payload = _make_payload("https://www.instagram.com/p/Bxyz789/")
+            result = await processor.process(payload)
+
+        assert result.format == DocumentFormat.SOCIAL
+        assert result.metadata["platform"] == "instagram"
+        assert "Instagram post content" in result.text
 
     @pytest.mark.asyncio
     async def test_unsupported_url_raises(self) -> None:
