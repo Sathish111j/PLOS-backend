@@ -21,7 +21,6 @@ Before you begin, ensure you have the following installed:
 
 ### Optional
 - **Python 3.11+** (for local development without Docker)
-- **Node.js 18+** (for frontend development)
 
 ---
 
@@ -31,7 +30,7 @@ Before you begin, ensure you have the following installed:
 
 ```bash
 git clone <your-repository-url>
-cd LifeOSbackend
+cd PLOS-backend
 ```
 
 ### 2. Configure Environment
@@ -101,8 +100,7 @@ This will start all services in Docker containers.
 - API Gateway (port 8000)
 - Context Broker (port 8001)
 - All other microservices
-- Frontend (port 3000)
-- Monitoring (Grafana, Prometheus, Jaeger)
+- Monitoring (Grafana, Prometheus)
 
 ### 5. Verify Setup
 
@@ -110,15 +108,14 @@ Open your browser and visit:
 
 | Service | URL | Notes |
 |---------|-----|-------|
-| **Frontend** | http://localhost:3000 | Main application |
 | **API Gateway** | http://localhost:8000 | API entry point |
 | **API Docs** | http://localhost:8000/docs | Interactive API documentation |
 | **Context Broker** | http://localhost:8001/health | Health check |
-| **Metabase** | http://localhost:8082 | Data visualization & BI |
+| **Metabase** | http://localhost:3001 | Data visualization & BI |
 | **Grafana** | http://localhost:3333 | Monitoring dashboards |
 | **Prometheus** | http://localhost:9090 | Metrics |
 | **Kafka UI** | http://localhost:18080 | Kafka management |
-| **pgAdmin** | http://localhost:5050 | Database management |
+| **Meilisearch** | http://localhost:7700 | Full-text search |
 
 **Test API Gateway:**
 ```bash
@@ -175,26 +172,26 @@ docker-compose up -d --build context-broker
 
 ```bash
 # Connect to PostgreSQL
-docker-compose exec postgres psql -U postgres -d plos
+docker exec plos-supabase-db psql -U postgres -d plos
 
 # Run SQL query
-docker-compose exec postgres psql -U postgres -d plos -c "SELECT * FROM users LIMIT 5;"
+docker exec plos-supabase-db psql -U postgres -d plos -c "SELECT * FROM users LIMIT 5;"
 
 # View tables
-docker-compose exec postgres psql -U postgres -d plos -c "\dt"
+docker exec plos-supabase-db psql -U postgres -d plos -c "\dt"
 ```
 
 ### Redis Access
 
 ```bash
 # Connect to Redis CLI
-docker-compose exec redis redis-cli -a redis
+docker-compose exec redis redis-cli -a ${REDIS_PASSWORD:-plos_redis_secure_2025}
 
 # Check keys
-docker-compose exec redis redis-cli -a redis KEYS "*"
+docker-compose exec redis redis-cli -a ${REDIS_PASSWORD:-plos_redis_secure_2025} KEYS "*"
 
 # Get specific key
-docker-compose exec redis redis-cli -a redis GET "context:user_id_here"
+docker-compose exec redis redis-cli -a ${REDIS_PASSWORD:-plos_redis_secure_2025} GET "context:user_id_here"
 ```
 
 ### Kafka Management
@@ -314,10 +311,6 @@ Python services support hot reload:
 - Edit files in `services/*/src/`
 - Changes auto-reload (no restart needed)
 
-Frontend supports hot reload:
-- Edit files in `frontend/src/`
-- Browser auto-refreshes
-
 ### Environment Variables
 
 To change environment variables:
@@ -375,18 +368,9 @@ docker volume rm plos_postgres_data
 ## Next Steps
 
 1. Setup complete
-2. Read [Architecture Documentation](ARCHITECTURE.md)
-3. Explore [API Documentation](API.md)
+2. Explore the API docs at http://localhost:8000/docs
+3. Check service health with ./scripts/verify/verify.sh
 4. Start building features
-5. See [Contributing Guidelines](CONTRIBUTING.md)
-
----
-
-## Need Help?
-
-- Email: support@plos.dev
-- Discord: [Join server](https://discord.gg/plos)
-- Issues: [GitHub Issues](https://github.com/yourusername/plos/issues)
 
 ---
 

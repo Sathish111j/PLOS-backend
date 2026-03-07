@@ -62,6 +62,30 @@ updates:
       - "dependencies"
       - "docker"
 
+  - package-ecosystem: "pip"
+    directory: "/services/knowledge-base/requirements"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "Sathish111j"
+    labels:
+      - "dependencies"
+      - "python"
+
+  - package-ecosystem: "docker"
+    directory: "/services/knowledge-base"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "Sathish111j"
+    labels:
+      - "dependencies"
+      - "docker"
+
   # GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"

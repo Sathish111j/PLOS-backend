@@ -9,12 +9,11 @@ Technical documentation for the PLOS Gemini API key rotation system.
 1. [Overview](#1-overview)
 2. [Architecture](#2-architecture)
 3. [Configuration](#3-configuration)
-4. [Centralized Configuration](#centralized-configuration)
-5. [Usage Examples](#4-usage-examples)
-6. [API Reference](#5-api-reference)
-7. [Error Handling](#6-error-handling)
-8. [Metrics and Monitoring](#7-metrics-and-monitoring)
-9. [Production Considerations](#8-production-considerations)
+4. [Usage Examples](#4-usage-examples)
+5. [API Reference](#5-api-reference)
+6. [Error Handling](#6-error-handling)
+7. [Metrics and Monitoring](#7-metrics-and-monitoring)
+8. [Production Considerations](#8-production-considerations)
 
 ---
 
@@ -105,7 +104,7 @@ GEMINI_API_KEYS=AIzaSy...key1|primary,AIzaSy...key2|backup-1,AIzaSy...key3|backu
 
 ---
 
-## Centralized Configuration
+### Centralized Configuration
 
 The system provides centralized configuration through `shared/gemini/config.py`:
 
@@ -459,3 +458,9 @@ async def monitor_keys():
         
         await asyncio.sleep(3600)  # Check every hour
 ```
+
+---
+
+## Official Documentation
+
+For the complete Google Gemini API reference, see the [official Gemini API documentation](https://ai.google.dev/docs).

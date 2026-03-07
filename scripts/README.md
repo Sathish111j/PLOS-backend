@@ -61,8 +61,6 @@ scripts/
 | Script | Purpose | When to Use |
 |--------|---------|-------------|
 | `scripts/start/start-all.ps1` | Start complete system (infrastructure + services) | First startup, after reboot |
-| `scripts/start/start-infrastructure.ps1` | Start only infrastructure (supabase-db, redis, kafka, etc.) | Manual control, debugging |
-| `scripts/start/start-services.ps1` | Start only application services | After code changes |
 | `scripts/stop/stop.ps1` | Stop all services | End of day, clean state |
 | `scripts/stop/stop.ps1 -CleanVolumes` | Stop and delete all data | Fresh start needed |
 | `scripts/setup/seed.ps1` | Populate database with initial data | Optional - run after start-all.ps1 if needed |
@@ -92,28 +90,6 @@ Complete system startup with proper sequencing and health checks:
 3. Starts application services (context-broker, journal-parser, knowledge-base, api-gateway)
 4. Verifies services health (health endpoints)
 5. Database is automatically initialized via init.sql
-
-### start-infrastructure.ps1
-Starts only the infrastructure layer:
-- PostgreSQL (database)
-- Redis (cache)
-- Kafka + Zookeeper (messaging)
-- Prometheus + Grafana (monitoring)
-
-Use when:
-- You only need databases/tools
-- Debugging infrastructure issues
-
-### start-services.ps1
-Starts only application services:
-1. Verifies infrastructure is running
-2. Builds service images (if code changed)
-3. Starts all core services
-
-Use when:
-- Infrastructure already running
-- After code changes
-- After fixing a service bug
 
 ### stop.ps1
 Gracefully stops all services.
@@ -226,6 +202,11 @@ If you need more control:
 - **Port conflicts**: Stop other services using those ports
 - **Out of memory**: Increase Docker memory allocation to 8GB+
 - **Database issues**: Run `./scripts/stop/stop.ps1 -CleanVolumes` to reset
+- **UI/Monitoring services not available**: Some services require Docker profiles:
+  - Monitoring (Prometheus/Grafana): `docker compose --profile monitoring up -d`
+  - UI tools (Kafka UI, Redis Commander): `docker compose --profile ui up -d`
+  - Supabase Studio: `docker compose --profile studio up -d`
+  - Metabase: `docker compose --profile bi up -d`
 
 ### Stopping Services
 
@@ -239,7 +220,7 @@ If you need more control:
 
 ### Morning Startup
 ```powershell
-cd C:\Users\[YOU]\Desktop\LifeOSbackend
+cd C:\Users\[YOU]\Desktop\PLOS-backend
 ./scripts/start/start-all.ps1
 ```
 
@@ -247,23 +228,23 @@ cd C:\Users\[YOU]\Desktop\LifeOSbackend
 ```powershell
 # Services restart automatically (hot reload enabled)
 # OR manually restart one service:
-docker-compose restart journal-parser
+docker compose restart journal-parser
 
 # OR rebuild and restart:
-./scripts/start/start-services.ps1
+./scripts/start/start-all.ps1
 ```
 
 ### Debugging Infrastructure
 ```powershell
 # Stop services but keep infrastructure
-docker-compose stop context-broker journal-parser api-gateway
+docker compose stop context-broker journal-parser api-gateway
 
 # Check infrastructure
 ./scripts/verify/verify-infrastructure.ps1
 
 # View logs
-docker-compose logs supabase-db
-docker-compose logs kafka
+docker compose logs supabase-db
+docker compose logs kafka
 ```
 
 ### Fresh Start
@@ -287,11 +268,11 @@ netstat -ano | findstr ":5432"
 ### "Service won't start"
 ```powershell
 # Check logs
-docker-compose logs [service-name]
+docker compose logs [service-name]
 
 # Rebuild
-docker-compose build [service-name]
-docker-compose up -d [service-name]
+docker compose build [service-name]
+docker compose up -d [service-name]
 ```
 
 ### "Verification failed"
@@ -300,8 +281,8 @@ docker-compose up -d [service-name]
 ./scripts/verify/verify-infrastructure.ps1
 
 # Check what's wrong
-docker-compose ps
-docker-compose logs
+docker compose ps
+docker compose logs
 ```
 
 ---
@@ -322,7 +303,7 @@ Both work - use what fits your OS.
 
 ---
 
-**Last Updated:** January 1, 2026
+**Last Updated:** March 2026
 **Status:** Production Ready
 **Verified:** All scripts working correctly with proper sequencing
 

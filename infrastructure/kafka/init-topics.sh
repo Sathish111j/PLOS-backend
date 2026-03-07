@@ -33,7 +33,7 @@ echo "Kafka is ready. Creating topics..."
 
 # Input: Raw journal entries from API
 echo "Creating plos.journal.entries..."
-kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
+kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists \
   --topic plos.journal.entries \
   --partitions 3 \
   --replication-factor 1 \
@@ -42,7 +42,7 @@ kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
 
 # Output: Parsed entries (legacy compatibility)
 echo "Creating plos.journal.parsed..."
-kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
+kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists \
   --topic plos.journal.parsed \
   --partitions 3 \
   --replication-factor 1 \
@@ -51,7 +51,7 @@ kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
 
 # Output: Complete extraction with all data types
 echo "Creating plos.journal.extraction.complete..."
-kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
+kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists \
   --topic plos.journal.extraction.complete \
   --partitions 3 \
   --replication-factor 1 \
@@ -64,7 +64,7 @@ kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
 
 # Context updates from various services
 echo "Creating plos.context.updates..."
-kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
+kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists \
   --topic plos.context.updates \
   --partitions 3 \
   --replication-factor 1 \
@@ -77,7 +77,7 @@ kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
 
 # Knowledge indexing requests
 echo "Creating plos.knowledge.index..."
-kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
+kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists \
   --topic plos.knowledge.index \
   --partitions 3 \
   --replication-factor 1 \
@@ -90,7 +90,7 @@ kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
 
 # Unified event stream for analytics and logging
 echo "Creating plos.event.stream..."
-kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
+kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists \
   --topic plos.event.stream \
   --partitions 6 \
   --replication-factor 1 \
@@ -105,4 +105,4 @@ echo ""
 
 # List all topics
 echo "Current topics:"
-kafka-topics.sh --bootstrap-server kafka:9092 --list
+kafka-topics --bootstrap-server kafka:9092 --list

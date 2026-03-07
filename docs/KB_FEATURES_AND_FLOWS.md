@@ -178,26 +178,9 @@ Supported formats: plain text via base64 encoding.
 
 ### 3. Hybrid Search
 
-Three-tier search with RRF fusion:
+Three-tier search system with semantic, full-text, and typo-tolerant retrieval, fused with Reciprocal Rank Fusion (RRF). Supports dynamic query intent classification, cross-encoder reranking, and MMR diversity.
 
-| Tier | Engine          | Default Weight | Strength                     |
-|------|-----------------|----------------|------------------------------|
-| 1    | Qdrant HNSW     | 60%            | Semantic / conceptual recall |
-| 2    | PostgreSQL GIN  | 30%            | Exact phrases / terms        |
-| 3    | Meilisearch     | 10%            | Typo-tolerant fuzzy match    |
-
-**Dynamic query intent classification** adjusts weights:
-- Conceptual queries: semantic 80%, keyword 15%, typo 5%
-- Exact/code-like queries: semantic 30%, keyword 60%, typo 10%
-- Typo-likely queries: semantic 55%, keyword 15%, typo 30%
-
-**Cross-encoder reranking** on top candidates (ms-marco-MiniLM-L-6-v2).
-
-**Final score blend**: relevance 60%, recency 15%, engagement 15%, bucket context 10%.
-
-**MMR diversity**: lambda=0.7 to reduce redundancy.
-
-**Two-layer cache**: L1 in-process LRU (1000 entries, 5 min TTL) + L2 Redis (1 hour TTL).
+For complete technical details, see [HYBRID_SEARCH_ARCHITECTURE.md](HYBRID_SEARCH_ARCHITECTURE.md).
 
 ### 4. Bucket Organisation
 

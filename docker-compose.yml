@@ -1,6 +1,6 @@
 # ============================================================================
 # PLOS - Personal Life Management System
-# Backend Services - Production Ready (Clean Version)
+# Backend Services - Production Ready 
 # ============================================================================
 
 services:
@@ -149,15 +149,13 @@ services:
     image: redis:7-alpine
     container_name: plos-redis
     command: >
-      redis-server
+      redis-server /etc/redis/redis.conf
       --requirepass ${REDIS_PASSWORD:-plos_redis_secure_2025}
-      --maxmemory 512mb
-      --maxmemory-policy allkeys-lru
-      --appendonly yes
     ports:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
+      - ./infrastructure/redis/redis.conf:/etc/redis/redis.conf:ro
     networks:
       - plos-network
     deploy:
@@ -204,6 +202,12 @@ services:
       options:
         max-size: "20m"
         max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333'"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
 
   # Meilisearch - Typo-tolerant full-text search engine
@@ -255,6 +259,14 @@ services:
       - minio_data:/data
     networks:
       - plos-network
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+        reservations:
+          cpus: "0.25"
+          memory: 256M
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 15s
@@ -275,6 +287,11 @@ services:
       - zookeeper_datalog:/var/lib/zookeeper/log
     networks:
       - plos-network
+    healthcheck:
+      test: ["CMD-SHELL", "echo srvr | nc localhost 2181 | grep Zookeeper"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
   # Apache Kafka (Event Streaming)
@@ -282,7 +299,8 @@ services:
     image: confluentinc/cp-kafka:7.5.0
     container_name: plos-kafka
     depends_on:
-      - zookeeper
+      zookeeper:
+        condition: service_healthy
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
@@ -341,6 +359,20 @@ services:
       - plos-network
     restart: unless-stopped
 
+  # Kafka Topic Initialization (one-shot)
+  kafka-init:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: plos-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./infrastructure/kafka/init-topics.sh:/opt/init-topics.sh:ro
+    entrypoint: ["/bin/bash", "/opt/init-topics.sh"]
+    networks:
+      - plos-network
+    restart: "no"
+
   # ==========================================================================
   # API GATEWAY
   # ==========================================================================
@@ -360,9 +392,17 @@ services:
       KONG_ADMIN_LISTEN: "0.0.0.0:8001"
     ports:
       - "${API_GATEWAY_PORT:-8000}:8000"
-      - "8501:8001"
+      - "127.0.0.1:8501:8001"
     networks:
       - plos-network
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
     healthcheck:
       test: ["CMD", "kong", "health"]
       interval: 10s
@@ -495,7 +535,7 @@ services:
       redis:
         condition: service_healthy
       qdrant:
-        condition: service_started
+        condition: service_healthy
       minio:
         condition: service_healthy
       meilisearch:
@@ -641,6 +681,7 @@ services:
     profiles: ["monitoring"]
     volumes:
       - ./infrastructure/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infrastructure/monitoring/alerts.yml:/etc/prometheus/rules/alerts.yml:ro
       - prometheus_data:/prometheus
     ports:
       - "${PROMETHEUS_PORT:-9090}:9090"
@@ -665,6 +706,58 @@ services:
       - "${GRAFANA_PORT:-3333}:3000"
     volumes:
       - grafana_data:/var/lib/grafana
+      - ./infrastructure/monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./infrastructure/monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./infrastructure/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - plos-network
+    restart: unless-stopped
+
+  # PostgreSQL Exporter - Database metrics
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: plos-postgres-exporter
+    profiles: ["monitoring"]
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    environment:
+      DATA_SOURCE_NAME: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-plos_db_secure_2025}@supabase-db:5432/${POSTGRES_DB:-plos}?sslmode=disable
+    ports:
+      - "9187:9187"
+    networks:
+      - plos-network
+    restart: unless-stopped
+
+  # Redis Exporter - Cache metrics
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: plos-redis-exporter
+    profiles: ["monitoring"]
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-plos_redis_secure_2025}
+    ports:
+      - "9121:9121"
+    networks:
+      - plos-network
+    restart: unless-stopped
+
+  # Kafka Exporter - Message queue metrics
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    container_name: plos-kafka-exporter
+    profiles: ["monitoring"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command:
+      - "--kafka.server=kafka:9092"
+    ports:
+      - "9308:9308"
     networks:
       - plos-network
     restart: unless-stopped

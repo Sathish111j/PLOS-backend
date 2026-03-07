@@ -139,15 +139,30 @@ User Input                      API Gateway                     Journal Parser S
 
 ```
 services/journal-parser/src/
-|-- api.py                    # HTTP endpoints (FastAPI router)
-|-- orchestrator.py           # Pipeline coordinator (5 stages + gap loop)
-|-- preprocessing.py          # Stage 1: Text preprocessing (+ optional Gemini)
-|-- context_retrieval.py      # Stage 2: User context fetching
-|-- generalized_extraction.py # Stage 3: Gemini AI extraction + GapResolver
-|-- storage_service.py        # Stage 4: Database storage
-|-- dependencies.py           # Dependency injection
-|-- db_pool.py                # Database connection pool
-|-- main.py                   # FastAPI application bootstrap
+|-- api/
+|   |-- journal/
+|   |   |-- router.py          # HTTP endpoints (FastAPI router)
+|   |   |-- schemas.py         # Request/response models
+|   |-- reporting/
+|   |   |-- router.py          # Reporting endpoints
+|   |   |-- schemas.py         # Reporting models
+|-- application/
+|   |-- orchestrator.py        # Pipeline coordinator (5 stages + gap loop)
+|   |-- preprocessing.py       # Stage 1: Text preprocessing (+ optional Gemini)
+|   |-- context_retrieval.py   # Stage 2: User context fetching
+|   |-- extraction/
+|   |   |-- generalized_extraction.py  # Stage 3: Gemini AI extraction + GapResolver
+|   |-- reporting/
+|   |   |-- service.py         # Reporting business logic
+|-- infrastructure/
+|   |-- db/
+|   |   |-- pool.py            # Database connection pool
+|   |-- storage/
+|   |   |-- service.py         # Stage 4: Database storage
+|   |   |-- writer.py          # Data persistence helpers
+|-- dependencies/
+|   |-- providers.py           # Dependency injection
+|-- main.py                    # FastAPI application bootstrap
 ```
 
 ---
@@ -379,7 +394,7 @@ async def process_journal(
 {
   "user_id": "550e8400-e29b-41d4-a716-446655440000",
   "entry_text": "Woke up at 7am, slept 7 hours. Morning jog for 30 mins. Had oats for breakfast. Felt energetic all day. Met with Sarah for coffee.",
-  "entry_date": "2024-01-15"
+  "entry_date": "2026-03-07"
 }
 ```
 
@@ -735,41 +750,6 @@ class NormalizedActivity:
     needs_clarification: bool = False
 ```
 
-**Quality Scoring:**
-```python
-def _calculate_quality(extraction: ExtractionResult) -> str:
-    score = 0
-    
-    # Has sleep data (+30)
-    if extraction.sleep and extraction.sleep.get("hours"):
-        score += 30
-    
-    # Has mood (+20)
-    if extraction.metrics.get("mood"):
-        score += 20
-    
-    # Has activities (+20)
-    if extraction.activities:
-        score += 20
-    
-    # Has consumptions (+15)
-    if extraction.consumptions:
-        score += 15
-    
-    # Has social (+15)
-    if extraction.social:
-        score += 15
-    
-    # Penalty for gaps (-10 each)
-    score -= len(extraction.gaps) * 10
-    
-    if score >= 70:
-        return "high"
-    elif score >= 40:
-        return "medium"
-    return "low"
-```
-
 ---
 
 ### Stage 3.5: Gap Clarification Loop (generalized_extraction.py)
@@ -1091,7 +1071,7 @@ async def _store_health(self, extraction_id: UUID, health: List[Dict[str, Any]])
 result = {
     "entry_id": "uuid",
     "user_id": "uuid",
-    "entry_date": "2024-01-15",
+    "entry_date": "2026-03-07",
     "quality": "high",
     
     # Extraction data
@@ -1457,11 +1437,11 @@ CREATE TABLE metric_types (
 ```json
 {
   "event_type": "journal.extraction.complete",
-  "timestamp": "2024-01-15T10:30:00Z",
+  "timestamp": "2026-03-07T10:30:00Z",
   "payload": {
     "extraction_id": "uuid",
     "user_id": "uuid",
-    "entry_date": "2024-01-15",
+    "entry_date": "2026-03-07",
     "quality": "high",
     "has_gaps": false,
     "summary": {

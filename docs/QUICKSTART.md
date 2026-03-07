@@ -18,7 +18,7 @@ Get PLOS running in **5 minutes**.
 
 ```bash
 git clone <your-repo-url>
-cd LifeOSbackend
+cd PLOS-backend
 cp .env.example .env
 ```
 
@@ -27,7 +27,7 @@ cp .env.example .env
 Edit `.env` and add your Gemini API key:
 
 ```env
-GEMINI_API_KEY=your-key-here
+GEMINI_API_KEYS=your-key-here
 ```
 
 ### 3. Start Everything
@@ -49,12 +49,21 @@ chmod +x scripts/start/*.sh scripts/stop/*.sh scripts/verify/*.sh scripts/setup/
 
 Open in your browser:
 
-| What | URL |
-|------|-----|
-| **Frontend** | http://localhost:3000 |
-| **API Docs** | http://localhost:8000/docs |
-| **Metabase** | http://localhost:8082 |
-| **Health Check** | http://localhost:8001/health |
+| Service | URL | Purpose |
+|---------|-----|---------|
+| **API Gateway** | http://localhost:8000/docs | Main API documentation |
+| **Journal Parser** | http://localhost:8002/docs | Journal processing API |
+| **Context Broker** | http://localhost:8001/docs | User context management |
+| **Knowledge Base** | http://localhost:8003/docs | Document search and ingestion |
+| **Supabase Studio** | http://localhost:3000 | Database management |
+| **Metabase** | http://localhost:3001 | Data visualization |
+| **Qdrant** | http://localhost:6333 | Vector database |
+| **Meilisearch** | http://localhost:7700 | Full-text search |
+| **MinIO Console** | http://localhost:9001 | Object storage |
+| **Kafka UI** | http://localhost:18080 | Message queue monitoring |
+| **Redis Commander** | http://localhost:8081 | Cache management |
+| **Prometheus** | http://localhost:9090 | Metrics collection |
+| **Grafana** | http://localhost:3333 | Dashboard visualization |
 
 Or test with curl:
 
@@ -72,7 +81,7 @@ Expected response:
 ## What's Running?
 
 ```bash
-docker-compose ps
+docker compose ps
 ```
 
 You should see:
@@ -81,8 +90,24 @@ You should see:
 - Kafka (message queue)
 - API Gateway
 - Context Broker
-- Frontend
+- Knowledge Base
+- Qdrant
 - Monitoring tools
+
+---
+
+## Docker Profiles
+
+Some services are behind Docker Compose profiles and won't start by default. To access them:
+
+| Profile | Services | Command |
+| ------- | -------- | ------- |
+| `studio` | Supabase Studio, Supabase Meta | `docker compose --profile studio up -d` |
+| `ui` | Kafka UI, Redis Commander | `docker compose --profile ui up -d` |
+| `monitoring` | Prometheus, Grafana | `docker compose --profile monitoring up -d` |
+| `bi` | Metabase | `docker compose --profile bi up -d` |
+
+Example: `docker compose --profile monitoring --profile ui up -d`
 
 ---
 
@@ -90,10 +115,10 @@ You should see:
 
 ```bash
 # View logs
-docker-compose logs -f
+docker compose logs -f
 
 # Stop everything
-docker-compose down
+docker compose down
 
 # Start again
 ./scripts/start/dev.sh
@@ -106,11 +131,17 @@ docker-compose down
 
 ## Next Steps
 
-1. Setup complete.
-2. Read [Local Setup Guide](LOCAL_SETUP.md) for details
-3. Learn about [Gemini Integration](GEMINI_INTEGRATION.md)
-4. Explore [Architecture](ARCHITECTURE.md)
-5. Start coding.
+1. **Setup complete!** All services are running.
+2. **Explore the APIs** using the documentation links above.
+3. **Add journal entries** via the Journal Parser API.
+4. **Upload documents** to the Knowledge Base.
+5. **View analytics** in Metabase and Grafana.
+
+For more details, see:
+- [API Reference](../docs/API_REFERENCE.md) - Complete API documentation
+- [Architecture Standards](../docs/ARCHITECTURE_STANDARDS.md)
+- [Journal Processing Flow](../docs/JOURNAL_PROCESSING_FLOW.md)
+- [Knowledge Base Features](../docs/KB_FEATURES_AND_FLOWS.md)
 
 ---
 
@@ -118,7 +149,7 @@ docker-compose down
 
 **Services won't start?**
 ```bash
-docker-compose logs
+docker compose logs
 ```
 
 **Port already in use?**
@@ -133,14 +164,6 @@ API_GATEWAY_PORT=8080  # Instead of 8000
 ./scripts/stop/clean.sh
 ./scripts/setup/setup.sh
 ```
-
----
-
-## Need Help?
-
-- [Full Documentation](.)
-- [Report Issues](https://github.com/yourusername/plos/issues)
-- [Join Discord](https://discord.gg/plos)
 
 ---
 

@@ -1,8 +1,8 @@
 # PLOS Project Tasks & Status
 
 **Status**: Active Development
-**Focus**: Journal intelligence, context services, and analytics
-**Last Updated**: February 2026
+**Focus**: Journal intelligence, context services, analytics, and knowledge base
+**Last Updated**: March 2026
 
 ---
 
@@ -21,6 +21,21 @@
 - [x] Persist timeseries snapshots during journal ingestion
 - [x] Add reporting endpoint for timeseries overview
 - [x] Validate report endpoints via gateway E2E checks
+
+---
+
+## Knowledge Base
+
+- [x] Document ingestion and chunking pipeline implemented
+- [x] Hybrid search system (semantic + full-text + typo-tolerant) operational
+- [x] Vector storage in Qdrant with fallback collections
+- [x] Full-text indexing in Meilisearch
+- [x] Object storage integration with MinIO
+- [x] Entity extraction and knowledge graph construction
+- [x] Bucket organization and AI-powered routing
+- [x] RAG chat functionality with streaming support
+- [x] Embedding DLQ and retry mechanisms
+- [x] Graph-based entity relationships and timeline queries
 
 ---
 

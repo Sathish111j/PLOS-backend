@@ -1,5 +1,7 @@
 # Hybrid Search System (Section 2.3–2.5)
 
+This document covers the technical implementation of the hybrid search system (sections 2.3-2.5 of the knowledge base architecture). For the complete feature overview and API documentation, see [KB_FEATURES_AND_FLOWS.md](KB_FEATURES_AND_FLOWS.md).
+
 ## 2.3 Hybrid Search Architecture
 
 PLOS knowledge-base uses a three-tier hybrid search pipeline and fuses ranked lists with Reciprocal Rank Fusion (RRF).
@@ -8,7 +10,7 @@ PLOS knowledge-base uses a three-tier hybrid search pipeline and fuses ranked li
 |---|---|---:|---|
 | Tier 1: Semantic | Qdrant HNSW | 60% | Concepts, paraphrases, semantic recall |
 | Tier 2: Full-Text | PostgreSQL tsvector + GIN | 30% | Exact phrases and technical terms |
-| Tier 3: Typo-Tolerant | Typo similarity layer | 10% | Misspellings and noisy user input |
+| Tier 3: Typo-Tolerant | Meilisearch fuzzy search | 10% | Misspellings and noisy user input |
 
 ### RRF Formula
 
@@ -70,8 +72,6 @@ These are treated as production SLO/quality gates and should be measured in dedi
 
 - Semantic tier: implemented via Qdrant HNSW.
 - Full-text tier: implemented via PostgreSQL `tsvector` search.
-- Typo tier: implemented with PostgreSQL similarity-based fallback.
+- Typo tier: implemented with Meilisearch fuzzy search.
 - RRF (`k=60`), dynamic intent weighting, reranking, and MMR diversity are implemented.
 - L1 + L2 cache layers are implemented.
-
-If strict Meilisearch integration is required for typo tier, add a dedicated Meilisearch index service and swap the typo tier adapter to Meilisearch queries.

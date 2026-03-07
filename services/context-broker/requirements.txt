@@ -46,3 +46,4 @@ structlog==24.1.0
 # Utilities
 tenacity==8.2.3
 orjson==3.9.10
+PyJWT>=2.8.0

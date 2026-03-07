@@ -16,8 +16,15 @@ This folder contains PostgreSQL initialization scripts and application migration
 ## Migrations
 
 - migrations/
-  Versioned SQL migrations applied by the init scripts.
-  - `004_journal_timeseries.sql` adds Timescale hypertable `journal_timeseries` for analytics workloads.
+  Versioned SQL migrations applied by the init scripts:
+  - `001_journal_timeseries.sql` - Initial journal timeseries table
+  - `002_knowledge_base_document_management.sql` - Document management tables
+  - `003_knowledge_base_chunking.sql` - Document chunking tables
+  - `004_knowledge_base_deduplication_integrity.sql` - Deduplication integrity
+  - `005_knowledge_base_chunk_deduplication.sql` - Chunk deduplication
+  - `006_knowledge_base_vector_search_entities.sql` - Vector search and entities
+  - `007_bucket_hierarchy_and_ai_routing.sql` - Bucket organization
+  - `008_chat_sessions.sql` - Chat session management
 
 ## Notes
 

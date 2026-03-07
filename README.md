@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/badge/PLOS-Personal%20Life%20Management-blueviolet?style=for-the-badge" alt="PLOS"/>
 </p>
 
-<h1 align="center">PLOS - Personal Life Management System </h1>
+# PLOS - Personal Life Management System
 
 <p align="center">
   <strong>An AI-powered platform that transforms your daily journal entries into structured life data, revealing patterns and insights about your habits, health, and happiness.</strong>
@@ -25,7 +25,7 @@ PLOS transforms the way you understand yourself. Write freely about your day - y
 
 > _"I slept 7 hours, went for a morning run, had coffee with Sarah, worked on the API project for 4 hours, feeling pretty good today - maybe 8/10"_
 
-This single sentence becomes **structured data** across 11 different life dimensions - sleep quality, exercise metrics, social connections, work productivity, and mood tracking - all searchable, analyzable, and ready to power personalized insights.
+This single sentence becomes **structured data** across 9 different life dimensions - sleep quality, exercise metrics, social connections, work productivity, and mood tracking - all searchable, analyzable, and ready to power personalized insights.
 
 ---
 
@@ -54,7 +54,7 @@ This single sentence becomes **structured data** across 11 different life dimens
 
 **Your journal entries aren't just memories - they're clues to your personal algorithm.** What patterns hide in your data that could revolutionize how you live, work, and connect?
 
-### 🎯 From Journal to Life Intelligence
+### From Journal to Life Intelligence
 
 **Write naturally, discover profoundly.** Whether you pour your thoughts into detailed journal entries or simply input daily data points, PLOS organizes everything and reveals patterns you never knew existed.
 
@@ -91,7 +91,7 @@ The foundation - AI-powered journal parsing that understands natural language an
 **Delivered:**
 
 - Natural language journal processing
-- 11 extraction categories (sleep, mood, exercise, nutrition, work, social, health, activities, locations, weather, notes)
+- 9 extraction categories (sleep, mood, exercise, nutrition, work, social, health, activities, locations, notes)
 - Confidence scoring and quality assessment
 - PostgreSQL storage with full history
 - Real-time processing via Kafka events
@@ -249,20 +249,24 @@ User Journal Entry
      ___|___
     |       |
     v       v
-  [DB]   [Cache]
- PostgreSQL Redis
+  [DB]   [Cache]   [Knowledge Base]
+ PostgreSQL Redis   Qdrant + Meilisearch + MinIO
 ```
 
 ### Infrastructure
 
-| Component  | Technology           | Purpose                        |
-| ---------- | -------------------- | ------------------------------ |
-| AI Engine  | Google Gemini 2.5    | Natural language understanding |
-| API Layer  | FastAPI + Kong       | REST APIs with gateway         |
-| Database   | PostgreSQL           | Structured life data storage   |
-| Cache      | Redis                | Fast data access               |
-| Events     | Apache Kafka         | Real-time processing           |
-| Monitoring | Prometheus + Grafana | Observability                  |
+| Component      | Technology                  | Purpose                        |
+| -------------- | --------------------------- | ------------------------------ |
+| AI Engine      | Google Gemini 2.5           | Natural language understanding |
+| API Layer      | FastAPI + Kong              | REST APIs with gateway         |
+| Database       | PostgreSQL                  | Structured life data storage   |
+| Cache          | Redis                       | Fast data access               |
+| Vector Search  | Qdrant                      | Semantic search and embeddings |
+| Full-text Search| Meilisearch                 | Typo-tolerant text search      |
+| Object Storage | MinIO                       | Document storage               |
+| Events         | Apache Kafka                | Real-time processing           |
+| Monitoring     | Prometheus + Grafana        | Observability                  |
+| Knowledge Base | FastAPI                     | Document ingestion and search  |
 
 ---
 
@@ -329,38 +333,35 @@ PLOS creates a **personal data layer** that:
 
 ## Quick Start
 
-### Prerequisites
+1. **Clone & Configure**: `git clone https://github.com/Sathish111j/PLOS-backend.git && cd PLOS-backend && cp .env.example .env`
+2. **Add API Keys**: Set `GEMINI_API_KEYS` in `.env` file
+3. **Launch**: `docker compose up -d`
 
-- Docker and Docker Compose
-- Google Gemini API key
+For detailed setup instructions, see [docs/QUICKSTART.md](docs/QUICKSTART.md).
 
-### Launch
+### Docker Profiles
 
-```bash
-# Clone the repository
-git clone https://github.com/Sathish111j/PLOS-backend.git
-cd PLOS-backend
+Some services require specific Docker Compose profiles to be activated:
 
-# Configure environment
-cp .env.example .env
-# Add your GEMINI_API_KEYS to .env
+| Profile | Services | Command |
+| ------- | -------- | ------- |
+| `studio` | Supabase Studio, Supabase Meta | `docker compose --profile studio up -d` |
+| `ui` | Kafka UI, Redis Commander | `docker compose --profile ui up -d` |
+| `monitoring` | Prometheus, Grafana | `docker compose --profile monitoring up -d` |
+| `bi` | Metabase | `docker compose --profile bi up -d` |
+| `test` | Knowledge Base test suite | `docker compose --profile test up -d` |
 
-# Start everything
-docker compose up -d
+---
 
-# Verify all services are healthy
-docker compose ps
-```
+## Documentation
 
-### Access Points
-
-| Service       | URL                   | Purpose                 |
-| ------------- | --------------------- | ----------------------- |
-| Journal API   | http://localhost:8002 | Process journal entries |
-| Context API   | http://localhost:8001 | User state management   |
-| Metabase      | http://localhost:8082 | Data visualization & BI |
-| Monitoring    | http://localhost:9090 | Prometheus metrics      |
-| Dashboards    | http://localhost:3333 | Grafana visualization   |
+- [Quick Start Guide](docs/QUICKSTART.md) - Detailed setup and configuration
+- [API Reference](docs/API_REFERENCE.md) - Complete API documentation for all services
+- [Architecture Standards](docs/ARCHITECTURE_STANDARDS.md) - Service layout and development guidelines
+- [Journal Processing Flow](docs/JOURNAL_PROCESSING_FLOW.md) - Complete journal parsing pipeline
+- [Knowledge Base Features](docs/KB_FEATURES_AND_FLOWS.md) - Document management and search capabilities
+- [Hybrid Search Architecture](docs/HYBRID_SEARCH_ARCHITECTURE.md) - Technical search implementation
+- [Gemini Integration](shared/gemini/DOCUMENTATION.md) - AI service configuration and usage
 
 ---
 
@@ -383,5 +384,5 @@ PLOS aims to become the **operating system for your personal life** - a unified 
 </p>
 
 <p align="center">
-  <sub>Last Updated: December 31, 2025</sub>
+  <sub>Last Updated: March 2026</sub>
 </p>

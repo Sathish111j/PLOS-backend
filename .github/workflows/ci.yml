@@ -64,10 +64,11 @@ jobs:
         run: |
           pip install -r services/context-broker/requirements.txt
           pip install -r services/journal-parser/requirements.txt
-          safety check || echo "Safety check completed with warnings"
+          pip install -r services/knowledge-base/requirements/base.txt
+          safety check
 
       - name: Run Bandit (security linter)
-        run: bandit -r services/ shared/ -f json -o bandit-report.json || true
+        run: bandit -r services/ shared/ -f json -o bandit-report.json -ll -ii
 
       - name: Upload Bandit results
         uses: actions/upload-artifact@v4
@@ -116,7 +117,13 @@ jobs:
         run: |
           docker compose -f docker-compose.yml up -d supabase-db redis kafka qdrant minio
           echo "Waiting for infrastructure to be ready..."
-          sleep 60
+          for i in $(seq 1 60); do
+            if docker exec $(docker ps -q --filter name=supabase-db) pg_isready -U postgres 2>/dev/null; then
+              echo "Infrastructure ready after ${i}s"
+              break
+            fi
+            sleep 2
+          done
 
       - name: Verify infrastructure
         run: |
@@ -144,7 +151,10 @@ jobs:
         run: |
           docker compose -f docker-compose.yml up -d context-broker journal-parser knowledge-base
           echo "Waiting for services to start..."
-          sleep 90
+          timeout 120 bash -c 'until curl -sf http://localhost:8001/health >/dev/null 2>&1; do sleep 3; done' || true
+          timeout 120 bash -c 'until curl -sf http://localhost:8002/health >/dev/null 2>&1; do sleep 3; done' || true
+          timeout 120 bash -c 'until curl -sf http://localhost:8003/health >/dev/null 2>&1; do sleep 3; done' || true
+          echo "Services started"
 
       - name: Verify services health
         run: |
@@ -270,9 +280,9 @@ jobs:
       - name: Check YAML files syntax
         run: |
           sudo apt-get update && sudo apt-get install -y yamllint
-          yamllint infrastructure/monitoring/prometheus.yml || echo "YAML syntax OK"
+          yamllint infrastructure/monitoring/prometheus.yml
 
       - name: Check shell scripts
         run: |
           sudo apt-get install -y shellcheck
-          find scripts/ -name "*.sh" -exec shellcheck {} \; || echo "Shell scripts checked"
+          find scripts/ -name "*.sh" -exec shellcheck {} +

@@ -25,6 +25,7 @@ jobs:
         service:
           - context-broker
           - journal-parser
+          - knowledge-base
 
     steps:
       - name: Checkout code

@@ -17,6 +17,8 @@ Repository-specific commands:
 - Optional dependency install (only when lint tooling is missing):
 	- `powershell -ExecutionPolicy Bypass -File scripts/lint/lint.ps1 -Install`
 
+**Linux/devcontainer compatibility**: The project runs in a Linux devcontainer. For bash environments, use equivalent commands if available, or run the PowerShell script via `pwsh` if installed.
+
 Execution behavior:
 1. Start with lint check mode.
 2. If check fails, run fix mode.
