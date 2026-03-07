@@ -30,6 +30,8 @@ from .schemas import (
     ConsumptionResponse,
     ExtractionResponse,
     HealthCheckResponse,
+    HealthResponse,
+    LocationResponse,
     PendingGap,
     ProcessJournalRequest,
     ResolveGapRequest,
@@ -154,6 +156,8 @@ async def process_journal_entry(
             ],
             social=result.get("social"),
             notes=result.get("notes"),
+            locations=[LocationResponse(**loc) for loc in result.get("locations", [])],
+            health=[HealthResponse(**h) for h in result.get("health", [])],
             has_gaps=result.get("has_gaps", False),
             clarification_questions=[
                 ClarificationQuestion(**q)
@@ -180,7 +184,7 @@ async def process_journal_entry(
         JOURNAL_PROCESS_COUNT.labels(status="error").inc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to process journal entry: {str(e)}",
+            detail="Failed to process journal entry",
         )
 
 
@@ -217,7 +221,7 @@ async def resolve_gap(
         logger.error(f"Error resolving gap: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to resolve gap: {str(e)}",
+            detail="Failed to resolve gap",
         )
 
 

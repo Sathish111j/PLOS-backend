@@ -6,6 +6,7 @@ Business logic for user authentication and management
 from typing import Optional
 from uuid import UUID
 
+import bcrypt
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.utils.config import get_settings
@@ -120,6 +121,8 @@ class AuthService:
         user = await self.user_repo.get_user_by_email(email)
 
         if not user:
+            # Perform a dummy hash comparison to prevent timing attacks
+            _dummy = bcrypt.checkpw(b"dummy-password", bcrypt.gensalt())
             logger.warning(f"Login attempt for non-existent email: {email}")
             raise AuthenticationError(message="Invalid email or password")
 

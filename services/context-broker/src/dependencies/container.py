@@ -18,10 +18,16 @@ context_engine = ContextEngine(state_manager, cache_manager)
 @asynccontextmanager
 async def lifespan(app):
     """Initialize and shutdown core dependencies."""
-    logger.info("Context Broker starting up...")
+    logger.info("[STARTUP] Context Broker starting up...")
+    logger.info("[STARTUP] Connecting to Redis cache...")
     await cache_manager.connect()
+    logger.info("[STARTUP] Redis cache connected")
+    logger.info("[STARTUP] Connecting to PostgreSQL state manager...")
     await state_manager.connect()
+    logger.info("[STARTUP] PostgreSQL state manager connected")
+    logger.info("[STARTUP] Context Broker fully initialized and ready")
     yield
-    logger.info("Context Broker shutting down...")
+    logger.info("[SHUTDOWN] Context Broker shutting down...")
     await cache_manager.close()
     await state_manager.close()
+    logger.info("[SHUTDOWN] Context Broker shutdown complete")

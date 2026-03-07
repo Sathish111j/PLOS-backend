@@ -50,6 +50,14 @@ class KnowledgeBaseConfig:
     graph_pagerank_damping: float
     graph_pagerank_iterations: int
     graph_celery_queue: str
+    # --- RAG ---
+    rag_model: str
+    rag_max_context_tokens: int
+    rag_max_chunks: int
+    rag_conversation_max_messages: int
+    rag_session_ttl_hours: int
+    rag_stream_enabled: bool
+    context_broker_url: str
 
     @property
     def minio_health_url(self) -> str:
@@ -78,7 +86,10 @@ def get_kb_config() -> KnowledgeBaseConfig:
         qdrant_fallback_collection=os.getenv(
             "QDRANT_FALLBACK_COLLECTION", "documents_fallback_384"
         ),
-        embedding_model=os.getenv("EMBEDDING_MODEL", "gemini-embedding-001"),
+        embedding_model=os.getenv(
+            "GEMINI_EMBEDDING_MODEL",
+            os.getenv("EMBEDDING_MODEL", "text-embedding-004"),
+        ),
         embedding_dimensions=int(os.getenv("EMBEDDING_DIMENSIONS", "768")),
         embedding_batch_size=int(os.getenv("EMBEDDING_BATCH_SIZE", "100")),
         embedding_retry_max_attempts=int(
@@ -106,28 +117,26 @@ def get_kb_config() -> KnowledgeBaseConfig:
         ),
         celery_broker_url=os.getenv(
             "CELERY_BROKER_URL",
-            os.getenv("REDIS_URL", "redis://:plos_redis_secure_2025@redis:6379/0"),
+            os.getenv("REDIS_URL", ""),
         ),
         celery_backend_url=os.getenv(
             "CELERY_BACKEND_URL",
-            os.getenv("REDIS_URL", "redis://:plos_redis_secure_2025@redis:6379/0"),
+            os.getenv("REDIS_URL", ""),
         ),
         minio_enabled=_parse_bool(os.getenv("MINIO_ENABLED"), True),
         minio_endpoint=os.getenv("MINIO_ENDPOINT", "minio:9000"),
         minio_secure=_parse_bool(os.getenv("MINIO_SECURE"), False),
         minio_bucket=os.getenv("MINIO_BUCKET", "knowledge-base-documents"),
-        minio_access_key=os.getenv("MINIO_ACCESS_KEY", "plos_minio_admin"),
-        minio_secret_key=os.getenv("MINIO_SECRET_KEY", "plos_minio_secure_2026"),
+        minio_access_key=os.getenv("MINIO_ACCESS_KEY", ""),
+        minio_secret_key=os.getenv("MINIO_SECRET_KEY", ""),
         meilisearch_url=os.getenv("MEILISEARCH_URL", "http://meilisearch:7700"),
         meilisearch_master_key=os.getenv("MEILISEARCH_MASTER_KEY", ""),
         meilisearch_index=os.getenv("MEILISEARCH_INDEX", "kb_chunks"),
         database_url=os.getenv(
             "DATABASE_URL",
-            "postgresql+asyncpg://postgres:plos_db_secure_2025@supabase-db:5432/plos",
+            "",
         ),
-        redis_url=os.getenv(
-            "REDIS_URL", "redis://:plos_redis_secure_2025@redis:6379/0"
-        ),
+        redis_url=os.getenv("REDIS_URL", ""),
         graph_enabled=_parse_bool(os.getenv("GRAPH_ENABLED"), True),
         graph_db_path=os.getenv("GRAPH_DB_PATH", "/var/plos/graph/kuzu_db"),
         graph_ner_window_tokens=int(os.getenv("GRAPH_NER_WINDOW_TOKENS", "2000")),
@@ -145,4 +154,15 @@ def get_kb_config() -> KnowledgeBaseConfig:
         graph_pagerank_damping=float(os.getenv("GRAPH_PAGERANK_DAMPING", "0.85")),
         graph_pagerank_iterations=int(os.getenv("GRAPH_PAGERANK_ITERATIONS", "20")),
         graph_celery_queue=os.getenv("GRAPH_CELERY_QUEUE", "graph_extraction"),
+        rag_model=os.getenv("RAG_MODEL", "gemini-3-flash-preview"),
+        rag_max_context_tokens=int(os.getenv("RAG_MAX_CONTEXT_TOKENS", "100000")),
+        rag_max_chunks=int(os.getenv("RAG_MAX_CHUNKS", "15")),
+        rag_conversation_max_messages=int(
+            os.getenv("RAG_CONVERSATION_MAX_MESSAGES", "20")
+        ),
+        rag_session_ttl_hours=int(os.getenv("RAG_SESSION_TTL_HOURS", "168")),
+        rag_stream_enabled=_parse_bool(os.getenv("RAG_STREAM_ENABLED"), True),
+        context_broker_url=os.getenv(
+            "CONTEXT_BROKER_URL", "http://context-broker:8001"
+        ),
     )

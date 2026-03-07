@@ -26,7 +26,7 @@ class KafkaProducerClient:
             bootstrap_servers: Kafka broker addresses (defaults to settings)
         """
         settings = get_settings()
-        self.bootstrap_servers = bootstrap_servers or settings.kafka_brokers
+        self.bootstrap_servers = bootstrap_servers or settings.kafka_bootstrap_servers
 
         self.producer = KafkaProducer(
             bootstrap_servers=self.bootstrap_servers.split(","),

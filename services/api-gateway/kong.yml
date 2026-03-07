@@ -65,7 +65,7 @@ services:
     routes:
       - name: knowledge-base-route
         paths:
-          - ~/api/v1(?<path>/(upload|documents|buckets|search|chat).*)$
+          - ~/api/v1(?<path>/(upload|documents|buckets|search|chat|ingest|graph|ops|health|metrics).*)$
         strip_path: false
         regex_priority: 90
     plugins:

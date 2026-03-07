@@ -30,5 +30,5 @@ def get_logger(name: Optional[str] = None) -> logging.Logger:
     return setup_logging(
         service_name=logger_name,
         log_level=settings.log_level,
-        json_logs=False,
+        json_logs=True,
     )

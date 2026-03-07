@@ -335,7 +335,7 @@ class GraphConstructor:
                 gemini = self._get_gemini()
                 raw = await gemini.generate_content(
                     prompt=prompt,
-                    model="gemini-2.0-flash",
+                    model="gemini-3-flash-preview",
                     temperature=0.0,
                     max_output_tokens=2048,
                     response_mime_type="application/json",

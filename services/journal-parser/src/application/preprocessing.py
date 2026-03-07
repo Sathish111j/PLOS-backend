@@ -81,14 +81,20 @@ def normalize_times(text: str) -> Tuple[str, Dict[str, Any]]:
 
         normalized = f"{hour:02d}:{minute}"
 
-        # Store for extraction
+        # Classify using a local window around the match, not the entire text
+        context_start = max(0, match.start() - 60)
+        context_end = min(len(text), match.end() + 60)
+        local_context = text[context_start:context_end].lower()
+
         time_type = "unknown"
-        if "wake" in text.lower() or "woke" in text.lower():
+        if "wake" in local_context or "woke" in local_context:
             time_type = "waketime"
-        elif "sleep" in text.lower() or "bed" in text.lower():
+        elif "sleep" in local_context or "bed" in local_context:
             time_type = "bedtime"
 
-        time_mentions[time_type] = normalized
+        # Use a unique key so multiple times of the same type are preserved
+        key = f"{time_type}_{match.start()}"
+        time_mentions[key] = {"type": time_type, "time": normalized}
 
         return normalized
 
@@ -581,7 +587,7 @@ Cleaned text (return ONLY the cleaned text, no explanation):"""
         try:
             response = await gemini_client.generate_content(
                 prompt=prompt,
-                model="gemini-2.5-flash",
+                model="gemini-3-flash-preview",
             )
 
             cleaned = response.strip()

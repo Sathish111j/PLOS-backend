@@ -67,8 +67,18 @@ class KnowledgePersistence:
 
     async def connect(self) -> None:
         dsn = self.config.database_url.replace("postgresql+asyncpg://", "postgresql://")
+        logger.info(
+            "[PERSISTENCE] Connecting to PostgreSQL...",
+            extra={"dsn_masked": dsn[:30] + "..."},
+        )
         self._pool = await asyncpg.create_pool(dsn=dsn, min_size=1, max_size=5)
+        logger.info("[PERSISTENCE] PostgreSQL pool created")
+        logger.info(
+            "[PERSISTENCE] Connecting to Qdrant...",
+            extra={"url": self.config.qdrant_url},
+        )
         self._qdrant = QdrantClient(url=self.config.qdrant_url, timeout=10)
+        logger.info("[PERSISTENCE] Qdrant client created")
         try:
             redis_client = Redis.from_url(
                 self.config.redis_url,
@@ -77,12 +87,16 @@ class KnowledgePersistence:
             )
             await redis_client.ping()
             self._redis = redis_client
-        except Exception:
+            logger.info("[PERSISTENCE] Redis connected")
+        except Exception as exc:
+            logger.warning("[PERSISTENCE] Redis unavailable: %s", exc)
             self._redis = None
 
         self._start_semantic_chunk_dedup_worker()
         self._start_embedding_dlq_replay_worker()
+        logger.info("[PERSISTENCE] Ensuring Qdrant collection exists...")
         await self.ensure_qdrant_collection()
+        logger.info("[PERSISTENCE] Qdrant collection check completed")
         try:
             meili_client = meilisearch.Client(
                 self.config.meilisearch_url,
@@ -1474,6 +1488,396 @@ class KnowledgePersistence:
                     )
 
         await asyncio.to_thread(_ensure)
+
+    # ------------------------------------------------------------------
+    # Chat session and message persistence (RAG conversation memory)
+    # ------------------------------------------------------------------
+
+    async def create_chat_session(
+        self,
+        user_id: str,
+        title: str | None = None,
+        model: str = "gemini-3-flash-preview",
+    ) -> dict[str, Any]:
+        """Create a new chat session, returning the full row as a dict."""
+        if not self._pool:
+            raise RuntimeError("PostgreSQL pool not initialised")
+
+        session_id = uuid4()
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO chat_sessions (id, user_id, title, model)
+                VALUES ($1, $2::uuid, $3, $4)
+                RETURNING id, user_id, title, model, is_archived,
+                          metadata, created_at, updated_at
+                """,
+                session_id,
+                UUID(user_id),
+                title,
+                model,
+            )
+        return {
+            "session_id": str(row["id"]),
+            "user_id": str(row["user_id"]),
+            "title": row["title"],
+            "model": row["model"],
+            "is_archived": row["is_archived"],
+            "metadata": (
+                json.loads(row["metadata"])
+                if isinstance(row["metadata"], str)
+                else (row["metadata"] or {})
+            ),
+            "created_at": row["created_at"].isoformat(),
+            "updated_at": row["updated_at"].isoformat(),
+        }
+
+    async def append_chat_message(
+        self,
+        session_id: str,
+        role: str,
+        content: str,
+        sources: list[dict[str, Any]] | None = None,
+        token_count: int = 0,
+        latency_ms: int = 0,
+    ) -> dict[str, Any]:
+        """Append a message to a session and touch updated_at on the session."""
+        if not self._pool:
+            raise RuntimeError("PostgreSQL pool not initialised")
+
+        msg_id = uuid4()
+        sid = UUID(session_id)
+        async with self._pool.acquire() as conn:
+            async with conn.transaction():
+                row = await conn.fetchrow(
+                    """
+                    INSERT INTO chat_messages
+                        (id, session_id, role, content, sources, token_count, latency_ms)
+                    VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
+                    RETURNING id, session_id, role, content, sources,
+                              token_count, latency_ms, created_at
+                    """,
+                    msg_id,
+                    sid,
+                    role,
+                    content,
+                    json.dumps(sources or []),
+                    token_count,
+                    latency_ms,
+                )
+                await conn.execute(
+                    "UPDATE chat_sessions SET updated_at = NOW() WHERE id = $1",
+                    sid,
+                )
+
+        # Auto-set session title from first user message
+        if role == "user":
+            await self._maybe_set_session_title(session_id, content)
+
+        return {
+            "message_id": str(row["id"]),
+            "session_id": str(row["session_id"]),
+            "role": row["role"],
+            "content": row["content"],
+            "sources": (
+                json.loads(row["sources"])
+                if isinstance(row["sources"], str)
+                else (row["sources"] or [])
+            ),
+            "token_count": row["token_count"],
+            "latency_ms": row["latency_ms"],
+            "created_at": row["created_at"].isoformat(),
+        }
+
+    async def _maybe_set_session_title(
+        self, session_id: str, first_message: str
+    ) -> None:
+        """Set the session title to a truncated version of the first user message
+        if the title is still NULL."""
+        if not self._pool:
+            return
+        title = first_message[:120].strip()
+        if len(first_message) > 120:
+            title += "..."
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE chat_sessions SET title = $1
+                WHERE id = $2 AND title IS NULL
+                """,
+                title,
+                UUID(session_id),
+            )
+
+    async def get_session_messages(
+        self,
+        session_id: str,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Return the most recent messages for a session, oldest-first."""
+        if not self._pool:
+            return []
+
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, session_id, role, content, sources,
+                       token_count, latency_ms, created_at
+                FROM chat_messages
+                WHERE session_id = $1
+                ORDER BY created_at DESC
+                LIMIT $2
+                """,
+                UUID(session_id),
+                limit,
+            )
+
+        messages = []
+        for row in reversed(rows):
+            messages.append(
+                {
+                    "message_id": str(row["id"]),
+                    "session_id": str(row["session_id"]),
+                    "role": row["role"],
+                    "content": row["content"],
+                    "sources": (
+                        json.loads(row["sources"])
+                        if isinstance(row["sources"], str)
+                        else (row["sources"] or [])
+                    ),
+                    "token_count": row["token_count"],
+                    "latency_ms": row["latency_ms"],
+                    "created_at": row["created_at"].isoformat(),
+                }
+            )
+        return messages
+
+    async def get_session_by_id(
+        self,
+        session_id: str,
+        user_id: str,
+    ) -> dict[str, Any] | None:
+        """Fetch a single chat session by ID and owner. Returns None if missing."""
+        if not self._pool:
+            return None
+
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT id, user_id, title, model, is_archived,
+                       metadata, created_at, updated_at
+                FROM chat_sessions
+                WHERE id = $1 AND user_id = $2
+                """,
+                UUID(session_id),
+                UUID(user_id),
+            )
+
+        if row is None:
+            return None
+        return {
+            "session_id": str(row["id"]),
+            "user_id": str(row["user_id"]),
+            "title": row["title"],
+            "model": row["model"],
+            "is_archived": row["is_archived"],
+            "metadata": (
+                json.loads(row["metadata"])
+                if isinstance(row["metadata"], str)
+                else (row["metadata"] or {})
+            ),
+            "created_at": row["created_at"].isoformat(),
+            "updated_at": row["updated_at"].isoformat(),
+        }
+
+    async def list_user_sessions(
+        self,
+        user_id: str,
+        limit: int = 50,
+        offset: int = 0,
+        include_archived: bool = False,
+    ) -> list[dict[str, Any]]:
+        """List chat sessions for a user, newest-first."""
+        if not self._pool:
+            return []
+
+        where_clause = "WHERE user_id = $1"
+        params: list[Any] = [UUID(user_id)]
+        if not include_archived:
+            where_clause += " AND is_archived = FALSE"
+
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                f"""
+                SELECT id, user_id, title, model, is_archived,
+                       metadata, created_at, updated_at
+                FROM chat_sessions
+                {where_clause}
+                ORDER BY updated_at DESC
+                LIMIT ${ len(params) + 1 } OFFSET ${ len(params) + 2 }
+                """,
+                *params,
+                limit,
+                offset,
+            )
+
+        return [
+            {
+                "session_id": str(row["id"]),
+                "user_id": str(row["user_id"]),
+                "title": row["title"],
+                "model": row["model"],
+                "is_archived": row["is_archived"],
+                "metadata": (
+                    json.loads(row["metadata"])
+                    if isinstance(row["metadata"], str)
+                    else (row["metadata"] or {})
+                ),
+                "created_at": row["created_at"].isoformat(),
+                "updated_at": row["updated_at"].isoformat(),
+            }
+            for row in rows
+        ]
+
+    async def delete_chat_session(self, session_id: str, user_id: str) -> bool:
+        """Delete a session owned by user_id. Returns True if deleted."""
+        if not self._pool:
+            return False
+
+        async with self._pool.acquire() as conn:
+            tag = await conn.execute(
+                "DELETE FROM chat_sessions WHERE id = $1 AND user_id = $2",
+                UUID(session_id),
+                UUID(user_id),
+            )
+        return tag == "DELETE 1"
+
+    # ------------------------------------------------------------------
+    # Chunk-level retrieval for RAG
+    # ------------------------------------------------------------------
+
+    async def search_chunks_for_rag(
+        self,
+        *,
+        owner_id: str,
+        query: str,
+        top_k: int = 20,
+        bucket_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Return raw Qdrant chunk payloads with text for RAG context assembly.
+        Unlike search_semantic() which aggregates to document level, this
+        preserves individual chunk text and metadata.
+        """
+        if not self._qdrant:
+            return []
+
+        query_vector = await self._embedding_provider.embed_query(query)
+
+        must_filters = [
+            qmodels.FieldCondition(
+                key="user_id",
+                match=qmodels.MatchValue(value=owner_id),
+            )
+        ]
+        if bucket_id:
+            must_filters.append(
+                qmodels.FieldCondition(
+                    key="bucket_id",
+                    match=qmodels.MatchValue(value=bucket_id),
+                )
+            )
+
+        qdrant_filter = qmodels.Filter(must=must_filters)
+
+        def _search() -> list[qmodels.ScoredPoint]:
+            client = self._qdrant
+            if not client:
+                return []
+            return list(
+                client.search(
+                    collection_name=self.config.qdrant_collection,
+                    query_vector=query_vector,
+                    query_filter=qdrant_filter,
+                    limit=top_k,
+                    search_params=qmodels.SearchParams(hnsw_ef=128, exact=False),
+                    with_payload=True,
+                    with_vectors=False,
+                )
+            )
+
+        try:
+            hits = await asyncio.to_thread(_search)
+        except Exception:
+            logger.warning("Qdrant chunk search failed", exc_info=True)
+            return []
+
+        chunks: list[dict[str, Any]] = []
+        for hit in hits:
+            payload = hit.payload or {}
+            chunks.append(
+                {
+                    "chunk_id": str(payload.get("chunk_id") or hit.id),
+                    "document_id": str(payload.get("document_id") or ""),
+                    "text": str(payload.get("text") or ""),
+                    "section_heading": payload.get("section_heading"),
+                    "page_range": payload.get("page_range"),
+                    "token_count": int(payload.get("token_count") or 0),
+                    "bucket_id": str(payload.get("bucket_id") or ""),
+                    "score": float(hit.score or 0.0),
+                }
+            )
+        return chunks
+
+    async def enrich_chunks_with_document_info(
+        self,
+        chunks: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Join chunk results with document and bucket metadata from PostgreSQL."""
+        if not self._pool or not chunks:
+            return chunks
+
+        doc_ids = list({c["document_id"] for c in chunks if c.get("document_id")})
+        if not doc_ids:
+            return chunks
+
+        uuids = []
+        for raw_id in doc_ids:
+            try:
+                uuids.append(UUID(raw_id))
+            except Exception:
+                continue
+
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT d.id AS document_id, d.title,
+                       d.source_url, d.content_type,
+                       b.id AS bucket_id, b.name AS bucket_name
+                FROM documents d
+                LEFT JOIN buckets b ON b.id = d.bucket_id
+                WHERE d.id = ANY($1::uuid[])
+                """,
+                uuids,
+            )
+
+        doc_map: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            doc_map[str(row["document_id"])] = {
+                "document_title": row["title"] or "",
+                "source_url": row["source_url"],
+                "content_type": row["content_type"],
+                "bucket_name": row["bucket_name"],
+            }
+
+        for chunk in chunks:
+            info = doc_map.get(chunk["document_id"], {})
+            chunk.update(info)
+        return chunks
+
+    # ------------------------------------------------------------------
+    # Redis cache helpers
+    # ------------------------------------------------------------------
 
     async def get_cached_json(self, key: str) -> dict[str, Any] | None:
         if not self._redis:
@@ -3102,7 +3506,7 @@ class KnowledgePersistence:
             client.upsert(
                 collection_name=collection_name,
                 points=points,
-                wait=False,
+                wait=True,
             )
 
         if points_primary:

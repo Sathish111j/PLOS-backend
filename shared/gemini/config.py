@@ -17,16 +17,13 @@ class GeminiModelType(str, Enum):
     """Available Gemini model types for different use cases"""
 
     # Text Generation Models
-    FLASH = "gemini-2.5-flash"  # Fast, cost-effective for most tasks
-    PRO = "gemini-2.5-pro"  # Most capable for complex tasks
-    FLASH_LITE = "gemini-2.0-flash-lite"  # Fastest, lowest cost
+    FLASH = "gemini-3-flash-preview"  # Balanced speed + quality for most tasks
+    PRO = "gemini-3.1-pro-preview"  # Most capable for complex tasks
+    FLASH_LITE = "gemini-3.1-flash-lite-preview"  # Fastest, lowest cost
 
     # Embedding Models
-    EMBEDDING = "gemini-embedding-001"  # Production embedding model
-    EMBEDDING_LEGACY = "embedding-001"  # Legacy embedding model
-
-    # Experimental Models
-    FLASH_EXP = "gemini-2.0-flash-exp"  # Experimental flash
+    EMBEDDING = "text-embedding-004"  # Production embedding model
+    EMBEDDING_LEGACY = "gemini-embedding-001"  # Legacy embedding model
 
 
 class TaskType(str, Enum):
@@ -44,6 +41,10 @@ class TaskType(str, Enum):
     # Embedding Tasks
     TEXT_EMBEDDING = "text_embedding"
     DOCUMENT_EMBEDDING = "document_embedding"
+
+    # RAG Tasks
+    RAG_GENERATION = "rag_generation"
+    RAG_QUERY_REWRITE = "rag_query_rewrite"
 
     # General Tasks
     GENERAL = "general"
@@ -88,19 +89,24 @@ class GeminiConfig(BaseModel):
 
     # Default Models for Different Use Cases
     default_model: str = Field(
-        default="gemini-2.5-flash", description="Default model for general tasks"
+        default="gemini-3-flash-preview", description="Default model for general tasks"
     )
     pro_model: str = Field(
-        default="gemini-2.5-pro", description="Model for complex/important tasks"
+        default="gemini-3.1-pro-preview",
+        description="Model for complex/important tasks",
     )
     flash_model: str = Field(
-        default="gemini-2.5-flash", description="Fast model for quick tasks"
+        default="gemini-3-flash-preview", description="Fast model for quick tasks"
+    )
+    flash_lite_model: str = Field(
+        default="gemini-3.1-flash-lite-preview",
+        description="Cost-efficient model for high-volume tasks",
     )
     vision_model: str = Field(
-        default="gemini-2.5-flash", description="Model for vision/image tasks"
+        default="gemini-3-flash-preview", description="Model for vision/image tasks"
     )
     embedding_model: str = Field(
-        default="gemini-embedding-001", description="Model for embeddings"
+        default="text-embedding-004", description="Model for embeddings"
     )
 
     # Service-Specific Model Overrides
@@ -134,10 +140,13 @@ class GeminiConfig(BaseModel):
             rotation_backoff_seconds=int(
                 os.getenv("GEMINI_API_KEY_ROTATION_BACKOFF_SECONDS", "60")
             ),
-            default_model=os.getenv("GEMINI_DEFAULT_MODEL", "gemini-2.5-flash"),
-            pro_model=os.getenv("GEMINI_PRO_MODEL", "gemini-2.5-pro"),
-            flash_model=os.getenv("GEMINI_FLASH_MODEL", "gemini-2.5-flash"),
-            vision_model=os.getenv("GEMINI_VISION_MODEL", "gemini-2.5-flash"),
+            default_model=os.getenv("GEMINI_DEFAULT_MODEL", "gemini-3-flash-preview"),
+            pro_model=os.getenv("GEMINI_PRO_MODEL", "gemini-3.1-pro-preview"),
+            flash_model=os.getenv("GEMINI_FLASH_MODEL", "gemini-3-flash-preview"),
+            flash_lite_model=os.getenv(
+                "GEMINI_FLASH_LITE_MODEL", "gemini-3.1-flash-lite-preview"
+            ),
+            vision_model=os.getenv("GEMINI_VISION_MODEL", "gemini-3-flash-preview"),
             embedding_model=os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001"),
             journal_parser_model=os.getenv("GEMINI_JOURNAL_PARSER_MODEL"),
             context_broker_model=os.getenv("GEMINI_CONTEXT_BROKER_MODEL"),
@@ -182,6 +191,9 @@ class GeminiConfig(BaseModel):
             # Context Broker
             TaskType.CONTEXT_ANALYSIS: self.flash_model,
             TaskType.PATTERN_DETECTION: self.flash_model,
+            # RAG
+            TaskType.RAG_GENERATION: self.flash_lite_model,
+            TaskType.RAG_QUERY_REWRITE: self.flash_lite_model,
             # Embeddings
             TaskType.TEXT_EMBEDDING: self.embedding_model,
             TaskType.DOCUMENT_EMBEDDING: self.embedding_model,
@@ -196,7 +208,7 @@ class GeminiConfig(BaseModel):
 # Task-specific model configurations with optimized parameters
 TASK_CONFIGS: Dict[TaskType, ModelConfig] = {
     TaskType.JOURNAL_EXTRACTION: ModelConfig(
-        model="gemini-2.5-flash",
+        model="gemini-3-flash-preview",
         temperature=0.3,  # Lower for more consistent extraction
         max_output_tokens=8192,
         description="Extract structured data from journal entries",
@@ -205,40 +217,60 @@ Extract structured information from journal entries accurately and consistently.
 Focus on: sleep, mood, activities, meals, and notable events.""",
     ),
     TaskType.GAP_DETECTION: ModelConfig(
-        model="gemini-2.5-flash",
+        model="gemini-3-flash-preview",
         temperature=0.5,
         max_output_tokens=2048,
         description="Detect ambiguous or missing information in journal entries",
     ),
     TaskType.QUALITY_SCORING: ModelConfig(
-        model="gemini-2.5-flash",
+        model="gemini-3-flash-preview",
         temperature=0.2,  # Very low for consistent scoring
         max_output_tokens=1024,
         description="Score extraction quality and confidence",
     ),
     TaskType.CONTEXT_ANALYSIS: ModelConfig(
-        model="gemini-2.5-flash",
+        model="gemini-3-flash-preview",
         temperature=0.3,
         max_output_tokens=4096,
         description="Analyze user context and patterns",
     ),
     TaskType.PATTERN_DETECTION: ModelConfig(
-        model="gemini-2.5-flash",
+        model="gemini-3-flash-preview",
         temperature=0.4,
         max_output_tokens=4096,
         description="Detect patterns in user behavior",
     ),
     TaskType.GENERAL: ModelConfig(
-        model="gemini-2.5-flash",
+        model="gemini-3-flash-preview",
         temperature=0.7,
         max_output_tokens=8192,
         description="General purpose generation",
     ),
     TaskType.VISION: ModelConfig(
-        model="gemini-2.5-flash",
+        model="gemini-3-flash-preview",
         temperature=0.5,
         max_output_tokens=4096,
         description="Vision and image analysis",
+    ),
+    TaskType.RAG_GENERATION: ModelConfig(
+        model="gemini-3.1-flash-lite-preview",
+        temperature=0.4,
+        max_output_tokens=16384,
+        top_p=0.92,
+        description="RAG answer generation with citations",
+        system_instruction=(
+            "You are a helpful knowledge assistant. Answer the user's question "
+            "using ONLY the provided context chunks. For every factual claim, "
+            "include an inline citation like [1], [2], etc. referring to the "
+            "chunk index. If the context does not contain enough information, "
+            "say so honestly. Never fabricate information."
+        ),
+    ),
+    TaskType.RAG_QUERY_REWRITE: ModelConfig(
+        model="gemini-3.1-flash-lite-preview",
+        temperature=0.2,
+        max_output_tokens=512,
+        description="Rewrite user query for better retrieval",
     ),
 }
 
@@ -264,8 +296,11 @@ def get_task_config(task: TaskType) -> ModelConfig:
     """
     config = get_gemini_config()
 
-    # Get base task config
+    # Get base task config -- return a copy to avoid mutating the global dict
+    from dataclasses import replace as _dc_replace
+
     task_config = TASK_CONFIGS.get(task, TASK_CONFIGS[TaskType.GENERAL])
+    task_config = _dc_replace(task_config)
 
     # Override model from environment if set
     env_model = config.get_model_for_task(task)
@@ -286,14 +321,3 @@ def get_model_for_service(service_name: str) -> str:
         str: Model name
     """
     return get_gemini_config().get_model_for_service(service_name)
-
-
-def get_embedding_model() -> str:
-    """Get the configured embedding model"""
-    return get_gemini_config().embedding_model
-
-
-# Export commonly used configurations
-DEFAULT_MODEL = os.getenv("GEMINI_DEFAULT_MODEL", "gemini-2.5-flash")
-EMBEDDING_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
-PRO_MODEL = os.getenv("GEMINI_PRO_MODEL", "gemini-2.5-pro")

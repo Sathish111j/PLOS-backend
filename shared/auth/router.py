@@ -22,8 +22,6 @@ from shared.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-router = APIRouter(prefix="/auth", tags=["authentication"])
-
 
 def create_auth_router(get_db_session):
     """

@@ -92,7 +92,7 @@ The system consists of four main components:
 | `GEMINI_API_KEY_ROTATION_ENABLED` | `true` | Enable automatic key rotation |
 | `GEMINI_API_KEY_ROTATION_BACKOFF_SECONDS` | `60` | Seconds to wait before retrying exhausted key |
 | `GEMINI_API_KEY_ROTATION_MAX_RETRIES` | `3` | Maximum retries per request |
-| `GEMINI_DEFAULT_MODEL` | `gemini-2.5-flash` | Default model for content generation |
+| `GEMINI_DEFAULT_MODEL` | `gemini-3-flash-preview` | Default model for content generation |
 | `GEMINI_EMBEDDING_MODEL` | `gemini-embedding-001` | Model for embedding generation |
 | `GEMINI_JOURNAL_PARSER_MODEL` | (optional) | Override model for journal-parser service |
 | `GEMINI_CONTEXT_BROKER_MODEL` | (optional) | Override model for context-broker service |
@@ -147,8 +147,8 @@ Override models per service using environment variables:
 
 ```bash
 # .env
-GEMINI_JOURNAL_PARSER_MODEL=gemini-2.5-flash
-GEMINI_CONTEXT_BROKER_MODEL=gemini-2.5-flash
+GEMINI_JOURNAL_PARSER_MODEL=gemini-3-flash-preview
+GEMINI_CONTEXT_BROKER_MODEL=gemini-3-flash-preview
 ```
 
 Or retrieve programmatically:
@@ -163,11 +163,11 @@ Default task configurations (`TASK_CONFIGS`):
 
 | Task | Model | Temperature | Max Tokens |
 |------|-------|-------------|------------|
-| JOURNAL_EXTRACTION | gemini-2.5-flash | 0.3 | 4096 |
-| GAP_DETECTION | gemini-2.5-flash | 0.4 | 2048 |
+| JOURNAL_EXTRACTION | gemini-3-flash-preview | 0.3 | 4096 |
+| GAP_DETECTION | gemini-3-flash-preview | 0.4 | 2048 |
 | TEXT_EMBEDDING | gemini-embedding-001 | - | - |
-| QUICK_ANALYSIS | gemini-2.5-flash | 0.5 | 2048 |
-| DEEP_ANALYSIS | gemini-2.5-pro | 0.7 | 16384 |
+| QUICK_ANALYSIS | gemini-3-flash-preview | 0.5 | 2048 |
+| DEEP_ANALYSIS | gemini-3.1-pro-preview | 0.7 | 16384 |
 
 ---
 

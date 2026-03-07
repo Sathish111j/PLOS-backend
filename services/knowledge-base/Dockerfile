@@ -50,6 +50,8 @@ ENV PYTHONUNBUFFERED=1 \
     SERVICE_NAME=knowledge-base \
     SERVICE_PORT=8003
 
+RUN mkdir -p /app/storage && chown -R plos:plos /app/storage
+
 USER plos
 
 EXPOSE 8003

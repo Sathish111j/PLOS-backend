@@ -1,6 +1,6 @@
 from typing import Any, Dict, List
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class UploadRequest(BaseModel):
@@ -10,6 +10,14 @@ class UploadRequest(BaseModel):
     source_url: str | None = None
     bucket_id: str | None = None
     bucket_hint: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def _require_content_source(self) -> "UploadRequest":
+        if not self.content_base64 and not self.source_url:
+            raise ValueError(
+                "At least one of 'content_base64' or 'source_url' must be provided"
+            )
+        return self
 
 
 class UploadResponse(BaseModel):
@@ -133,13 +141,71 @@ class SearchResponse(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
+    session_id: str | None = Field(
+        default=None, description="Existing session ID to continue a conversation"
+    )
+    stream: bool = Field(default=False, description="Enable SSE streaming response")
+    bucket_id: str | None = Field(
+        default=None, description="Restrict retrieval to a specific bucket"
+    )
+
+
+class CitationSource(BaseModel):
+    index: int
+    document_id: str
+    document_title: str = ""
+    section_heading: str | None = None
+    source_url: str | None = None
+    bucket_name: str | None = None
+    score: float = 0.0
+    text_preview: str = ""
 
 
 class ChatResponse(BaseModel):
     owner_id: str
     answer: str
-    sources: List[Dict[str, Any]]
+    sources: List[CitationSource] = []
     input: str
+    session_id: str | None = None
+    model: str | None = None
+    token_count: int | None = None
+    latency_ms: int | None = None
+    confidence: float | None = None
+
+
+class ChatSessionItem(BaseModel):
+    session_id: str
+    user_id: str
+    title: str | None = None
+    model: str | None = None
+    is_archived: bool = False
+    created_at: str
+    updated_at: str
+
+
+class ChatMessageItem(BaseModel):
+    message_id: str
+    session_id: str
+    role: str
+    content: str
+    sources: List[Dict[str, Any]] = []
+    token_count: int = 0
+    latency_ms: int = 0
+    created_at: str
+
+
+class ChatSessionDetail(BaseModel):
+    session: ChatSessionItem
+    messages: List[ChatMessageItem]
+
+
+class ChatSessionListResponse(BaseModel):
+    sessions: List[ChatSessionItem]
+
+
+class ChatSessionDeleteResponse(BaseModel):
+    status: str
+    session_id: str
 
 
 class EmbeddingDlqStatsResponse(BaseModel):
@@ -156,7 +222,7 @@ class EmbeddingDlqReprocessRequest(BaseModel):
 
 
 class EmbeddingDlqPurgeRequest(BaseModel):
-    max_items: int = Field(default=0, ge=0, le=100000)
+    max_items: int = Field(default=100, ge=1, le=100000)
 
 
 class EmbeddingDlqActionResponse(BaseModel):

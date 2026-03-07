@@ -6,6 +6,7 @@ Uses the new google-genai SDK (not the deprecated google-generativeai)
 
 import asyncio
 import os
+from collections.abc import AsyncGenerator
 from typing import Any, Dict, List, Optional, Union
 
 from google import genai
@@ -161,7 +162,7 @@ class ResilientGeminiClient:
             AllKeysExhaustedError: If all API keys are exhausted
             GeminiAPICallError: If the API call fails after retries
         """
-        model = model or os.getenv("GEMINI_DEFAULT_MODEL", "gemini-2.5-flash")
+        model = model or os.getenv("GEMINI_DEFAULT_MODEL", "gemini-3-flash-preview")
         last_error: Optional[Exception] = None
 
         for attempt in range(self.max_retries):
@@ -235,6 +236,249 @@ class ResilientGeminiClient:
         )
         raise GeminiAPICallError(
             message=f"Failed to generate content after {self.max_retries} retries",
+            original_error=last_error,
+            is_quota_error=self._is_quota_error(last_error) if last_error else False,
+        )
+
+    def generate_content_sync(
+        self,
+        contents: Union[str, List[Any]],
+        model: Optional[str] = None,
+        system_instruction: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_output_tokens: Optional[int] = None,
+    ) -> str:
+        """
+        Synchronous content generation with key rotation for use in sync contexts.
+
+        Rotates through API keys on quota errors just like the async version,
+        but usable from synchronous methods (e.g. document processors).
+
+        Args:
+            contents: Prompt string or list of genai Parts (text + image, etc.)
+            model: Model name (defaults to GEMINI_DEFAULT_MODEL)
+            system_instruction: Optional system instruction
+            temperature: Optional temperature (0.0 to 2.0)
+            max_output_tokens: Optional max output tokens
+
+        Returns:
+            str: Generated content text
+
+        Raises:
+            GeminiAPICallError: If all retries fail
+        """
+        import time
+
+        model = model or os.getenv("GEMINI_DEFAULT_MODEL", "gemini-3-flash-preview")
+        last_error: Optional[Exception] = None
+
+        for attempt in range(self.max_retries):
+            try:
+                # Synchronous key selection (no lock, best-effort for sync ctx)
+                key_config = self.key_manager.keys[self.key_manager.current_key_index]
+                if not key_config.is_active:
+                    # Try to find any active key
+                    found = False
+                    for idx, kc in enumerate(self.key_manager.keys):
+                        if kc.is_active:
+                            self.key_manager.current_key_index = idx
+                            key_config = kc
+                            found = True
+                            break
+                    if not found:
+                        raise GeminiAPICallError(
+                            message="All API keys are currently exhausted",
+                            is_quota_error=True,
+                        )
+
+                api_key = key_config.value
+                self._configure_api_key(api_key)
+
+                logger.debug(
+                    "Sync Gemini call (attempt %d/%d) model=%s key=%s",
+                    attempt + 1,
+                    self.max_retries,
+                    model,
+                    key_config.name,
+                )
+
+                config_kwargs: Dict[str, Any] = {}
+                if temperature is not None:
+                    config_kwargs["temperature"] = temperature
+                if max_output_tokens is not None:
+                    config_kwargs["max_output_tokens"] = max_output_tokens
+                if system_instruction:
+                    config_kwargs["system_instruction"] = system_instruction
+
+                config = (
+                    types.GenerateContentConfig(**config_kwargs)
+                    if config_kwargs
+                    else None
+                )
+
+                response = self._client.models.generate_content(
+                    model=model,
+                    contents=contents,
+                    config=config,
+                )
+
+                key_config.metrics.total_requests += 1
+                key_config.metrics.successful_requests += 1
+                return response.text
+
+            except Exception as error:
+                last_error = error
+                is_quota = self._is_quota_error(error)
+
+                key_config.metrics.total_requests += 1
+                key_config.metrics.failed_requests += 1
+                if is_quota:
+                    key_config.metrics.quota_errors += 1
+                    key_config.is_active = False
+                    from datetime import datetime, timedelta
+
+                    key_config.quota_exceeded_at = datetime.utcnow()
+                    key_config.retry_after = datetime.utcnow() + timedelta(
+                        seconds=self.key_manager.backoff_seconds
+                    )
+                    self.key_manager._rotate_to_next_key()
+                    logger.warning(
+                        "Sync quota error for key %s, rotating.", key_config.name
+                    )
+                else:
+                    key_config.metrics.other_errors += 1
+
+                if attempt < self.max_retries - 1:
+                    wait_time = 2**attempt
+                    logger.warning(
+                        "Sync retry after %ss: %s: %s",
+                        wait_time,
+                        type(error).__name__,
+                        error,
+                    )
+                    time.sleep(wait_time)
+                    continue
+
+        logger.error(
+            "Sync Gemini call failed after %d attempts. Last error: %s",
+            self.max_retries,
+            last_error,
+        )
+        raise GeminiAPICallError(
+            message=f"Failed to generate content after {self.max_retries} retries",
+            original_error=last_error,
+            is_quota_error=self._is_quota_error(last_error) if last_error else False,
+        )
+
+    async def generate_content_stream(
+        self,
+        prompt: Union[str, List[types.Part]],
+        model: Optional[str] = None,
+        system_instruction: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_output_tokens: Optional[int] = None,
+        response_mime_type: Optional[str] = None,
+        **kwargs,
+    ) -> AsyncGenerator[str, None]:
+        """
+        Stream content from Gemini, yielding text chunks as they arrive.
+
+        Uses the google-genai SDK generate_content_stream endpoint under the hood.
+        Key rotation is applied once at the start of the stream; streaming calls
+        cannot rotate mid-stream.
+
+        Args:
+            prompt: The prompt to send to Gemini.
+            model: Model name (defaults to GEMINI_DEFAULT_MODEL).
+            system_instruction: Optional system instruction.
+            temperature: Generation temperature (0.0 to 2.0).
+            max_output_tokens: Maximum tokens to generate.
+            response_mime_type: Optional MIME type for structured output
+                (e.g. "application/json").
+            **kwargs: Extra arguments forwarded to GenerateContentConfig.
+
+        Yields:
+            str: Incremental text chunks from the model.
+        """
+        model = model or os.getenv("GEMINI_DEFAULT_MODEL", "gemini-3-flash-preview")
+        last_error: Optional[Exception] = None
+
+        for attempt in range(self.max_retries):
+            try:
+                api_key = await self.key_manager.get_active_key()
+                self._configure_api_key(api_key)
+
+                config_kwargs: Dict[str, Any] = {}
+                if temperature is not None:
+                    config_kwargs["temperature"] = temperature
+                if max_output_tokens is not None:
+                    config_kwargs["max_output_tokens"] = max_output_tokens
+                if system_instruction:
+                    config_kwargs["system_instruction"] = system_instruction
+                if response_mime_type:
+                    config_kwargs["response_mime_type"] = response_mime_type
+
+                config = (
+                    types.GenerateContentConfig(**config_kwargs)
+                    if config_kwargs
+                    else None
+                )
+
+                # The SDK's generate_content_stream is synchronous and returns an
+                # iterator.  We wrap iteration in asyncio.to_thread to avoid
+                # blocking the event loop.
+                def _stream_sync():
+                    return self._client.models.generate_content_stream(
+                        model=model,
+                        contents=prompt,
+                        config=config,
+                    )
+
+                stream_iter = await asyncio.to_thread(_stream_sync)
+
+                # Iterate over tokens, yielding each text chunk.
+                while True:
+                    try:
+                        chunk = await asyncio.to_thread(next, stream_iter, None)
+                    except StopIteration:
+                        break
+                    if chunk is None:
+                        break
+                    text_part = chunk.text
+                    if text_part:
+                        yield text_part
+
+                await self.key_manager.mark_key_request_success(api_key)
+                return  # stream completed successfully
+
+            except Exception as error:
+                last_error = error
+                is_quota_error = self._is_quota_error(error)
+                api_key = self.current_api_key or (
+                    await self.key_manager.get_active_key()
+                )
+
+                await self.key_manager.mark_key_request_error(
+                    api_key=api_key,
+                    error=str(error),
+                    is_quota_error=is_quota_error,
+                )
+                if is_quota_error:
+                    await self.key_manager.mark_key_quota_exceeded(api_key)
+
+                if attempt < self.max_retries - 1:
+                    wait_time = 2**attempt
+                    logger.warning(
+                        "Streaming retry after %ss: %s: %s",
+                        wait_time,
+                        type(error).__name__,
+                        error,
+                    )
+                    await asyncio.sleep(wait_time)
+                    continue
+
+        raise GeminiAPICallError(
+            message=f"Failed to stream content after {self.max_retries} retries",
             original_error=last_error,
             is_quota_error=self._is_quota_error(last_error) if last_error else False,
         )

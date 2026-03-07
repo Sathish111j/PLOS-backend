@@ -1202,7 +1202,7 @@ CREATE TABLE journal_extractions (
     overall_quality extraction_quality NOT NULL,
     has_gaps BOOLEAN DEFAULT false,
     extraction_time_ms INTEGER,
-    gemini_model TEXT DEFAULT 'gemini-2.5-flash',
+    gemini_model TEXT DEFAULT 'gemini-3-flash-preview',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(user_id, entry_date)

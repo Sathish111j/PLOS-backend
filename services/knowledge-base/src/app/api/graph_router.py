@@ -45,7 +45,7 @@ logger = get_logger(__name__)
 graph_router = APIRouter(prefix="/graph", tags=["graph"])
 
 
-def _user_id(user: TokenData | None) -> str:
+def _owner_id(user: TokenData | None) -> str:
     if user:
         return str(user.user_id)
     return "anonymous"
@@ -67,7 +67,7 @@ async def search_entities(
     current_user: TokenData | None = Depends(get_current_user_optional),
 ) -> EntitySearchResponse:
     """Search entities by name or alias."""
-    uid = _user_id(current_user)
+    uid = _owner_id(current_user)
     results = graph_query_service.entity_search(q, uid, limit=limit)
     summaries = [
         EntitySummary(
@@ -89,7 +89,7 @@ async def get_entity(
     current_user: TokenData | None = Depends(get_current_user_optional),
 ) -> EntityDetailResponse:
     """Get an entity with all documents that mention it."""
-    uid = _user_id(current_user)
+    uid = _owner_id(current_user)
     data = graph_query_service.entity_detail(entity_id, uid, limit=limit)
     if not data:
         _not_found(f"Entity {entity_id} not found")
@@ -109,7 +109,7 @@ async def document_entities(
     current_user: TokenData | None = Depends(get_current_user_optional),
 ) -> DocumentEntitiesResponse:
     """Return all entities mentioned in a document."""
-    uid = _user_id(current_user)
+    uid = _owner_id(current_user)
     entities = graph_query_service.document_entities(doc_id, uid)
     return DocumentEntitiesResponse(document_id=doc_id, entities=entities)
 
@@ -120,7 +120,7 @@ async def delete_document_from_graph(
     current_user: TokenData | None = Depends(get_current_user_optional),
 ) -> GraphDeleteResponse:
     """Remove a document and its relationships from the graph."""
-    uid = _user_id(current_user)
+    uid = _owner_id(current_user)
     result = graph_update_service.delete_document(doc_id, uid)
     return GraphDeleteResponse(**result)
 
@@ -138,7 +138,7 @@ async def move_document_bucket(
     current_user: TokenData | None = Depends(get_current_user_optional),
 ) -> GraphMoveResponse:
     """Propagate a document bucket move to the graph."""
-    uid = _user_id(current_user)
+    uid = _owner_id(current_user)
     result = graph_update_service.move_document_bucket(
         document_id=doc_id,
         new_bucket_id=body.new_bucket_id,
@@ -161,7 +161,7 @@ async def related_entities(
     current_user: TokenData | None = Depends(get_current_user_optional),
 ) -> RelatedEntitiesResponse:
     """Return entities directly connected to the given entity."""
-    uid = _user_id(current_user)
+    uid = _owner_id(current_user)
     related = graph_query_service.related_entities(entity_id, uid, limit=limit)
     return RelatedEntitiesResponse(entity_id=entity_id, related=related)
 
@@ -174,7 +174,7 @@ async def shortest_path(
     current_user: TokenData | None = Depends(get_current_user_optional),
 ) -> ShortestPathResponse:
     """Find the shortest path between two entities."""
-    uid = _user_id(current_user)
+    uid = _owner_id(current_user)
     result = graph_query_service.shortest_path(from_entity, to_entity, uid, max_hops)
     return ShortestPathResponse(**result)
 
@@ -188,7 +188,7 @@ async def co_occurring_entities(
     current_user: TokenData | None = Depends(get_current_user_optional),
 ) -> CoOccurringResponse:
     """Return entities that co-occur with the given entity."""
-    uid = _user_id(current_user)
+    uid = _owner_id(current_user)
     co = graph_query_service.co_occurring_entities(
         entity, uid, bucket_id=bucket, min_shared_docs=min_docs, limit=limit
     )
@@ -202,7 +202,7 @@ async def centrality_ranked(
     current_user: TokenData | None = Depends(get_current_user_optional),
 ) -> CentralityResponse:
     """Return top-N most central entities, optionally filtered by bucket."""
-    uid = _user_id(current_user)
+    uid = _owner_id(current_user)
     entities = graph_query_service.centrality_ranked(uid, bucket_id=bucket, limit=limit)
     return CentralityResponse(entities=entities)
 
@@ -213,7 +213,7 @@ async def entity_timeline(
     current_user: TokenData | None = Depends(get_current_user_optional),
 ) -> TimelineResponse:
     """Return monthly mention frequency for an entity."""
-    uid = _user_id(current_user)
+    uid = _owner_id(current_user)
     timeline = graph_query_service.entity_timeline(entity, uid)
     return TimelineResponse(entity_id=entity, timeline=timeline)
 
@@ -228,6 +228,6 @@ async def graph_stats(
     current_user: TokenData | None = Depends(get_current_user_optional),
 ) -> GraphStatsResponse:
     """Return node and relationship counts across the graph."""
-    uid = _user_id(current_user)
+    uid = _owner_id(current_user)
     stats = graph_query_service.graph_stats(uid)
     return GraphStatsResponse(**stats)

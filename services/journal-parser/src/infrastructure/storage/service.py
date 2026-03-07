@@ -7,6 +7,7 @@ Matches the journal_schema.sql generalized schema.
 import os
 from datetime import date, datetime
 from datetime import time as time_type
+from datetime import timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -107,7 +108,7 @@ class StorageService:
         raw_entry: str,
         extraction: ExtractionResult,
         extraction_time_ms: int = 0,
-        gemini_model: str = "gemini-2.5-flash",
+        gemini_model: str = "gemini-3-flash-preview",
     ) -> UUID:
         """
         Store complete extraction in normalized tables.
@@ -305,6 +306,14 @@ class StorageService:
             VALUES
                 (gen_random_uuid(), :user_id, :entry_date, :raw_entry, CAST(:quality AS extraction_quality),
                  :has_gaps, :time_ms, :model)
+            ON CONFLICT (user_id, entry_date)
+            DO UPDATE SET
+                raw_entry = EXCLUDED.raw_entry,
+                overall_quality = EXCLUDED.overall_quality,
+                has_gaps = EXCLUDED.has_gaps,
+                extraction_time_ms = EXCLUDED.extraction_time_ms,
+                gemini_model = EXCLUDED.gemini_model,
+                updated_at = NOW()
             RETURNING id
         """)
 
@@ -1220,11 +1229,13 @@ class StorageService:
                 "current_mood_score": _metric_value("mood_score"),
                 "current_energy_level": _metric_value("energy_level"),
                 "current_stress_level": _metric_value("stress_level"),
+                # NOTE: These are today's single-entry values; the context-broker
+                # is responsible for computing a rolling 7-day average if needed.
                 "sleep_quality_avg_7d": sleep.get("quality"),
                 "productivity_score_avg_7d": _metric_value("productivity_score"),
                 "context_data": context_data,
             },
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(tz=timezone.utc),
         )
 
         try:

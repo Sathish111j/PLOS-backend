@@ -221,10 +221,13 @@ class EntityDisambiguator:
         return best_sim, best_entity
 
     async def _embed_text(self, text: str) -> list[float]:
-        """Embed a short text using Gemini text-embedding-004."""
+        """Embed a short text using the configured embedding model."""
         gemini = self._get_gemini()
         try:
-            result = await gemini.embed_text(text, model="text-embedding-004")
+            from app.core.config import get_kb_config
+
+            _model = get_kb_config().embedding_model
+            result = await gemini.embed_text(text, model=_model)
             if isinstance(result, list):
                 return result
         except Exception as exc:
@@ -253,7 +256,7 @@ class EntityDisambiguator:
             gemini = self._get_gemini()
             raw = await gemini.generate_content(
                 prompt=prompt,
-                model="gemini-2.0-flash",
+                model="gemini-3-flash-preview",
                 temperature=0.0,
                 max_output_tokens=10,
             )

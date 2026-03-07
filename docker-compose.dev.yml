@@ -9,8 +9,6 @@
 # - Simplified builds without optimization
 # ============================================================================
 
-version: '3.9'
-
 services:
   context-broker:
     build:

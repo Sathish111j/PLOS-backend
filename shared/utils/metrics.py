@@ -246,7 +246,7 @@ def track_db_query(operation: str):
 
 
 @contextmanager
-def track_gemini_call(model: str = "gemini-2.5-flash"):
+def track_gemini_call(model: str = "gemini-3-flash-preview"):
     """Context manager to track Gemini API calls"""
     start_time = time.time()
     status = "success"

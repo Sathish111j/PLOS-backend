@@ -8,7 +8,8 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 from shared.models.context import ContextUpdate, UserContext
@@ -36,14 +37,19 @@ class StateManager:
         self._last_health_check = None
 
     async def connect(self) -> None:
-        """Initialize database connection"""
+        """Initialize async database connection"""
         try:
-            self.engine = create_engine(
-                settings.postgres_url, pool_size=10, max_overflow=20, pool_pre_ping=True
+            self.engine = create_async_engine(
+                settings.postgres_async_url,
+                pool_size=10,
+                max_overflow=20,
+                pool_pre_ping=True,
             )
-            self.Session = sessionmaker(bind=self.engine)
+            self.Session = sessionmaker(
+                bind=self.engine, class_=AsyncSession, expire_on_commit=False
+            )
             self._connected = True
-            logger.info("Connected to PostgreSQL")
+            logger.info("Connected to PostgreSQL (async)")
         except Exception as e:
             logger.error(f"Failed to connect to PostgreSQL: {e}")
             self._connected = False
@@ -52,7 +58,7 @@ class StateManager:
     async def close(self) -> None:
         """Close database connection"""
         if self.engine:
-            self.engine.dispose()
+            await self.engine.dispose()
             self._connected = False
             logger.info("Database connection closed")
 
@@ -67,10 +73,10 @@ class StateManager:
             if not self.Session:
                 return False
 
-            with self.Session() as session:
-                session.execute(text("SELECT 1"))
+            async with self.Session() as session:
+                await session.execute(text("SELECT 1"))
 
-            self._last_health_check = datetime.utcnow()
+            self._last_health_check = datetime.now(datetime.timezone.utc)
             return True
 
         except Exception as e:
@@ -88,7 +94,7 @@ class StateManager:
             UserContext or None
         """
         try:
-            with self.Session() as session:
+            async with self.Session() as session:
                 # Fetch from user_context_state table
                 query = text("""
                     SELECT
@@ -107,11 +113,14 @@ class StateManager:
                     WHERE user_id = :user_id
                 """)
 
-                result = session.execute(query, {"user_id": str(user_id)}).fetchone()
+                row = await session.execute(query, {"user_id": str(user_id)})
+                result = row.fetchone()
 
                 if not result:
                     # User exists but no context yet - return empty context
-                    return UserContext(user_id=user_id, updated_at=datetime.utcnow())
+                    return UserContext(
+                        user_id=user_id, updated_at=datetime.now(datetime.timezone.utc)
+                    )
 
                 raw_user_id = result[0]
                 user_id = (
@@ -147,7 +156,7 @@ class StateManager:
             update: Context update event
         """
         try:
-            with self.Session() as session:
+            async with self.Session() as session:
                 data = update.data or {}
                 context_data = data.get("context_data")
                 context_data_json = (
@@ -198,7 +207,7 @@ class StateManager:
                         END
                 """)
 
-                session.execute(
+                await session.execute(
                     query,
                     {
                         "user_id": str(update.user_id),
@@ -216,7 +225,7 @@ class StateManager:
                         "context_data": context_data_json,
                     },
                 )
-                session.commit()
+                await session.commit()
 
                 logger.debug(f"State updated for user {update.user_id}")
 

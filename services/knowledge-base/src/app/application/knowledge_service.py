@@ -29,6 +29,10 @@ from app.application.search_utils import (
 )
 from app.infrastructure.persistence import KnowledgePersistence
 
+from shared.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 class KnowledgeService:
     def __init__(self, persistence: KnowledgePersistence):
@@ -68,6 +72,19 @@ class KnowledgeService:
         content_bucket_id: str | None = None,
         bucket_hint: str | None = None,
     ) -> Dict[str, Any]:
+        logger.info(
+            "[UPLOAD] Starting document upload",
+            extra={
+                "owner_id": owner_id,
+                "doc_filename": filename,
+                "mime_type": mime_type,
+                "has_content": bool(content_base64),
+                "has_url": bool(source_url),
+                "bucket_id": content_bucket_id,
+                "bucket_hint": bucket_hint,
+            },
+        )
+        upload_start = time.time()
         content_bytes = base64.b64decode(content_base64) if content_base64 else None
 
         preview_text = ""
@@ -83,6 +100,10 @@ class KnowledgeService:
             explicit_bucket_id=content_bucket_id,
             bucket_hint=bucket_hint,
         )
+        logger.info(
+            "[UPLOAD] Bucket routing completed",
+            extra={"routing_decision": routing_decision, "owner_id": owner_id},
+        )
 
         structured = await self._processor.process(
             filename=filename,
@@ -91,6 +112,15 @@ class KnowledgeService:
             source_url=source_url,
         )
 
+        logger.info(
+            "[UPLOAD] Document processed",
+            extra={
+                "format": structured.format.value,
+                "strategy": structured.strategy_used.value,
+                "text_len": len(structured.text),
+                "metadata": structured.metadata,
+            },
+        )
         dedup_computation = build_dedup_computation(structured.text)
         chunks = self._chunker.chunk_document(
             source_document_id="pending",
@@ -98,6 +128,10 @@ class KnowledgeService:
             structured=structured,
         )
 
+        logger.info(
+            "[UPLOAD] Chunking completed",
+            extra={"total_chunks": len(chunks), "doc_filename": filename},
+        )
         dedup_stage_counts = {"exact": 0, "near": 0, "semantic": 0}
         retained_chunk_pairs: list[tuple[DocumentChunk, Any]] = []
         forced_chunk_retention = False
@@ -121,11 +155,22 @@ class KnowledgeService:
 
             retained_chunk_pairs.append((chunk, chunk_dedup))
 
+        logger.info(
+            "[UPLOAD] Chunk deduplication completed",
+            extra={
+                "dedup_stage_counts": dedup_stage_counts,
+                "retained": len(retained_chunk_pairs),
+                "total": len(chunks),
+            },
+        )
         if not retained_chunk_pairs and chunks:
             fallback_chunk = chunks[0]
             fallback_dedup = build_dedup_computation(fallback_chunk.text)
             retained_chunk_pairs.append((fallback_chunk, fallback_dedup))
             forced_chunk_retention = True
+            logger.warning(
+                "[UPLOAD] All chunks were duplicates - force-retained first chunk"
+            )
 
         filtered_chunks: list[DocumentChunk] = []
         chunk_signature_payloads: list[dict[str, Any]] = []
@@ -180,6 +225,13 @@ class KnowledgeService:
             for checkpoint in integrity_checkpoints
         ]
 
+        logger.info(
+            "[UPLOAD] Persisting document",
+            extra={
+                "filtered_chunks": len(filtered_chunks),
+                "bucket_id": routing_decision.get("selected_bucket_id"),
+            },
+        )
         persisted = await self._persistence.persist_processed_document(
             owner_id=owner_id,
             filename=filename,
@@ -199,9 +251,20 @@ class KnowledgeService:
             integrity_checkpoints=integrity_checkpoints,
         )
 
+        logger.info(
+            "[UPLOAD] Document persisted to DB",
+            extra={
+                "document_id": persisted["document_id"],
+                "created_at": str(persisted.get("created_at")),
+            },
+        )
         await self._persistence.register_chunk_signatures(
             document_id=UUID(persisted["document_id"]),
             signatures=chunk_signature_payloads,
+        )
+        logger.info(
+            "[UPLOAD] Chunk signatures registered",
+            extra={"count": len(chunk_signature_payloads)},
         )
 
         await self._persistence.index_document_vectors(
@@ -215,7 +278,16 @@ class KnowledgeService:
             created_at=persisted["created_at"],
         )
 
+        logger.info(
+            "[UPLOAD] Vectors indexed in Qdrant",
+            extra={"document_id": persisted["document_id"]},
+        )
+
         entities = extract_entities(structured.text)
+        logger.info(
+            "[UPLOAD] Entity extraction completed",
+            extra={"entity_count": len(entities)},
+        )
         await self._persistence.store_document_entities(
             document_id=persisted["document_id"],
             entities=entities,
@@ -242,6 +314,16 @@ class KnowledgeService:
             "bucket_routing": routing_decision,
         }
         self._documents[persisted["document_id"]] = document
+        elapsed = time.time() - upload_start
+        logger.info(
+            "[UPLOAD] Document upload completed successfully",
+            extra={
+                "document_id": persisted["document_id"],
+                "elapsed_seconds": round(elapsed, 3),
+                "chunk_count": len(filtered_chunks),
+                "owner_id": owner_id,
+            },
+        )
         return document
 
     async def list_documents(self, owner_id: str) -> List[Dict[str, Any]]:
@@ -372,6 +454,15 @@ class KnowledgeService:
         }
 
     async def search(self, owner_id: str, request: SearchRequest) -> Dict[str, Any]:
+        logger.info(
+            "[SEARCH] Starting search",
+            extra={
+                "owner_id": owner_id,
+                "query": request.query,
+                "top_k": request.top_k,
+                "bucket_id": request.bucket_id,
+            },
+        )
         if owner_id == "anonymous":
             return {
                 "query": request.query,
@@ -415,6 +506,7 @@ class KnowledgeService:
 
         l1_cached = self._get_l1_cache(cache_key)
         if l1_cached:
+            logger.debug("[SEARCH] L1 cache hit", extra={"cache_key": cache_key})
             diagnostics = dict(l1_cached.get("diagnostics") or {})
             diagnostics["cache"] = "l1_hit"
             l1_cached["diagnostics"] = diagnostics
@@ -422,6 +514,7 @@ class KnowledgeService:
 
         cached = await self._persistence.get_cached_json(cache_key)
         if cached:
+            logger.debug("[SEARCH] L2 cache hit", extra={"cache_key": cache_key})
             diagnostics = dict(cached.get("diagnostics") or {})
             diagnostics["cache"] = "l2_hit"
             cached["diagnostics"] = diagnostics
@@ -453,6 +546,15 @@ class KnowledgeService:
                 top_k=max(20, request.top_k),
                 filters=filters,
             ),
+        )
+
+        logger.info(
+            "[SEARCH] Search tiers completed",
+            extra={
+                "semantic_count": len(semantic_results),
+                "keyword_count": len(keyword_results),
+                "typo_count": len(typo_results),
+            },
         )
 
         fused = reciprocal_rank_fusion(
@@ -593,6 +695,15 @@ class KnowledgeService:
             },
         }
 
+        logger.info(
+            "[SEARCH] Search completed",
+            extra={
+                "result_count": len(final_results),
+                "latency_ms": elapsed_ms,
+                "weights": weights,
+                "expanded_queries": len(expanded_queries),
+            },
+        )
         ttl_seconds = 3600 if len(final_results) >= 5 else 300
         await self._persistence.set_cached_json(cache_key, response, ttl_seconds)
         self._set_l1_cache(cache_key, dict(response))

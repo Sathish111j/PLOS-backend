@@ -11,8 +11,14 @@ from app.api.schemas import (
     BucketRoutingCandidate,
     BucketRoutingDecision,
     BucketTreeResponse,
+    ChatMessageItem,
     ChatRequest,
     ChatResponse,
+    ChatSessionDeleteResponse,
+    ChatSessionDetail,
+    ChatSessionItem,
+    ChatSessionListResponse,
+    CitationSource,
     DocumentItem,
     EmbeddingDlqActionResponse,
     EmbeddingDlqPurgeRequest,
@@ -25,10 +31,15 @@ from app.api.schemas import (
 )
 from app.core.config import get_kb_config
 from app.core.metrics import REQUEST_COUNT, REQUEST_LATENCY
-from app.dependencies.container import infra_health_client, knowledge_service
-from fastapi import APIRouter, Depends, HTTPException
+from app.dependencies.container import (
+    infra_health_client,
+    knowledge_service,
+    rag_engine,
+)
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from starlette.responses import StreamingResponse
 
 from shared.auth.dependencies import get_current_user, get_current_user_optional
 from shared.auth.models import TokenData
@@ -279,10 +290,124 @@ async def search(
 async def chat(
     request: ChatRequest,
     current_user: TokenData | None = Depends(get_current_user_optional),
-) -> ChatResponse:
+) -> ChatResponse | StreamingResponse:
     owner_id = _owner_id(current_user)
-    result = await knowledge_service.chat(owner_id, request.message)
-    return ChatResponse(**result)
+
+    if rag_engine is None:
+        # Graceful fallback when RAG engine is not wired (e.g. missing Gemini keys)
+        result = await knowledge_service.chat(owner_id, request.message)
+        return ChatResponse(**result, input=request.message)
+
+    # --- Streaming path ---
+    if request.stream:
+        return StreamingResponse(
+            rag_engine.answer_stream(
+                owner_id=owner_id,
+                message=request.message,
+                session_id=request.session_id,
+                bucket_id=request.bucket_id,
+            ),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    # --- Non-streaming path ---
+    try:
+        result = await rag_engine.answer(
+            owner_id=owner_id,
+            message=request.message,
+            session_id=request.session_id,
+            bucket_id=request.bucket_id,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"RAG generation failed: {exc}",
+        ) from exc
+    return ChatResponse(
+        owner_id=owner_id,
+        answer=result["answer"],
+        sources=[CitationSource(**s) for s in result.get("sources", [])],
+        input=request.message,
+        session_id=result.get("session_id"),
+        model=result.get("model"),
+        token_count=result.get("token_count"),
+        latency_ms=result.get("latency_ms"),
+        confidence=result.get("confidence"),
+    )
+
+
+# ------------------------------------------------------------------
+# Chat session management endpoints
+# ------------------------------------------------------------------
+
+
+@router.get(
+    "/chat/sessions",
+    response_model=ChatSessionListResponse,
+    tags=["chat"],
+)
+async def list_chat_sessions(
+    current_user: TokenData = Depends(get_current_user),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    include_archived: bool = Query(default=False),
+) -> ChatSessionListResponse:
+    owner_id = str(current_user.user_id)
+    if rag_engine is None:
+        raise HTTPException(status_code=503, detail="RAG engine not available")
+    rows = await rag_engine.list_sessions(
+        owner_id,
+        limit=limit,
+        offset=offset,
+        include_archived=include_archived,
+    )
+    return ChatSessionListResponse(sessions=[ChatSessionItem(**row) for row in rows])
+
+
+@router.get(
+    "/chat/sessions/{session_id}",
+    response_model=ChatSessionDetail,
+    tags=["chat"],
+)
+async def get_chat_session(
+    session_id: str,
+    current_user: TokenData = Depends(get_current_user),
+    limit: int = Query(default=100, ge=1, le=500),
+) -> ChatSessionDetail:
+    owner_id = str(current_user.user_id)
+    if rag_engine is None:
+        raise HTTPException(status_code=503, detail="RAG engine not available")
+    detail = await rag_engine.get_session_detail(
+        owner_id, session_id, message_limit=limit
+    )
+    if not detail:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return ChatSessionDetail(
+        session=ChatSessionItem(**detail["session"]),
+        messages=[ChatMessageItem(**m) for m in detail["messages"]],
+    )
+
+
+@router.delete(
+    "/chat/sessions/{session_id}",
+    response_model=ChatSessionDeleteResponse,
+    tags=["chat"],
+)
+async def delete_chat_session(
+    session_id: str,
+    current_user: TokenData = Depends(get_current_user),
+) -> ChatSessionDeleteResponse:
+    owner_id = str(current_user.user_id)
+    if rag_engine is None:
+        raise HTTPException(status_code=503, detail="RAG engine not available")
+    deleted = await rag_engine.delete_session(session_id, owner_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return ChatSessionDeleteResponse(status="deleted", session_id=session_id)
 
 
 @router.get(

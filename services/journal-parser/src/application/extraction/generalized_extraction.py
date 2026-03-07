@@ -744,7 +744,7 @@ class GeminiExtractor:
     def __init__(
         self,
         gemini_client: Optional[ResilientGeminiClient] = None,
-        model: str = "gemini-2.5-flash",
+        model: str = "gemini-3-flash-preview",
     ):
         """
         Initialize the extractor.
@@ -1503,7 +1503,7 @@ class GapResolver:
         try:
             response = await self.gemini_client.generate_content(
                 prompt=prompt,
-                model="gemini-2.5-flash",
+                model="gemini-3-flash-preview",
             )
 
             parsed = self._parse_response(response)

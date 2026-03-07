@@ -201,7 +201,7 @@ class GeminiNERPipeline:
         client = self._get_client()
         response = await client.generate_content(
             prompt=prompt,
-            model="gemini-2.0-flash",
+            model="gemini-3-flash-preview",
             temperature=0.0,
             max_output_tokens=4096,
             response_mime_type="application/json",

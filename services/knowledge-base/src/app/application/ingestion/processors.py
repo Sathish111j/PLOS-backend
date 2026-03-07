@@ -181,9 +181,9 @@ class PdfProcessor:
         self, payload: ProcessorInput
     ) -> tuple[str, dict[str, Any]]:
         try:
-            from google import genai
             from google.genai import types
 
+            from shared.gemini.client import ResilientGeminiClient
             from shared.gemini.config import get_gemini_config
         except Exception:
             return "", {"gemini_vision_available": False}
@@ -192,19 +192,9 @@ class PdfProcessor:
             return "", {"gemini_vision_available": False, "reason": "empty_content"}
 
         try:
-            import os
-
-            api_key = (os.getenv("GEMINI_API_KEY") or "").strip()
-            if not api_key:
-                return "", {
-                    "gemini_vision_available": False,
-                    "reason": "missing_api_key",
-                }
-
-            client = genai.Client(api_key=api_key)
+            client = ResilientGeminiClient()
             config = get_gemini_config()
-            response = client.models.generate_content(
-                model=config.vision_model,
+            text_raw = client.generate_content_sync(
                 contents=[
                     types.Part.from_text(
                         "Extract all readable text from this document image. Return plain text only."
@@ -214,8 +204,9 @@ class PdfProcessor:
                         mime_type=payload.mime_type or "image/png",
                     ),
                 ],
+                model=config.vision_model,
             )
-            text = normalize_text(response.text or "")
+            text = normalize_text(text_raw or "")
             return text, {
                 "gemini_vision_available": True,
                 "gemini_vision_model": config.vision_model,

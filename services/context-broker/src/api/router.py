@@ -3,12 +3,14 @@
 import time
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from src.core.metrics import metrics
 from src.dependencies.container import cache_manager, context_engine
 
+from shared.auth.dependencies import get_current_user
+from shared.auth.models import TokenData
 from shared.models.context import ContextUpdate, UserContext
 from shared.utils.errors import ErrorResponse, NotFoundError, SuccessResponse
 from shared.utils.logger import get_logger
@@ -95,7 +97,9 @@ async def metrics_endpoint():
         404: {"model": ErrorResponse},
     },
 )
-async def get_user_context(user_id: UUID):
+async def get_user_context(
+    user_id: UUID, current_user: TokenData = Depends(get_current_user)
+):
     """
     Get complete user context
 
@@ -103,8 +107,17 @@ async def get_user_context(user_id: UUID):
     """
     try:
         start_time = time.time()
+        logger.info("[CONTEXT] GET context request", extra={"user_id": str(user_id)})
         context = await context_engine.get_context(user_id)
         duration_ms = (time.time() - start_time) * 1000
+        logger.info(
+            "[CONTEXT] Context retrieved",
+            extra={
+                "user_id": str(user_id),
+                "duration_ms": round(duration_ms, 2),
+                "has_context": context is not None,
+            },
+        )
 
         if not context:
             raise NotFoundError(f"User context not found for user_id: {user_id}")
@@ -152,14 +165,24 @@ async def get_user_context(user_id: UUID):
         }
     },
 )
-async def update_context(update: ContextUpdate):
+async def update_context(
+    update: ContextUpdate, current_user: TokenData = Depends(get_current_user)
+):
     """
     Update user context
 
     Processes context updates from various services
     """
     try:
+        logger.info(
+            "[CONTEXT] UPDATE request",
+            extra={"user_id": str(update.user_id), "update_type": update.update_type},
+        )
         await context_engine.update_context(update)
+        logger.info(
+            "[CONTEXT] Context updated successfully",
+            extra={"user_id": str(update.user_id), "update_type": update.update_type},
+        )
         metrics.log_event(
             "context_updated",
             {"update_type": update.update_type},
@@ -172,7 +195,7 @@ async def update_context(update: ContextUpdate):
         )
     except Exception as e:
         logger.error(f"Error updating context: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get(
@@ -181,14 +204,16 @@ async def update_context(update: ContextUpdate):
     summary="Get lightweight context summary",
     description="Returns a lightweight summary of user context (faster than full context)",
 )
-async def get_context_summary(user_id: UUID):
+async def get_context_summary(
+    user_id: UUID, current_user: TokenData = Depends(get_current_user)
+):
     """Get lightweight context summary"""
     try:
         summary = await context_engine.get_summary(user_id)
         return summary
     except Exception as e:
-        logger.error(f"Error fetching summary for {user_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error fetching summary for {user_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post(
@@ -198,7 +223,9 @@ async def get_context_summary(user_id: UUID):
     summary="Invalidate user cache",
     description="Forces cache refresh for user (next request will fetch fresh data from database)",
 )
-async def invalidate_cache(user_id: UUID):
+async def invalidate_cache(
+    user_id: UUID, current_user: TokenData = Depends(get_current_user)
+):
     """Invalidate cache for user (force refresh)"""
     try:
         await cache_manager.invalidate(user_id)
@@ -206,8 +233,8 @@ async def invalidate_cache(user_id: UUID):
             message="Cache invalidated successfully", data={"user_id": str(user_id)}
         )
     except Exception as e:
-        logger.error(f"Error invalidating cache for {user_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error invalidating cache for {user_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get(
@@ -216,11 +243,11 @@ async def invalidate_cache(user_id: UUID):
     summary="Get service statistics",
     description="Returns comprehensive service statistics and performance metrics",
 )
-async def get_stats():
+async def get_stats(current_user: TokenData = Depends(get_current_user)):
     """Get service statistics"""
     try:
         stats = await context_engine.get_stats()
         return stats
     except Exception as e:
-        logger.error(f"Error fetching stats: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error fetching stats: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")

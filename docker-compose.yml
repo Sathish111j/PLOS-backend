@@ -1,5 +1,3 @@
-version: "3.9"
-
 # ============================================================================
 # PLOS - Personal Life Management System
 # Backend Services - Production Ready (Clean Version)
@@ -176,7 +174,7 @@ services:
         max-size: "10m"
         max-file: "3"
     healthcheck:
-      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-plos_redis_secure_2025}", "--no-auth-warning", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -399,7 +397,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
-      GEMINI_DEFAULT_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-2.5-flash}
+      GEMINI_DEFAULT_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-3-flash-preview}
     ports:
       - "${CONTEXT_BROKER_PORT:-8001}:8001"
     volumes:
@@ -450,7 +448,7 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
-      GEMINI_DEFAULT_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-2.5-flash}
+      GEMINI_DEFAULT_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-3-flash-preview}
       GEMINI_API_KEY_ROTATION_ENABLED: ${GEMINI_API_KEY_ROTATION_ENABLED:-true}
       GEMINI_API_KEY_ROTATION_MAX_RETRIES: ${GEMINI_API_KEY_ROTATION_MAX_RETRIES:-3}
       GEMINI_API_KEY_ROTATION_BACKOFF_SECONDS: ${GEMINI_API_KEY_ROTATION_BACKOFF_SECONDS:-60}
@@ -527,8 +525,8 @@ services:
       MEILISEARCH_INDEX: ${MEILISEARCH_INDEX:-kb_chunks}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
-      GEMINI_DEFAULT_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-2.5-flash}
-      GEMINI_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-2.5-flash}
+      GEMINI_DEFAULT_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-3-flash-preview}
+      GEMINI_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-3-flash-preview}
       GEMINI_EMBEDDING_MODEL: ${GEMINI_EMBEDDING_MODEL:-gemini-embedding-001}
       GEMINI_API_KEY_ROTATION_ENABLED: ${GEMINI_API_KEY_ROTATION_ENABLED:-true}
       GEMINI_API_KEY_ROTATION_MAX_RETRIES: ${GEMINI_API_KEY_ROTATION_MAX_RETRIES:-3}

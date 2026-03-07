@@ -5,14 +5,10 @@ Industry-standard configuration using Pydantic Settings v2
 """
 
 from functools import lru_cache
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings
-
-# Lazy imports to avoid circular dependencies and unnecessary deps
-if TYPE_CHECKING:
-    pass
 
 
 class UnifiedSettings(BaseSettings):
@@ -98,14 +94,16 @@ class UnifiedSettings(BaseSettings):
         default=None, description="Multiple API keys (pipe-separated)"
     )
     gemini_default_model: str = Field(
-        default="gemini-2.5-flash", description="Default model"
+        default="gemini-3-flash-preview", description="Default model"
     )
-    gemini_pro_model: str = Field(default="gemini-2.5-pro", description="Pro model")
+    gemini_pro_model: str = Field(
+        default="gemini-3.1-pro-preview", description="Pro model"
+    )
     gemini_vision_model: str = Field(
-        default="gemini-2.5-flash", description="Vision model"
+        default="gemini-3-flash-preview", description="Vision model"
     )
     gemini_embedding_model: str = Field(
-        default="gemini-embedding-001", description="Embedding model"
+        default="text-embedding-004", description="Embedding model"
     )
 
     # Gemini API Key Rotation
@@ -150,31 +148,8 @@ class UnifiedSettings(BaseSettings):
     context_broker_port: int = Field(default=8001, description="Context broker port")
 
     # =========================================================================
-    # EXTERNAL SERVICES
-    # =========================================================================
-    openai_api_key: Optional[str] = Field(default=None, description="OpenAI API key")
-
-    # =========================================================================
     # SPECIALIZED CONFIGURATION ACCESSORS
     # =========================================================================
-
-    @property
-    def gemini_config(self):
-        """Get specialized Gemini configuration (lazy import)"""
-        from shared.gemini.config import GeminiConfig
-
-        return GeminiConfig(
-            api_key=self.gemini_api_key,
-            api_keys=self.gemini_api_keys,
-            rotation_enabled=self.gemini_api_key_rotation_enabled,
-            rotation_max_retries=self.gemini_api_key_rotation_max_retries,
-            rotation_backoff_seconds=self.gemini_api_key_rotation_backoff_seconds,
-            default_model=self.gemini_default_model,
-            pro_model=self.gemini_pro_model,
-            vision_model=self.gemini_vision_model,
-            embedding_model=self.gemini_embedding_model,
-            use_caching=self.use_gemini_caching,
-        )
 
     @property
     def context_config(self):
@@ -197,13 +172,6 @@ class UnifiedSettings(BaseSettings):
             redis_ttl_seconds=self.redis_ttl_seconds,
             redis_key_prefix=self.redis_key_prefix,
         )
-
-    @property
-    def metrics_config(self):
-        """Get specialized metrics configuration (lazy import)"""
-        from shared.utils.context_config import MetricsConfig
-
-        return MetricsConfig()
 
 
 @lru_cache()
