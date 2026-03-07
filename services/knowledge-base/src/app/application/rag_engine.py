@@ -1,14 +1,5 @@
 """
-RAG Engine -- Advanced Retrieval-Augmented Generation pipeline.
-
-Orchestrates the full query -> retrieval -> generation -> post-processing flow:
-
-  Step A: Query understanding and rewriting
-  Step B: Multi-signal chunk retrieval (Qdrant semantic + optional graph)
-  Step C: Context assembly with token budgeting
-  Step D: Prompt construction (system + context + conversation history)
-  Step E: Generation (streaming or non-streaming)
-  Step F: Post-processing (citation extraction, session persistence)
+RAG Engine for query-to-response pipeline with retrieval, generation, and post-processing.
 """
 
 from __future__ import annotations

@@ -13,9 +13,7 @@ from shared.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-# ============================================================================
-# SPELL CORRECTION
-# ============================================================================
+# --- SPELL CORRECTION ---
 
 # Common misspellings in journal entries
 SPELL_CORRECTIONS = {
@@ -46,9 +44,7 @@ def correct_spelling(text: str) -> str:
     return corrected
 
 
-# ============================================================================
-# TIME NORMALIZATION
-# ============================================================================
+# --- TIME NORMALIZATION ---
 
 
 def normalize_times(text: str) -> Tuple[str, Dict[str, Any]]:
@@ -112,9 +108,7 @@ def normalize_times(text: str) -> Tuple[str, Dict[str, Any]]:
     return normalized_text, time_mentions
 
 
-# ============================================================================
-# EXPLICIT EXTRACTION
-# ============================================================================
+# --- EXPLICIT EXTRACTION ---
 
 
 class ExplicitExtractor:
@@ -456,9 +450,7 @@ class ExplicitExtractor:
         return extracted
 
 
-# ============================================================================
-# PREPROCESSING PIPELINE
-# ============================================================================
+# --- PREPROCESSING PIPELINE ---
 
 
 class Preprocessor:

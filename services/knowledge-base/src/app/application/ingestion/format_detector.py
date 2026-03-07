@@ -1,5 +1,6 @@
 import csv
 import json
+import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -45,6 +46,19 @@ EXTENSION_MAP: dict[str, tuple[DocumentFormat, str | None]] = {
     ".html": (DocumentFormat.WEB, "text/html"),
     ".htm": (DocumentFormat.WEB, "text/html"),
 }
+
+SOCIAL_PLATFORM_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"reddit\.com", re.I),
+    re.compile(r"(twitter\.com|x\.com)", re.I),
+    re.compile(r"linkedin\.com", re.I),
+    re.compile(r"instagram\.com/(reel|p|tv)/", re.I),
+    re.compile(r"(youtube\.com/(watch|shorts)|youtu\.be)", re.I),
+]
+
+
+def _is_social_url(url: str) -> bool:
+    """Return True if *url* matches a known social media platform."""
+    return any(pattern.search(url) for pattern in SOCIAL_PLATFORM_PATTERNS)
 
 
 def _detect_from_magic(header: bytes) -> tuple[DocumentFormat, str | None, float]:
@@ -136,7 +150,10 @@ def detect_document_format(
         confidence = max(confidence, 0.7)
 
     if detected_format == DocumentFormat.UNKNOWN and source_url:
-        if source_url.startswith("http://") or source_url.startswith("https://"):
+        if _is_social_url(source_url):
+            detected_format = DocumentFormat.SOCIAL
+            confidence = max(confidence, 0.85)
+        elif source_url.startswith("http://") or source_url.startswith("https://"):
             detected_format = DocumentFormat.WEB
             confidence = max(confidence, 0.7)
 

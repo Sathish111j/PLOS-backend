@@ -95,9 +95,7 @@ def setup_logging(
     return logger
 
 
-# ============================================================================
-# BUSINESS METRICS LOGGING
-# ============================================================================
+# --- BUSINESS METRICS LOGGING ---
 
 
 class MetricsLogger:

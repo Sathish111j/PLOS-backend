@@ -18,6 +18,7 @@ from app.application.ingestion.processors import (
     WebProcessor,
     parse_text_subtype,
 )
+from app.application.ingestion.social_processor import SocialMediaProcessor
 
 
 class UnifiedDocumentProcessor:
@@ -27,6 +28,7 @@ class UnifiedDocumentProcessor:
         self._image_processor = ImageProcessor()
         self._office_processor = OfficeProcessor()
         self._web_processor = WebProcessor()
+        self._social_processor = SocialMediaProcessor()
         self._fallback_processor = FallbackProcessor()
 
     def _select_strategy(
@@ -47,6 +49,8 @@ class UnifiedDocumentProcessor:
             return ExtractionStrategy.OFFICE_NATIVE
         if detected_format == DocumentFormat.WEB:
             return ExtractionStrategy.WEB_STATIC_DYNAMIC
+        if detected_format == DocumentFormat.SOCIAL:
+            return ExtractionStrategy.SOCIAL_MEDIA_EXTRACTION
         if detected_format == DocumentFormat.TEXT:
             return ExtractionStrategy.TEXT_DIRECT
         return ExtractionStrategy.FALLBACK_GENERIC
@@ -66,6 +70,8 @@ class UnifiedDocumentProcessor:
             if extractor.startswith("playwright"):
                 return SourceType.WEB_DYNAMIC
             return SourceType.WEB_STATIC
+        if result.format == DocumentFormat.SOCIAL:
+            return SourceType.SOCIAL_MEDIA
         if result.format == DocumentFormat.OFFICE:
             extension = str(
                 (result.metadata or {}).get("office_extension") or ""
@@ -108,6 +114,8 @@ class UnifiedDocumentProcessor:
             result = self._office_processor.process(payload)
         elif detected.format == DocumentFormat.WEB:
             result = await self._web_processor.process(payload)
+        elif detected.format == DocumentFormat.SOCIAL:
+            result = await self._social_processor.process(payload)
         elif detected.format == DocumentFormat.TEXT:
             result = self._text_processor.process(payload)
             result.metadata.update(

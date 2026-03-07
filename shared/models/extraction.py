@@ -9,9 +9,7 @@ from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field
 
-# ============================================================================
-# ENUMS
-# ============================================================================
+# --- ENUMS ---
 
 
 class ExtractionType(str, Enum):
@@ -22,9 +20,7 @@ class ExtractionType(str, Enum):
     AI_EXTRACTED = "ai_extracted"
 
 
-# ============================================================================
-# FIELD METADATA
-# ============================================================================
+# --- FIELD METADATA ---
 
 
 class FieldMetadata(BaseModel):
@@ -41,9 +37,7 @@ class FieldMetadata(BaseModel):
     health_concern: bool = False
 
 
-# ============================================================================
-# USER BASELINE
-# ============================================================================
+# --- USER BASELINE ---
 
 
 class UserBaseline(BaseModel):

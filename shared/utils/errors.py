@@ -9,9 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-# ============================================================================
-# ERROR CODES
-# ============================================================================
+# --- ERROR CODES ---
 
 
 class ErrorCode(str, Enum):
@@ -59,9 +57,7 @@ class ErrorCode(str, Enum):
     PARSING_FAILED = "PARSING_FAILED"
 
 
-# ============================================================================
-# ERROR MESSAGES
-# ============================================================================
+# --- ERROR MESSAGES ---
 
 ERROR_MESSAGES = {
     ErrorCode.INTERNAL_ERROR: "An internal server error occurred. Please try again later.",
@@ -82,9 +78,7 @@ ERROR_MESSAGES = {
 }
 
 
-# ============================================================================
-# RESPONSE MODELS
-# ============================================================================
+# --- RESPONSE MODELS ---
 
 
 class ErrorDetail(BaseModel):
@@ -115,9 +109,7 @@ class SuccessResponse(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 
-# ============================================================================
-# ERROR RESPONSE HELPERS
-# ============================================================================
+# --- ERROR RESPONSE HELPERS ---
 
 
 def normalize_error_details(details: Optional[Any]) -> Optional[List[ErrorDetail]]:
@@ -144,9 +136,7 @@ def build_error_response(exc: "PLOSException") -> ErrorResponse:
     )
 
 
-# ============================================================================
-# EXCEPTION CLASSES
-# ============================================================================
+# --- EXCEPTION CLASSES ---
 
 
 class PLOSException(Exception):
@@ -275,9 +265,7 @@ class GeminiAPIError(PLOSException):
         )
 
 
-# ============================================================================
-# RETRY STRATEGY
-# ============================================================================
+# --- RETRY STRATEGY ---
 
 
 class RetryStrategy:

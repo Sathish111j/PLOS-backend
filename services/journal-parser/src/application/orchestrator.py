@@ -592,9 +592,7 @@ class JournalParserOrchestrator:
         )
 
 
-# ============================================================================
-# CONVENIENCE FUNCTION
-# ============================================================================
+# --- CONVENIENCE FUNCTION ---
 
 
 async def process_journal(

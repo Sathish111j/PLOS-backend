@@ -23,7 +23,7 @@ import sys
 import hashlib
 import requests
 
-# -- Configuration --
+# Configuration
 KB = "http://localhost:8003"
 QDRANT = "http://localhost:6333"
 MEILI = "http://localhost:7700"
@@ -91,7 +91,7 @@ def section(title):
     print(f"\n--- {title} ---")
 
 
-# -- Helper: register + get token --
+# Helper: register + get token
 def setup_user():
     """Register a fresh test user and return (user_id, token).
 
@@ -208,7 +208,7 @@ print("=" * 64)
 print("DEEP DATA STORE VERIFICATION")
 print("=" * 64)
 
-# -- Setup --
+# Setup
 section("0. Setup")
 user_id, token = setup_user()
 headers = {"Authorization": f"Bearer {token}"}

@@ -103,9 +103,7 @@ def check_redis(pattern="*"):
     return [k for k in result.stdout.strip().split("\n") if k]
 
 
-# ------------------------------------------------------------------
 # STEP 0: Register and authenticate
-# ------------------------------------------------------------------
 section("STEP 0: Authentication")
 
 unique = uuid.uuid4().hex[:8]
@@ -126,9 +124,7 @@ print(f"  Token: {TOKEN[:40]}...")
 db_user = check_db(f"SELECT email FROM users WHERE id = '{USER_ID}';")
 check(f"deeptest_{unique}@plos.dev" in db_user, f"User in DB: {db_user}")
 
-# ------------------------------------------------------------------
 # STEP 1: Check default buckets created for new user
-# ------------------------------------------------------------------
 section("STEP 1: Default Buckets for New User")
 
 buckets = requests.get(f"{KB_URL}/buckets", headers=headers(TOKEN), timeout=TIMEOUT).json()
@@ -152,9 +148,7 @@ wp_bucket = bucket_map.get("Work and Projects", "")
 print(f"  Needs Classification: {nc_bucket}")
 print(f"  Research and Reference: {rr_bucket}")
 
-# ------------------------------------------------------------------
 # STEP 2: Upload diverse documents
-# ------------------------------------------------------------------
 section("STEP 2: Upload Diverse Documents")
 
 test_docs = [
@@ -243,9 +237,7 @@ for i, doc in enumerate(test_docs):
 
 print(f"\n  Total uploaded: {len(doc_ids)} documents")
 
-# ------------------------------------------------------------------
 # STEP 3: Verify documents in PostgreSQL
-# ------------------------------------------------------------------
 section("STEP 3: Verify Documents in PostgreSQL")
 
 for i, doc_id in enumerate(doc_ids):
@@ -276,9 +268,7 @@ total_chunks = check_db(
 )
 print(f"  Total chunks in DB: {total_chunks}")
 
-# ------------------------------------------------------------------
 # STEP 4: Verify documents in Qdrant (Vector DB)
-# ------------------------------------------------------------------
 section("STEP 4: Verify Documents in Qdrant (Vector DB)")
 
 # Check collection info
@@ -303,9 +293,7 @@ for i, doc_id in enumerate(doc_ids):
         check("bucket_id" in payload, f"Doc {i+1} has bucket_id in payload")
         check(payload.get("user_id") == USER_ID, f"Doc {i+1} owner matches user")
 
-# ------------------------------------------------------------------
 # STEP 5: Verify documents in Meilisearch
-# ------------------------------------------------------------------
 section("STEP 5: Verify Documents in Meilisearch")
 
 meili_results = check_meili("kb_chunks", "")
@@ -325,9 +313,7 @@ for term, expected_doc in [("machine learning", "ml_production_guide"),
         first_doc = hits[0].get("document_id", "unknown")
         print(f"    First hit doc_id: {first_doc[:8]}...")
 
-# ------------------------------------------------------------------
 # STEP 6: Test Hybrid Search in depth
-# ------------------------------------------------------------------
 section("STEP 6: Hybrid Search Deep Testing")
 
 search_queries = [
@@ -369,9 +355,7 @@ for sq in search_queries:
         print(f"    Top result: score={r.get('score','?')}, "
               f"doc={r.get('document_id','?')[:8]}...")
 
-# ------------------------------------------------------------------
 # STEP 7: Test Deduplication
-# ------------------------------------------------------------------
 section("STEP 7: Deduplication Testing")
 
 # Upload exact duplicate
@@ -415,9 +399,7 @@ nd_dedup = nd_data.get("metadata", {}).get("deduplication", nd_data.get("metadat
 print(f"  Near-dup dedup stats: {json.dumps(nd_dedup, indent=4)}")
 near_dup_id = nd_data["document_id"]
 
-# ------------------------------------------------------------------
 # STEP 8: Bucket System Deep Testing
-# ------------------------------------------------------------------
 section("STEP 8: Bucket System Deep Testing")
 
 # 8a: Check auto-routing - docs should be in appropriate buckets
@@ -529,9 +511,7 @@ for c in candidates[:3]:
     print(f"    Candidate: {c.get('bucket_name','?')} "
           f"(score={c.get('score','?')})")
 
-# ------------------------------------------------------------------
 # STEP 9: Bucket deletion with redistribution
-# ------------------------------------------------------------------
 section("STEP 9: Bucket Deletion with Redistribution")
 
 # First move everything out of depth-2 bucket
@@ -549,9 +529,7 @@ deleted_check = check_db(
 )
 check(deleted_check == "t", f"Depth-2 bucket is_deleted={deleted_check}")
 
-# ------------------------------------------------------------------
 # STEP 10: Chat endpoint
-# ------------------------------------------------------------------
 section("STEP 10: Chat Endpoint (RAG)")
 
 chat_resp = requests.post(f"{KB_URL}/chat", headers=headers(TOKEN), json={
@@ -565,9 +543,7 @@ if "answer" in chat_data:
 if "sources" in chat_data:
     print(f"  Sources: {len(chat_data.get('sources',[]))} referenced")
 
-# ------------------------------------------------------------------
 # STEP 11: Embedding DLQ ops
-# ------------------------------------------------------------------
 section("STEP 11: Embedding DLQ Operations")
 
 dlq_stats = requests.get(f"{KB_URL}/ops/embedding-dlq/stats",
@@ -575,9 +551,7 @@ dlq_stats = requests.get(f"{KB_URL}/ops/embedding-dlq/stats",
 check(dlq_stats.status_code == 200, f"DLQ stats: {dlq_stats.status_code}")
 print(f"  DLQ stats: {json.dumps(dlq_stats.json(), indent=4)}")
 
-# ------------------------------------------------------------------
 # STEP 12: Document listing with document details
-# ------------------------------------------------------------------
 section("STEP 12: Document Listing & Details")
 
 docs_resp = requests.get(f"{KB_URL}/documents", headers=headers(TOKEN), timeout=TIMEOUT)
@@ -595,9 +569,7 @@ for d in docs[:1]:
     for f in required_fields:
         check(f in d, f"Document has field '{f}'")
 
-# ------------------------------------------------------------------
 # STEP 13: Edge cases
-# ------------------------------------------------------------------
 section("STEP 13: Edge Cases & Error Handling")
 
 # 13a: Empty content
@@ -665,9 +637,7 @@ if hint_resp.status_code == 200:
     )
     print(f"  Bucket hint doc went to: '{hint_bucket}'")
 
-# ------------------------------------------------------------------
 # STEP 14: Cross-store consistency verification
-# ------------------------------------------------------------------
 section("STEP 14: Cross-Store Consistency Verification")
 
 # Get all doc IDs from PostgreSQL for this user
@@ -719,9 +689,7 @@ check(qdrant_pts > 0, f"Qdrant has vectors for user")
 check(int(pg_chunk_count) >= qdrant_pts,
       f"PG chunks ({pg_chunk_count}) >= Qdrant vectors ({qdrant_pts})")
 
-# ------------------------------------------------------------------
 # STEP 15: Gateway routing verification
-# ------------------------------------------------------------------
 section("STEP 15: Gateway Routing Verification")
 
 # KB search through gateway
@@ -747,9 +715,7 @@ print(f"  Buckets via gateway: {len(gw_bkts.json())}")
 gw_me = requests.get(f"{GATEWAY_URL}/auth/me", headers=headers(TOKEN), timeout=TIMEOUT)
 check(gw_me.status_code == 200, f"Gateway auth/me: {gw_me.status_code}")
 
-# ------------------------------------------------------------------
 # STEP 16: Service logs check
-# ------------------------------------------------------------------
 section("STEP 16: Service Logs Verification")
 
 import subprocess
@@ -768,9 +734,7 @@ for svc in ["plos-knowledge-base", "plos-journal-parser", "plos-context-broker"]
     else:
         print(f"  [{svc}] No errors in last 20 log lines")
 
-# ------------------------------------------------------------------
 # SUMMARY
-# ------------------------------------------------------------------
 section("SUMMARY")
 
 print(f"""

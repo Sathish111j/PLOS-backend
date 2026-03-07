@@ -46,6 +46,9 @@ class TaskType(str, Enum):
     RAG_GENERATION = "rag_generation"
     RAG_QUERY_REWRITE = "rag_query_rewrite"
 
+    # Social Media Tasks
+    SOCIAL_MEDIA_EXTRACTION = "social_media_extraction"
+
     # General Tasks
     GENERAL = "general"
     VISION = "vision"

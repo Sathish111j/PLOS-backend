@@ -1489,9 +1489,7 @@ class KnowledgePersistence:
 
         await asyncio.to_thread(_ensure)
 
-    # ------------------------------------------------------------------
-    # Chat session and message persistence (RAG conversation memory)
-    # ------------------------------------------------------------------
+    # --- Chat session and message persistence (RAG conversation memory) ---
 
     async def create_chat_session(
         self,
@@ -1752,9 +1750,7 @@ class KnowledgePersistence:
             )
         return tag == "DELETE 1"
 
-    # ------------------------------------------------------------------
-    # Chunk-level retrieval for RAG
-    # ------------------------------------------------------------------
+    # --- Chunk-level retrieval for RAG ---
 
     async def search_chunks_for_rag(
         self,
@@ -1875,9 +1871,7 @@ class KnowledgePersistence:
             chunk.update(info)
         return chunks
 
-    # ------------------------------------------------------------------
-    # Redis cache helpers
-    # ------------------------------------------------------------------
+    # --- Redis cache helpers ---
 
     async def get_cached_json(self, key: str) -> dict[str, Any] | None:
         if not self._redis:

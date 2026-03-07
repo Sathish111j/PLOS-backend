@@ -17,9 +17,8 @@ logger = get_logger(__name__)
 settings = get_unified_settings()
 
 
-# ============================================================================
-# GLOBAL INSTANCES (initialized at startup)
-# ============================================================================
+# --- GLOBAL INSTANCES ---
+# initialized at startup
 
 _gemini_client: ResilientGeminiClient = None
 _kafka_producer: KafkaProducerService = None
@@ -55,9 +54,7 @@ async def shutdown_dependencies() -> None:
     logger.info("Dependencies shutdown complete")
 
 
-# ============================================================================
-# FASTAPI DEPENDENCY FUNCTIONS
-# ============================================================================
+# --- FASTAPI DEPENDENCY FUNCTIONS ---
 
 
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:

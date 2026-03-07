@@ -10,6 +10,7 @@ class DocumentFormat(str, Enum):
     IMAGE = "image"
     OFFICE = "office"
     WEB = "web"
+    SOCIAL = "social"
     TEXT = "text"
     UNKNOWN = "unknown"
 
@@ -24,6 +25,7 @@ class SourceType(str, Enum):
     PPTX = "pptx"
     WEB_STATIC = "web_static"
     WEB_DYNAMIC = "web_dynamic"
+    SOCIAL_MEDIA = "social_media"
     TEXT = "text"
 
 
@@ -41,6 +43,7 @@ class ExtractionStrategy(str, Enum):
     IMAGE_OCR_CHAIN = "image_ocr_chain"
     OFFICE_NATIVE = "office_native"
     WEB_STATIC_DYNAMIC = "web_static_dynamic"
+    SOCIAL_MEDIA_EXTRACTION = "social_media_extraction"
     TEXT_DIRECT = "text_direct"
     FALLBACK_GENERIC = "fallback_generic"
 

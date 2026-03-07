@@ -17,9 +17,7 @@ from shared.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-# ============================================================================
-# ENUMS AND DATA CLASSES
-# ============================================================================
+# --- ENUMS AND DATA CLASSES ---
 
 
 class TimeOfDay(Enum):
@@ -153,10 +151,8 @@ class ExtractionResult:
     has_gaps: bool = False
 
 
-# ============================================================================
-# CONTROLLED VOCABULARY
+# --- CONTROLLED VOCABULARY ---
 # These would typically come from database but defined here for normalization
-# ============================================================================
 
 
 # Activity mappings: alias -> canonical_name
@@ -310,9 +306,7 @@ ACTIVITY_CALORIES = {
 }
 
 
-# ============================================================================
-# NORMALIZATION FUNCTIONS
-# ============================================================================
+# --- NORMALIZATION FUNCTIONS ---
 
 
 def normalize_activity_name(raw_name: str) -> Tuple[Optional[str], str]:
@@ -406,9 +400,7 @@ def estimate_calories(activity: str, duration_minutes: Optional[int]) -> Optiona
     return int(cal_per_hour * duration_minutes / 60)
 
 
-# ============================================================================
-# GAP DETECTION
-# ============================================================================
+# --- GAP DETECTION ---
 
 
 def detect_gaps_from_patterns(
@@ -537,9 +529,7 @@ def detect_gaps_from_patterns(
     return gaps
 
 
-# ============================================================================
-# GEMINI EXTRACTION SCHEMA
-# ============================================================================
+# --- GEMINI EXTRACTION SCHEMA ---
 
 
 EXTRACTION_SCHEMA = """
@@ -725,9 +715,7 @@ EXTRACTION_SCHEMA = """
 """
 
 
-# ============================================================================
-# MAIN GEMINI EXTRACTOR
-# ============================================================================
+# --- MAIN GEMINI EXTRACTOR ---
 
 
 class GeminiExtractor:
@@ -1425,9 +1413,7 @@ IMPORTANT: Reuse activity names and categories from the vocabulary above when ap
         )
 
 
-# ============================================================================
-# GAP RESOLVER WITH GEMINI PARAGRAPH PARSING
-# ============================================================================
+# --- GAP RESOLVER WITH GEMINI PARAGRAPH PARSING ---
 
 
 GAP_RESOLUTION_SCHEMA = """
@@ -1870,9 +1856,7 @@ Return ONLY valid JSON."""
         return "".join(parts)
 
 
-# ============================================================================
-# CONVENIENCE FUNCTION
-# ============================================================================
+# --- CONVENIENCE FUNCTION ---
 
 
 async def extract_journal_entry(

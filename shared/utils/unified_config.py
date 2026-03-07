@@ -35,9 +35,7 @@ class UnifiedSettings(BaseSettings):
         "extra": "ignore",
     }
 
-    # =========================================================================
-    # APPLICATION SETTINGS
-    # =========================================================================
+    # --- APPLICATION SETTINGS ---
     app_env: str = Field(default="development", description="Environment (dev/prod)")
     debug: bool = Field(default=True, description="Debug mode")
     log_level: str = Field(default="INFO", description="Logging level")

@@ -25,9 +25,7 @@ logger = get_logger(__name__)
 config = get_context_config()
 
 
-# ============================================================================
-# METRIC TYPE IDS (from metric_types table)
-# ============================================================================
+# --- METRIC TYPE IDS (from metric_types table) ---
 
 
 class MetricTypeID:
@@ -46,9 +44,7 @@ class MetricTypeID:
     SCREEN_TIME = 11
 
 
-# ============================================================================
-# CONTEXT RETRIEVAL ENGINE
-# ============================================================================
+# --- CONTEXT RETRIEVAL ENGINE ---
 
 
 class ContextRetrievalEngine:
@@ -594,9 +590,7 @@ class ContextRetrievalEngine:
             }
 
 
-# ============================================================================
-# MODULE FUNCTIONS
-# ============================================================================
+# --- MODULE FUNCTIONS ---
 
 
 async def get_context_engine(db_session: AsyncSession) -> ContextRetrievalEngine:

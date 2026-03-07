@@ -17,9 +17,7 @@ except ImportError:
     PROMETHEUS_AVAILABLE = False
 
 
-# ============================================================================
-# METRIC DEFINITIONS
-# ============================================================================
+# --- METRIC DEFINITIONS ---
 
 if PROMETHEUS_AVAILABLE:
     # Extraction metrics
@@ -174,9 +172,7 @@ def _null_context():
     yield
 
 
-# ============================================================================
-# HELPER FUNCTIONS
-# ============================================================================
+# --- HELPER FUNCTIONS ---
 
 
 def track_extraction_time(stage: str):
@@ -299,9 +295,7 @@ def set_service_info(name: str, version: str, environment: str):
         )
 
 
-# ============================================================================
-# METRICS CONTEXT MANAGER
-# ============================================================================
+# --- METRICS CONTEXT MANAGER ---
 
 
 class ExtractionMetricsContext:

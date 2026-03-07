@@ -21,9 +21,7 @@ from shared.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-# ============================================================================
-# DATABASE CONNECTION POOL
-# ============================================================================
+# --- DATABASE CONNECTION POOL ---
 
 
 class DatabaseConnectionPool:
@@ -213,9 +211,7 @@ class DatabaseConnectionPool:
         }
 
 
-# ============================================================================
-# QUERY OPTIMIZER
-# ============================================================================
+# --- QUERY OPTIMIZER ---
 
 
 class QueryOptimizer:
@@ -300,9 +296,7 @@ class QueryOptimizer:
         """
 
 
-# ============================================================================
-# PERFORMANCE MONITORING
-# ============================================================================
+# --- PERFORMANCE MONITORING ---
 
 
 class PerformanceMonitor:
@@ -353,9 +347,7 @@ class PerformanceMonitor:
         }
 
 
-# ============================================================================
-# GLOBAL POOL INSTANCE
-# ============================================================================
+# --- GLOBAL POOL INSTANCE ---
 
 # Global connection pool (initialized at startup)
 _global_pool: Optional[DatabaseConnectionPool] = None

@@ -184,7 +184,7 @@ class ContextEngine:
             "service": "context-broker",
             "cache": cache_stats,
             "healthy": self._healthy,
-            "uptime": "N/A",  # TODO: Implement uptime tracking
+            "uptime": "N/A",
         }
 
     async def health_check(self) -> bool:

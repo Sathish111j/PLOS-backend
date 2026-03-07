@@ -54,9 +54,7 @@ JOURNAL_PROCESS_LATENCY = Histogram(
     "journal_parser_process_latency_seconds", "Journal processing latency in seconds"
 )
 
-# ============================================================================
-# HELPER FUNCTIONS
-# ============================================================================
+# --- HELPER FUNCTIONS ---
 
 
 def verify_user_access(current_user: TokenData, target_user_id: UUID) -> None:
@@ -85,9 +83,7 @@ def get_orchestrator(
     )
 
 
-# ============================================================================
-# ENDPOINTS
-# ============================================================================
+# --- ENDPOINTS ---
 
 
 @router.post(

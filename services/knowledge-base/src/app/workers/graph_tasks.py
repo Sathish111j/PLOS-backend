@@ -108,9 +108,7 @@ def _init_worker(**_kwargs):
         logger.warning("Graph worker init warning", extra={"error": str(exc)})
 
 
-# ---------------------------------------------------------------------------
-# Task helpers
-# ---------------------------------------------------------------------------
+# --- Task helpers ---
 
 
 def _run_async(coro):
@@ -124,9 +122,7 @@ def _run_async(coro):
     return loop.run_until_complete(coro)
 
 
-# ---------------------------------------------------------------------------
-# Tasks
-# ---------------------------------------------------------------------------
+# --- Tasks ---
 
 
 @celery_app.task(name="knowledge_base.graph_extract_document", bind=True, max_retries=3)
