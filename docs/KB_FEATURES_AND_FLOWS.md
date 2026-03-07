@@ -167,7 +167,7 @@ POST /upload  -->  decode base64
               -->  mark status: completed
 ```
 
-Supported formats: plain text via base64 encoding.
+Supported formats: plain text via base64 encoding, PDF, images, Office documents (docx/xlsx/pptx), web URLs, and social media URLs (Reddit, Twitter/X, LinkedIn, Instagram Reels/Posts/IGTV, YouTube videos/Shorts).
 
 ### 2. Deduplication
 
@@ -376,3 +376,4 @@ Verified by `scripts/deep_store_verify.py` (66 PASS, 0 FAIL, 1 WARN):
 | test_phase2_embedding_search.py        | Embedding + search                 |
 | test_phase3_bucket_system.py           | Bucket management                  |
 | test_phase4_knowledge_graph.py         | Knowledge graph pipeline           |
+| test_social_processor.py               | Social media ingestion pipeline    |
