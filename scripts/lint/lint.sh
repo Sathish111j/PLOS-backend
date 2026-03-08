@@ -69,8 +69,7 @@ if [ "$MODE" = "fix" ]; then
     "$PYTHON_CMD" -m black services/ shared/
 else
     "$PYTHON_CMD" -m black --check services/ shared/
-fi
-if [ $? -ne 0 ]; then ERROR_COUNT=$((ERROR_COUNT + 1)); fi
+fi || ERROR_COUNT=$((ERROR_COUNT + 1))
 set -e
 
 echo ""
@@ -82,8 +81,7 @@ if [ "$MODE" = "fix" ]; then
     "$PYTHON_CMD" -m isort services/ shared/
 else
     "$PYTHON_CMD" -m isort --check-only services/ shared/
-fi
-if [ $? -ne 0 ]; then ERROR_COUNT=$((ERROR_COUNT + 1)); fi
+fi || ERROR_COUNT=$((ERROR_COUNT + 1))
 set -e
 
 echo ""
@@ -95,8 +93,7 @@ if [ "$MODE" = "fix" ]; then
     "$PYTHON_CMD" -m ruff check services/ shared/ --fix
 else
     "$PYTHON_CMD" -m ruff check services/ shared/
-fi
-if [ $? -ne 0 ]; then ERROR_COUNT=$((ERROR_COUNT + 1)); fi
+fi || ERROR_COUNT=$((ERROR_COUNT + 1))
 set -e
 
 echo ""

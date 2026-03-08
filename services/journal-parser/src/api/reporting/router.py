@@ -14,8 +14,6 @@ from shared.auth.dependencies import get_current_user
 from shared.auth.models import TokenData
 from shared.utils.logger import get_logger
 
-logger = get_logger(__name__)
-
 from .schemas import (
     ActivityDaily,
     HealthDaily,
@@ -38,12 +36,12 @@ from .schemas import (
     WorkSummary,
 )
 
+logger = get_logger(__name__)
+
 router = APIRouter(prefix="/journal/reports", tags=["journal-reports"])
 
 
-async def _logged_report(
-    endpoint_name: str, user_id: str, params: dict, coro
-):
+async def _logged_report(endpoint_name: str, user_id: str, params: dict, coro):
     """Execute a report coroutine with structured logging and timing."""
     start = time.monotonic()
     logger.info(
@@ -309,6 +307,7 @@ async def get_weekly_overview(
             summary=result["summary"],
             context_snapshot=result["context_snapshot"],
         )
+
     return await _logged_report(
         "weekly-overview",
         str(current_user.user_id),

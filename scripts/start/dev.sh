@@ -8,13 +8,11 @@ GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
-GRAY='\033[0;90m'
 NC='\033[0m'
 
 # -- Resolve paths --------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-MIGRATION_DIR="$PROJECT_ROOT/infrastructure/database/migrations"
 SEED_FILE="$PROJECT_ROOT/infrastructure/database/seed.sql"
 
 DB_CONTAINER="plos-supabase-db"

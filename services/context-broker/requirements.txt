@@ -36,7 +36,7 @@ aiohttp>=3.10.11
 # Security
 python-jose[cryptography]>=3.4.0
 passlib[bcrypt]==1.7.4
-python-multipart==0.0.6
+python-multipart==0.0.22
 
 # Monitoring & Logging
 prometheus-client==0.19.0
@@ -45,5 +45,5 @@ structlog==24.1.0
 
 # Utilities
 tenacity==8.2.3
-orjson==3.9.10
+orjson==3.10.18
 PyJWT>=2.8.0

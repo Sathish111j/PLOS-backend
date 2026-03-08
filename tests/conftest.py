@@ -23,7 +23,8 @@ logger = logging.getLogger(__name__)
 # Service URL configuration
 # ---------------------------------------------------------------------------
 
-GATEWAY_URL = os.getenv("GATEWAY_URL", "http://localhost:8000/api/v1")
+GATEWAY_URL = os.getenv("GATEWAY_URL", "http://localhost:8000")
+GATEWAY_API = f"{GATEWAY_URL}/api/v1"
 KB_URL = os.getenv("KB_URL", "http://localhost:8003")
 CONTEXT_URL = os.getenv("CONTEXT_URL", "http://localhost:8001")
 JOURNAL_URL = os.getenv("JOURNAL_URL", "http://localhost:8002")

@@ -1,0 +1,76 @@
+# ============================================================================
+# PLOS - Test Runner Docker Compose Override
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.test.yml run --rm test-runner
+# Or via the convenience script:
+#   ./scripts/test/run-all-docker.sh
+# ============================================================================
+
+services:
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: plos-test-runner
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      api-gateway:
+        condition: service_healthy
+      context-broker:
+        condition: service_healthy
+      journal-parser:
+        condition: service_healthy
+      knowledge-base:
+        condition: service_healthy
+    environment:
+      # -- Service URLs (Docker network hostnames, not localhost) --
+      GATEWAY_URL: http://api-gateway:8000
+      KB_URL: http://knowledge-base:8003
+      CONTEXT_URL: http://context-broker:8001
+      JOURNAL_URL: http://journal-parser:8002
+      AUTH_URL: http://journal-parser:8002
+
+      # -- KB unit-test infra URLs (Docker hostnames) --
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-plos_db_secure_2025}@supabase-db:5432/${POSTGRES_DB:-plos}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-plos_redis_secure_2025}@redis:6379/0
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-documents_768}
+      QDRANT_FALLBACK_COLLECTION: ${QDRANT_FALLBACK_COLLECTION:-documents_fallback_384}
+      MINIO_ENABLED: "true"
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-plos_minio_admin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-plos_minio_secure_2026}
+      MINIO_BUCKET: ${MINIO_BUCKET:-knowledge-base-documents}
+      MEILISEARCH_URL: http://meilisearch:7700
+      MEILISEARCH_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-plos_meili_secure_2025}
+      MEILISEARCH_INDEX: ${MEILISEARCH_INDEX:-kb_chunks}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
+      GEMINI_DEFAULT_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-3-flash-preview}
+      GEMINI_EMBEDDING_MODEL: ${GEMINI_EMBEDDING_MODEL:-gemini-embedding-001}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-768}
+      EMBEDDING_PROVIDER: ${KNOWLEDGE_BASE_EMBEDDING_PROVIDER:-gemini}
+
+      # -- Paths inside the container --
+      PYTHONPATH: /workspace/services/knowledge-base/src:/workspace
+    networks:
+      - plos-network
+    volumes:
+      # Mount workspace read-only so cache/bytecode do not leak back
+      - ./:/workspace:ro
+    working_dir: /workspace
+    # Default: run ALL tests.  Override with:
+    #   docker compose ... run --rm test-runner pytest tests/test_e2e_*.py -m e2e -v
+    command: ["-v", "--tb=short", "-p", "no:cacheprovider", "tests/"]
+    restart: "no"

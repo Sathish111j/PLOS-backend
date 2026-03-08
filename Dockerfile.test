@@ -1,0 +1,62 @@
+# ============================================================================
+# PLOS - Unified Test Runner Dockerfile
+# Builds a single container that can run ALL tests:
+#   - E2E tests (HTTP-based, talk to running services)
+#   - KB unit/integration tests (import app.* directly)
+# ============================================================================
+FROM python:3.11-slim
+
+WORKDIR /workspace
+
+# Install system dependencies needed by various packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libpq-dev \
+    libpq5 \
+    curl \
+    ffmpeg \
+    tesseract-ocr \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Create a virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# -- Install KB service requirements (superset of most deps) --
+COPY services/knowledge-base/requirements/base.txt      /tmp/req/kb-base.txt
+COPY services/knowledge-base/requirements/api.txt        /tmp/req/kb-api.txt
+COPY services/knowledge-base/requirements/storage.txt    /tmp/req/kb-storage.txt
+COPY services/knowledge-base/requirements/ai.txt         /tmp/req/kb-ai.txt
+COPY services/knowledge-base/requirements/processing.txt /tmp/req/kb-processing.txt
+COPY services/knowledge-base/requirements/graph.txt      /tmp/req/kb-graph.txt
+COPY services/knowledge-base/requirements/test.txt       /tmp/req/kb-test.txt
+
+# -- Install JP and CB requirements (some overlap, pip handles dedup) --
+COPY services/journal-parser/requirements.txt  /tmp/req/jp.txt
+COPY services/context-broker/requirements.txt  /tmp/req/cb.txt
+
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir \
+        -r /tmp/req/kb-base.txt \
+        -r /tmp/req/kb-api.txt \
+        -r /tmp/req/kb-storage.txt \
+        -r /tmp/req/kb-processing.txt \
+        -r /tmp/req/kb-ai.txt \
+        -r /tmp/req/kb-graph.txt \
+        -r /tmp/req/kb-test.txt \
+        -r /tmp/req/jp.txt \
+        -r /tmp/req/cb.txt && \
+    pip install --no-cache-dir requests pytest-cov pytest-timeout && \
+    rm -rf /root/.cache/pip /tmp/req
+
+# Copy the entire workspace (tests, shared, service source)
+COPY . /workspace
+
+# PYTHONPATH: KB src (for `app.*` imports) + workspace root (for `shared.*`)
+ENV PYTHONPATH="/workspace/services/knowledge-base/src:/workspace"
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+ENTRYPOINT ["pytest"]
+CMD ["-v", "--tb=short", "-p", "no:cacheprovider"]

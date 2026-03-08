@@ -145,9 +145,7 @@ app.add_middleware(
 @app.middleware("http")
 async def correlation_id_middleware(request, call_next):
     """Attach a correlation ID to every request for distributed tracing."""
-    correlation_id = request.headers.get(
-        "X-Correlation-ID", str(_uuid.uuid4())
-    )
+    correlation_id = request.headers.get("X-Correlation-ID", str(_uuid.uuid4()))
     # Make it available on request state for downstream use
     request.state.correlation_id = correlation_id
     logger.info(
