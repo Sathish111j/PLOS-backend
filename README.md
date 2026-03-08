@@ -58,6 +58,9 @@ graph TD
     S3 --> F
     F --> R["Cross-Encoder Reranking + MMR Diversity"]
     end
+    subgraph "RAG Chat"
+    KB --> RC["Gemini-powered conversational search - Source attribution"]
+    end
     subgraph "Knowledge Graph"
     KB --> E["NER Entity Extraction - Disambiguation, co-occurrence"]
     E --> P["Path Finding - Centrality analysis, timeline"]
@@ -76,16 +79,6 @@ graph TD
     KB --> M["Meilisearch - Typo-tolerant search"]
     KB --> Min["MinIO - Object storage"]
     end
-
-    classDef clientClass fill:#e3f2fd,stroke:#1976d2,stroke-width:2px;
-    classDef serviceClass fill:#e8f5e8,stroke:#388e3c,stroke-width:2px;
-    classDef pipelineClass fill:#fff3e0,stroke:#f57c00,stroke-width:2px;
-    classDef infraClass fill:#fce4ec,stroke:#c2185b,stroke-width:2px;
-
-    class C clientClass;
-    class G,CB,JP,KB serviceClass;
-    class P1,P2,P3,P4,Gap,S1,S2,S3,F,R,E,P pipelineClass;
-    class DB,R,K,Q,M,Min infraClass;
 ```
 
 ### Services
