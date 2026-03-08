@@ -65,7 +65,7 @@ print_results() {
     echo ""
 }
 
-EMAIL="e2e+$(cat /proc/sys/kernel/random/uuid | tr -d '-')@example.com"
+EMAIL="e2e+$(tr -d '-' < /proc/sys/kernel/random/uuid)@example.com"
 USERNAME="user$((RANDOM % 9000 + 1000))"
 PASSWORD="TestPass123!"
 TOKEN=""

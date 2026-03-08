@@ -30,7 +30,7 @@ echo "1. Infrastructure Services"
 echo "--------------------------"
 
 # PostgreSQL
-if docker exec plos-supabase-db pg_isready -U ${POSTGRES_USER:-postgres} &>/dev/null; then
+if docker exec plos-supabase-db pg_isready -U "${POSTGRES_USER:-postgres}" &>/dev/null; then
     echo -e "${GREEN}[OK]${NC} PostgreSQL"
 else
     echo -e "${RED}[X]${NC} PostgreSQL"
@@ -51,7 +51,7 @@ else
 fi
 
 # Qdrant
-if curl -s http://localhost:${QDRANT_HTTP_PORT:-6333}/healthz &>/dev/null; then
+if curl -s "http://localhost:${QDRANT_HTTP_PORT:-6333}/healthz" &>/dev/null; then
     echo -e "${GREEN}[OK]${NC} Qdrant"
 else
     echo -e "${RED}[X]${NC} Qdrant"
@@ -86,8 +86,8 @@ echo ""
 echo "3. Database Check"
 echo "-----------------"
 
-if docker exec plos-supabase-db psql -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-plos} -c "SELECT 1" > /dev/null 2>&1; then
-    table_count=$(docker exec plos-supabase-db psql -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-plos} -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public'" 2>/dev/null | tr -d ' ')
+if docker exec plos-supabase-db psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-plos}" -c "SELECT 1" > /dev/null 2>&1; then
+    table_count=$(docker exec plos-supabase-db psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-plos}" -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public'" 2>/dev/null | tr -d ' ')
     echo -e "${GREEN}[OK]${NC} PostgreSQL accessible - $table_count tables"
 else
     echo -e "${RED}[X]${NC} PostgreSQL NOT accessible"
