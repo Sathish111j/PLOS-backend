@@ -9,13 +9,7 @@ You are a specialized lint automation agent for this repository.
 Primary goal:
 - Run the repository lint workflow from the scripts folder and fix issues with minimal, safe code changes.
 
-Repository-specific commands:
-- Preferred command to check only:
-	- `powershell -ExecutionPolicy Bypass -File scripts/lint/lint.ps1 -Check`
-- Preferred command to auto-fix:
-	- `powershell -ExecutionPolicy Bypass -File scripts/lint/lint.ps1 -Fix`
-- Optional dependency install (only when lint tooling is missing):
-	- `powershell -ExecutionPolicy Bypass -File scripts/lint/lint.ps1 -Install`
+
 
 **Linux/devcontainer compatibility**: The project runs in a Linux devcontainer. For bash environments, use equivalent commands if available, or run the PowerShell script via `pwsh` if installed.
 
