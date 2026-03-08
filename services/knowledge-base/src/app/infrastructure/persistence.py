@@ -290,7 +290,7 @@ class KnowledgePersistence:
         query = f"""
             SELECT id, user_id, parent_bucket_id, depth, name, description,
                    icon_emoji, color_hex, document_count, is_default, is_deleted,
-                   path, created_at, updated_at
+                   path, max_depth, auto_classify, created_at, updated_at
             FROM buckets
             WHERE user_id = $1
               AND id = $2
@@ -414,7 +414,7 @@ class KnowledgePersistence:
         query = """
             SELECT id, user_id, parent_bucket_id, depth, name, description,
                    icon_emoji, color_hex, document_count, is_default, is_deleted,
-                   path, created_at, updated_at
+                   path, max_depth, auto_classify, created_at, updated_at
             FROM buckets
             WHERE user_id = $1
               AND is_deleted = FALSE
@@ -439,6 +439,8 @@ class KnowledgePersistence:
                 "is_default": bool(row["is_default"]),
                 "is_deleted": bool(row["is_deleted"]),
                 "path": row["path"],
+                "max_depth": int(row["max_depth"] if row["max_depth"] is not None else -1),
+                "auto_classify": bool(row["auto_classify"]),
                 "created_at": row["created_at"].isoformat(),
                 "updated_at": row["updated_at"].isoformat(),
             }
@@ -454,6 +456,8 @@ class KnowledgePersistence:
         parent_bucket_id: str | None,
         icon_emoji: str | None,
         color_hex: str | None,
+        max_depth: int = -1,
+        auto_classify: bool = True,
     ) -> dict[str, Any]:
         user_uuid = await self._resolve_existing_user_uuid(owner_id)
         if not user_uuid or not self._pool:
@@ -473,8 +477,17 @@ class KnowledgePersistence:
                 raise PermissionError(
                     "Parent bucket not found or not accessible to this user"
                 )
-            depth = int(parent_row["depth"]) + 1
+            parent_depth = int(parent_row["depth"])
+            parent_max_depth = int(parent_row["max_depth"] if parent_row["max_depth"] is not None else -1)
+            depth = parent_depth + 1
             parent_path = str(parent_row["path"])
+            # Enforce parent's max_depth limit
+            if parent_max_depth != -1 and depth > parent_max_depth:
+                raise ValueError(
+                    f"Cannot create bucket at depth {depth}: "
+                    f"parent bucket '{parent_row['name']}' has max_depth={parent_max_depth}. "
+                    f"Nesting limit reached."
+                )
 
         slug = self._bucket_slug(name)
         path = f"{parent_path}/{slug}"
@@ -483,16 +496,18 @@ class KnowledgePersistence:
             INSERT INTO buckets (
                 id, user_id, parent_bucket_id, depth, name, description,
                 icon_emoji, color_hex, document_count, is_default, is_deleted,
-                path, storage_backend, storage_bucket, is_active, created_by, updated_by
+                path, storage_backend, storage_bucket, is_active, created_by, updated_by,
+                max_depth, auto_classify
             )
             VALUES (
                 gen_random_uuid(), $1, $2, $3, $4, $5,
                 $6, $7, 0, FALSE, FALSE,
-                $8, 'minio', $9, TRUE, $1, $1
+                $8, 'minio', $9, TRUE, $1, $1,
+                $10, $11
             )
             RETURNING id, user_id, parent_bucket_id, depth, name, description,
                       icon_emoji, color_hex, document_count, is_default, is_deleted,
-                      path, created_at, updated_at
+                      path, max_depth, auto_classify, created_at, updated_at
         """
         async with self._pool.acquire() as connection:
             row = await connection.fetchrow(
@@ -506,6 +521,8 @@ class KnowledgePersistence:
                 color_hex,
                 path,
                 self.config.minio_bucket,
+                max_depth,
+                auto_classify,
             )
 
         if not row:
@@ -526,6 +543,8 @@ class KnowledgePersistence:
             "is_default": bool(row["is_default"]),
             "is_deleted": bool(row["is_deleted"]),
             "path": row["path"],
+            "max_depth": int(row["max_depth"] if row["max_depth"] is not None else -1),
+            "auto_classify": bool(row["auto_classify"]),
             "created_at": row["created_at"].isoformat(),
             "updated_at": row["updated_at"].isoformat(),
         }
@@ -1357,7 +1376,16 @@ class KnowledgePersistence:
             user_uuid
         )
 
-        if top_confidence >= self.ROUTING_AUTO_CONFIDENCE_THRESHOLD:
+        # Load per-user settings to drive confidence thresholds/actions
+        settings = await self.get_kb_settings(owner_id)
+        auto_threshold = max(
+            self.ROUTING_AUTO_CONFIDENCE_THRESHOLD,
+            float(settings.get("confidence_threshold", self.ROUTING_AUTO_CONFIDENCE_THRESHOLD)),
+        )
+        confirmation_threshold = self.ROUTING_CONFIRMATION_THRESHOLD
+        low_confidence_action = settings.get("low_confidence_action", "send_to_unassigned")
+
+        if top_confidence >= auto_threshold:
             mode = "hint_auto" if bucket_hint else "auto"
             return {
                 "mode": mode,
@@ -1367,7 +1395,7 @@ class KnowledgePersistence:
                 "candidates": candidates,
             }
 
-        if top_confidence >= self.ROUTING_CONFIRMATION_THRESHOLD:
+        if top_confidence >= confirmation_threshold:
             mode = "hint_confirmation" if bucket_hint else "confirmation"
             return {
                 "mode": mode,
@@ -1376,6 +1404,33 @@ class KnowledgePersistence:
                 "requires_confirmation": True,
                 "candidates": candidates[:2],
             }
+
+        # Low confidence path — honour low_confidence_action setting
+        if low_confidence_action == "suggest_bucket":
+            try:
+                suggestion = await self.create_suggestion(
+                    owner_id=owner_id,
+                    proposed_name=title or "Untitled",
+                    proposed_parent_id=None,
+                    proposed_description=f"Auto-suggested from low-confidence routing: {preview_text[:120]}",
+                    triggered_by_item_id=None,
+                    triggered_by_job_id=None,
+                    ai_reasoning=(
+                        f"Top bucket confidence {top_confidence:.2f} was below "
+                        f"threshold {confirmation_threshold:.2f}. Best candidate: "
+                        + top.get("reasoning", "")
+                    ),
+                )
+                return {
+                    "mode": "pending_approval",
+                    "selected_bucket_id": None,
+                    "selected_confidence": top_confidence,
+                    "requires_confirmation": True,
+                    "candidates": candidates[:2],
+                    "suggestion_id": suggestion["suggestion_id"],
+                }
+            except Exception:
+                pass  # Fall through to unassigned on suggestion creation failure
 
         return {
             "mode": "needs_classification",
@@ -4146,6 +4201,685 @@ class KnowledgePersistence:
                     await connection.execute(upsert_sql, raw_id)
                 except Exception:
                     continue
+
+    # ------------------------------------------------------------------
+    # KB Settings
+    # ------------------------------------------------------------------
+
+    async def get_kb_settings(self, owner_id: str) -> dict[str, Any]:
+        """Return the current global KB settings for a user, creating defaults if absent."""
+        user_uuid = await self._resolve_existing_user_uuid(owner_id)
+        if not user_uuid or not self._pool:
+            return self._default_kb_settings()
+
+        async with self._pool.acquire() as connection:
+            row = await connection.fetchrow(
+                "SELECT * FROM kb_settings WHERE user_id = $1", user_uuid
+            )
+            if not row:
+                await connection.execute(
+                    """
+                    INSERT INTO kb_settings (user_id)
+                    VALUES ($1)
+                    ON CONFLICT DO NOTHING
+                    """,
+                    user_uuid,
+                )
+                return self._default_kb_settings()
+            return {
+                "auto_classify": bool(row["auto_classify"]),
+                "auto_create": bool(row["auto_create"]),
+                "default_max_depth": int(row["default_max_depth"]),
+                "confidence_threshold": float(row["confidence_threshold"]),
+                "low_confidence_action": str(row["low_confidence_action"]),
+            }
+
+    def _default_kb_settings(self) -> dict[str, Any]:
+        return {
+            "auto_classify": True,
+            "auto_create": True,
+            "default_max_depth": -1,
+            "confidence_threshold": 0.65,
+            "low_confidence_action": "send_to_unassigned",
+        }
+
+    async def update_kb_settings(
+        self,
+        owner_id: str,
+        **updates: Any,
+    ) -> dict[str, Any]:
+        """Patch one or more global KB settings for a user."""
+        user_uuid = await self._resolve_existing_user_uuid(owner_id)
+        if not user_uuid or not self._pool:
+            raise RuntimeError("Valid authenticated user is required")
+
+        allowed = {"auto_classify", "auto_create", "default_max_depth",
+                   "confidence_threshold", "low_confidence_action"}
+        filtered = {k: v for k, v in updates.items() if k in allowed and v is not None}
+        if not filtered:
+            return await self.get_kb_settings(owner_id)
+
+        set_clauses = ", ".join(f"{k} = ${i+2}" for i, k in enumerate(filtered))
+        values = list(filtered.values())
+        async with self._pool.acquire() as connection:
+            await connection.execute(
+                f"""
+                INSERT INTO kb_settings (user_id, {', '.join(filtered)})
+                VALUES ($1, {', '.join(f'${i+2}' for i in range(len(filtered)))})
+                ON CONFLICT (user_id) DO UPDATE
+                SET {set_clauses}, updated_at = NOW()
+                """,
+                user_uuid,
+                *values,
+            )
+        return await self.get_kb_settings(owner_id)
+
+    # ------------------------------------------------------------------
+    # Bucket update (PATCH)
+    # ------------------------------------------------------------------
+
+    async def update_bucket(
+        self,
+        *,
+        owner_id: str,
+        bucket_id: str,
+        name: str | None = None,
+        description: str | None = None,
+        icon_emoji: str | None = None,
+        color_hex: str | None = None,
+        max_depth: int | None = None,
+        auto_classify: bool | None = None,
+    ) -> dict[str, Any]:
+        user_uuid = await self._resolve_existing_user_uuid(owner_id)
+        if not user_uuid or not self._pool:
+            raise RuntimeError("Valid authenticated user is required")
+
+        bucket_uuid = UUID(bucket_id)
+        bucket_row = await self._get_bucket_row(user_uuid=user_uuid, bucket_id=bucket_uuid)
+        if not bucket_row:
+            raise RuntimeError("Bucket not found")
+        if bool(bucket_row["is_default"]) and name is not None:
+            raise PermissionError("Cannot rename a default (protected) bucket")
+
+        fields: dict[str, Any] = {}
+        if name is not None:
+            fields["name"] = name
+        if description is not None:
+            fields["description"] = description
+        if icon_emoji is not None:
+            fields["icon_emoji"] = icon_emoji
+        if color_hex is not None:
+            fields["color_hex"] = color_hex
+        if max_depth is not None:
+            fields["max_depth"] = max_depth
+        if auto_classify is not None:
+            fields["auto_classify"] = auto_classify
+
+        if not fields:
+            return await self._format_bucket_row(bucket_row)
+
+        params = list(fields.values())
+        set_clauses = ", ".join(
+            f"{col} = ${i+2}" for i, col in enumerate(fields)
+        )
+        async with self._pool.acquire() as connection:
+            row = await connection.fetchrow(
+                f"""
+                UPDATE buckets
+                SET {set_clauses}, updated_at = NOW()
+                WHERE user_id = $1 AND id = ${len(params)+2} AND is_deleted = FALSE
+                RETURNING id, user_id, parent_bucket_id, depth, name, description,
+                          icon_emoji, color_hex, document_count, is_default, is_deleted,
+                          path, max_depth, auto_classify, created_at, updated_at
+                """,
+                user_uuid,
+                *params,
+                bucket_uuid,
+            )
+        if not row:
+            raise RuntimeError("Bucket not found or update failed")
+        return await self._format_bucket_row(row)
+
+    async def _format_bucket_row(self, row: Any) -> dict[str, Any]:
+        return {
+            "bucket_id": str(row["id"]),
+            "user_id": str(row["user_id"]),
+            "parent_bucket_id": str(row["parent_bucket_id"]) if row["parent_bucket_id"] else None,
+            "depth": int(row["depth"]),
+            "name": row["name"],
+            "description": row["description"],
+            "icon_emoji": row["icon_emoji"],
+            "color_hex": row["color_hex"],
+            "document_count": int(row["document_count"] or 0),
+            "is_default": bool(row["is_default"]),
+            "is_deleted": bool(row["is_deleted"]),
+            "path": row["path"],
+            "max_depth": int(row["max_depth"] if row["max_depth"] is not None else -1),
+            "auto_classify": bool(row["auto_classify"]),
+            "created_at": row["created_at"].isoformat(),
+            "updated_at": row["updated_at"].isoformat(),
+        }
+
+    # ------------------------------------------------------------------
+    # Item (document) endpoints
+    # ------------------------------------------------------------------
+
+    async def list_items_for_user(
+        self,
+        owner_id: str,
+        *,
+        bucket_id: str | None = None,
+        content_type: str | None = None,
+        classified_by: str | None = None,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        user_uuid = await self._resolve_existing_user_uuid(owner_id)
+        if not user_uuid or not self._pool:
+            return {"items": [], "total": 0, "offset": offset, "limit": limit}
+
+        conditions = ["d.created_by = $1::uuid"]
+        params: list[Any] = [str(user_uuid)]
+
+        if bucket_id:
+            params.append(bucket_id)
+            conditions.append(f"d.bucket_id = ${len(params)}::uuid")
+        if content_type:
+            params.append(content_type)
+            conditions.append(f"d.content_type = ${len(params)}")
+        if classified_by:
+            params.append(classified_by)
+            conditions.append(f"d.classified_by = ${len(params)}")
+
+        where = " AND ".join(conditions)
+        count_sql = f"SELECT COUNT(*) FROM documents d WHERE {where}"
+        async with self._pool.acquire() as connection:
+            total = int(await connection.fetchval(count_sql, *params) or 0)
+            params.extend([limit, offset])
+            rows = await connection.fetch(
+                f"""
+                SELECT d.id, d.created_by, d.title, d.status, d.content_type,
+                       d.word_count, d.char_count,
+                       d.source_url, d.bucket_id,
+                       b.path AS bucket_path,
+                       d.classified_by, d.classification_confidence,
+                       d.classification_reasoning,
+                       d.extracted_metadata, d.created_at
+                FROM documents d
+                LEFT JOIN buckets b ON b.id = d.bucket_id
+                WHERE {where}
+                ORDER BY d.created_at DESC
+                LIMIT ${len(params)-1} OFFSET ${len(params)}
+                """,
+                *params,
+            )
+        return {
+            "items": [self._format_item_row(r) for r in rows],
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+        }
+
+    async def get_item(
+        self,
+        owner_id: str,
+        item_id: str,
+    ) -> dict[str, Any] | None:
+        user_uuid = await self._resolve_existing_user_uuid(owner_id)
+        if not user_uuid or not self._pool:
+            return None
+        async with self._pool.acquire() as connection:
+            row = await connection.fetchrow(
+                """
+                SELECT d.id, d.created_by, d.title, d.status, d.content_type,
+                       d.word_count, d.char_count,
+                       d.source_url, d.bucket_id,
+                       b.path AS bucket_path,
+                       d.classified_by, d.classification_confidence,
+                       d.classification_reasoning,
+                       d.extracted_metadata, d.created_at
+                FROM documents d
+                LEFT JOIN buckets b ON b.id = d.bucket_id
+                WHERE d.created_by = $1::uuid AND d.id = $2::uuid
+                """,
+                str(user_uuid),
+                item_id,
+            )
+        return self._format_item_row(row) if row else None
+
+    async def move_item(
+        self,
+        owner_id: str,
+        item_id: str,
+        bucket_id: str,
+    ) -> dict[str, Any]:
+        user_uuid = await self._resolve_existing_user_uuid(owner_id)
+        if not user_uuid or not self._pool:
+            raise RuntimeError("Valid authenticated user is required")
+
+        async with self._pool.acquire() as connection:
+            row = await connection.fetchrow(
+                """
+                UPDATE documents
+                SET bucket_id = $1::uuid,
+                    classified_by = 'user',
+                    updated_at = NOW()
+                WHERE created_by = $2::uuid AND id = $3::uuid
+                RETURNING id
+                """,
+                bucket_id,
+                str(user_uuid),
+                item_id,
+            )
+        if not row:
+            raise RuntimeError("Item not found")
+        result = await self.get_item(owner_id, item_id)
+        if not result:
+            raise RuntimeError("Item not found after move")
+        return result
+
+    async def delete_item(
+        self,
+        owner_id: str,
+        item_id: str,
+    ) -> bool:
+        user_uuid = await self._resolve_existing_user_uuid(owner_id)
+        if not user_uuid or not self._pool:
+            return False
+        async with self._pool.acquire() as connection:
+            tag = await connection.execute(
+                "DELETE FROM documents WHERE created_by = $1::uuid AND id = $2::uuid",
+                str(user_uuid),
+                item_id,
+            )
+        return tag != "DELETE 0"
+
+    def _format_item_row(self, row: Any) -> dict[str, Any]:
+        meta = row.get("extracted_metadata") or {}
+        if isinstance(meta, str):
+            try:
+                import json as _json
+                meta = _json.loads(meta)
+            except Exception:
+                meta = {}
+        return {
+            "document_id": str(row["id"]),
+            "owner_id": str(row["created_by"]) if row.get("created_by") else None,
+            "filename": row.get("title") or "document",
+            "status": row["status"],
+            "content_type": row.get("content_type"),
+            "strategy": meta.get("strategy"),
+            "word_count": row.get("word_count"),
+            "char_count": row.get("char_count"),
+            "text_preview": None,
+            "source_url": row.get("source_url"),
+            "bucket_id": str(row["bucket_id"]) if row.get("bucket_id") else None,
+            "bucket_path": row.get("bucket_path"),
+            "classified_by": row.get("classified_by"),
+            "classification_confidence": (
+                float(row["classification_confidence"])
+                if row.get("classification_confidence") is not None else None
+            ),
+            "classification_reasoning": row.get("classification_reasoning"),
+            "metadata": dict(meta),
+            "created_at": row["created_at"].isoformat(),
+        }
+
+    # ------------------------------------------------------------------
+    # Async ingest jobs
+    # ------------------------------------------------------------------
+
+    async def create_ingest_job(
+        self,
+        owner_id: str,
+        item_id: str | None = None,
+    ) -> dict[str, Any]:
+        user_uuid = await self._resolve_existing_user_uuid(owner_id)
+        if not user_uuid or not self._pool:
+            raise RuntimeError("Valid authenticated user is required")
+        async with self._pool.acquire() as connection:
+            row = await connection.fetchrow(
+                """
+                INSERT INTO ingest_jobs (user_id, item_id, status)
+                VALUES ($1, $2, 'processing')
+                RETURNING job_id, user_id, status, item_id, bucket_id, bucket_path,
+                          confidence, ai_reasoning, error_message, suggestion_id,
+                          created_at, updated_at
+                """,
+                user_uuid,
+                UUID(item_id) if item_id else None,
+            )
+        return self._format_job_row(row)
+
+    async def update_ingest_job(
+        self,
+        job_id: str,
+        *,
+        status: str,
+        item_id: str | None = None,
+        bucket_id: str | None = None,
+        bucket_path: str | None = None,
+        confidence: float | None = None,
+        ai_reasoning: str | None = None,
+        error_message: str | None = None,
+        suggestion_id: str | None = None,
+    ) -> None:
+        if not self._pool:
+            return
+        async with self._pool.acquire() as connection:
+            await connection.execute(
+                """
+                UPDATE ingest_jobs
+                SET status = $2,
+                    item_id = COALESCE($3, item_id),
+                    bucket_id = $4,
+                    bucket_path = $5,
+                    confidence = $6,
+                    ai_reasoning = $7,
+                    error_message = $8,
+                    suggestion_id = $9,
+                    updated_at = NOW()
+                WHERE job_id = $1::uuid
+                """,
+                job_id,
+                status,
+                UUID(item_id) if item_id else None,
+                UUID(bucket_id) if bucket_id else None,
+                bucket_path,
+                confidence,
+                ai_reasoning,
+                error_message,
+                UUID(suggestion_id) if suggestion_id else None,
+            )
+
+    async def get_ingest_job(self, owner_id: str, job_id: str) -> dict[str, Any] | None:
+        user_uuid = await self._resolve_existing_user_uuid(owner_id)
+        if not user_uuid or not self._pool:
+            return None
+        async with self._pool.acquire() as connection:
+            row = await connection.fetchrow(
+                """
+                SELECT job_id, user_id, status, item_id, bucket_id, bucket_path,
+                       confidence, ai_reasoning, error_message, suggestion_id,
+                       created_at, updated_at
+                FROM ingest_jobs
+                WHERE user_id = $1 AND job_id = $2::uuid
+                """,
+                user_uuid,
+                job_id,
+            )
+        return self._format_job_row(row) if row else None
+
+    async def list_ingest_jobs(
+        self,
+        owner_id: str,
+        *,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        user_uuid = await self._resolve_existing_user_uuid(owner_id)
+        if not user_uuid or not self._pool:
+            return {"jobs": [], "total": 0, "offset": offset, "limit": limit}
+        async with self._pool.acquire() as connection:
+            total = int(await connection.fetchval(
+                "SELECT COUNT(*) FROM ingest_jobs WHERE user_id = $1", user_uuid
+            ) or 0)
+            rows = await connection.fetch(
+                """
+                SELECT job_id, user_id, status, item_id, bucket_id, bucket_path,
+                       confidence, ai_reasoning, error_message, suggestion_id,
+                       created_at, updated_at
+                FROM ingest_jobs
+                WHERE user_id = $1
+                ORDER BY created_at DESC
+                LIMIT $2 OFFSET $3
+                """,
+                user_uuid,
+                limit,
+                offset,
+            )
+        return {
+            "jobs": [self._format_job_row(r) for r in rows],
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+        }
+
+    def _format_job_row(self, row: Any) -> dict[str, Any]:
+        return {
+            "job_id": str(row["job_id"]),
+            "status": row["status"],
+            "item_id": str(row["item_id"]) if row["item_id"] else None,
+            "bucket_id": str(row["bucket_id"]) if row.get("bucket_id") else None,
+            "bucket_path": row.get("bucket_path"),
+            "confidence": float(row["confidence"]) if row.get("confidence") is not None else None,
+            "ai_reasoning": row.get("ai_reasoning"),
+            "error_message": row.get("error_message"),
+            "suggestion_id": str(row["suggestion_id"]) if row.get("suggestion_id") else None,
+            "created_at": row["created_at"].isoformat(),
+            "updated_at": row["updated_at"].isoformat(),
+        }
+
+    # ------------------------------------------------------------------
+    # AI bucket suggestions
+    # ------------------------------------------------------------------
+
+    async def create_suggestion(
+        self,
+        *,
+        owner_id: str,
+        proposed_name: str,
+        proposed_parent_id: str | None,
+        proposed_description: str | None,
+        triggered_by_item_id: str | None,
+        triggered_by_job_id: str | None,
+        ai_reasoning: str | None,
+    ) -> dict[str, Any]:
+        user_uuid = await self._resolve_existing_user_uuid(owner_id)
+        if not user_uuid or not self._pool:
+            raise RuntimeError("Valid authenticated user is required")
+        async with self._pool.acquire() as connection:
+            row = await connection.fetchrow(
+                """
+                INSERT INTO bucket_suggestions (
+                    user_id, proposed_name, proposed_parent_id, proposed_description,
+                    triggered_by_item_id, triggered_by_job_id, ai_reasoning
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                RETURNING suggestion_id, user_id, proposed_name, proposed_parent_id,
+                          proposed_description, triggered_by_item_id, triggered_by_job_id,
+                          ai_reasoning, status, created_at, updated_at
+                """,
+                user_uuid,
+                proposed_name,
+                UUID(proposed_parent_id) if proposed_parent_id else None,
+                proposed_description,
+                UUID(triggered_by_item_id) if triggered_by_item_id else None,
+                UUID(triggered_by_job_id) if triggered_by_job_id else None,
+                ai_reasoning,
+            )
+        return self._format_suggestion_row(row)
+
+    async def list_suggestions(
+        self,
+        owner_id: str,
+        *,
+        status: str = "pending",
+        offset: int = 0,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        user_uuid = await self._resolve_existing_user_uuid(owner_id)
+        if not user_uuid or not self._pool:
+            return {"suggestions": [], "total": 0}
+        async with self._pool.acquire() as connection:
+            total = int(await connection.fetchval(
+                "SELECT COUNT(*) FROM bucket_suggestions WHERE user_id = $1 AND status = $2",
+                user_uuid, status,
+            ) or 0)
+            rows = await connection.fetch(
+                """
+                SELECT suggestion_id, user_id, proposed_name, proposed_parent_id,
+                       proposed_description, triggered_by_item_id, triggered_by_job_id,
+                       ai_reasoning, status, created_at, updated_at
+                FROM bucket_suggestions
+                WHERE user_id = $1 AND status = $2
+                ORDER BY created_at DESC
+                LIMIT $3 OFFSET $4
+                """,
+                user_uuid, status, limit, offset,
+            )
+        return {
+            "suggestions": [self._format_suggestion_row(r) for r in rows],
+            "total": total,
+        }
+
+    async def approve_suggestion(
+        self,
+        owner_id: str,
+        suggestion_id: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> dict[str, Any]:
+        """Approve a suggestion, optionally with edits, create the bucket, and move the waiting item."""
+        user_uuid = await self._resolve_existing_user_uuid(owner_id)
+        if not user_uuid or not self._pool:
+            raise RuntimeError("Valid authenticated user is required")
+
+        async with self._pool.acquire() as connection:
+            suggestion_row = await connection.fetchrow(
+                "SELECT * FROM bucket_suggestions WHERE user_id = $1 AND suggestion_id = $2::uuid AND status = 'pending'",
+                user_uuid, suggestion_id,
+            )
+        if not suggestion_row:
+            raise RuntimeError("Suggestion not found or already resolved")
+
+        final_name = name or suggestion_row["proposed_name"]
+        final_description = description or suggestion_row["proposed_description"]
+        parent_id = str(suggestion_row["proposed_parent_id"]) if suggestion_row["proposed_parent_id"] else None
+
+        bucket = await self.create_bucket(
+            owner_id=owner_id,
+            name=final_name,
+            description=final_description,
+            parent_bucket_id=parent_id,
+            icon_emoji=None,
+            color_hex=None,
+        )
+        bucket_uuid = UUID(bucket["bucket_id"])
+        item_id = suggestion_row["triggered_by_item_id"]
+        job_id = suggestion_row["triggered_by_job_id"]
+
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.execute(
+                    """
+                    UPDATE bucket_suggestions
+                    SET status = 'approved',
+                        approved_name = $2,
+                        approved_description = $3,
+                        created_bucket_id = $4,
+                        resolved_at = NOW(),
+                        updated_at = NOW()
+                    WHERE suggestion_id = $1::uuid
+                    """,
+                    suggestion_id, final_name, final_description, bucket_uuid,
+                )
+                if item_id:
+                    await connection.execute(
+                        """
+                        UPDATE documents
+                        SET content_bucket_id = $1, classified_by = 'ai', updated_at = NOW()
+                        WHERE id = $2 AND is_deleted IS NOT TRUE
+                        """,
+                        bucket_uuid, item_id,
+                    )
+                if job_id:
+                    await connection.execute(
+                        """
+                        UPDATE ingest_jobs
+                        SET status = 'classified', bucket_id = $1, bucket_path = $2, updated_at = NOW()
+                        WHERE job_id = $3::uuid
+                        """,
+                        bucket_uuid, bucket["path"], job_id,
+                    )
+        return bucket
+
+    async def reject_suggestion(
+        self,
+        owner_id: str,
+        suggestion_id: str,
+    ) -> None:
+        user_uuid = await self._resolve_existing_user_uuid(owner_id)
+        if not user_uuid or not self._pool:
+            raise RuntimeError("Valid authenticated user is required")
+        async with self._pool.acquire() as connection:
+            tag = await connection.execute(
+                """
+                UPDATE bucket_suggestions
+                SET status = 'rejected', resolved_at = NOW(), updated_at = NOW()
+                WHERE user_id = $1 AND suggestion_id = $2::uuid AND status = 'pending'
+                """,
+                user_uuid, suggestion_id,
+            )
+        if tag == "UPDATE 0":
+            raise RuntimeError("Suggestion not found or already resolved")
+
+    def _format_suggestion_row(self, row: Any) -> dict[str, Any]:
+        return {
+            "suggestion_id": str(row["suggestion_id"]),
+            "user_id": str(row["user_id"]),
+            "proposed_name": row["proposed_name"],
+            "proposed_parent_id": str(row["proposed_parent_id"]) if row.get("proposed_parent_id") else None,
+            "proposed_description": row.get("proposed_description"),
+            "triggered_by_item_id": str(row["triggered_by_item_id"]) if row.get("triggered_by_item_id") else None,
+            "triggered_by_job_id": str(row["triggered_by_job_id"]) if row.get("triggered_by_job_id") else None,
+            "ai_reasoning": row.get("ai_reasoning"),
+            "status": row["status"],
+            "created_at": row["created_at"].isoformat(),
+            "updated_at": row["updated_at"].isoformat(),
+        }
+
+    # ------------------------------------------------------------------
+    # Bucket merge
+    # ------------------------------------------------------------------
+
+    async def merge_buckets(
+        self,
+        owner_id: str,
+        source_bucket_id: str,
+        target_bucket_id: str,
+    ) -> dict[str, int]:
+        """Move all documents from source into target, then soft-delete source."""
+        user_uuid = await self._resolve_existing_user_uuid(owner_id)
+        if not user_uuid or not self._pool:
+            raise RuntimeError("Valid authenticated user is required")
+        source_uuid = UUID(source_bucket_id)
+        target_uuid = UUID(target_bucket_id)
+        if source_uuid == target_uuid:
+            raise RuntimeError("Source and target buckets must be different")
+        async with self._pool.acquire() as connection:
+            source_row = await self._get_bucket_row(user_uuid=user_uuid, bucket_id=source_uuid)
+            target_row = await self._get_bucket_row(user_uuid=user_uuid, bucket_id=target_uuid)
+            if not source_row or not target_row:
+                raise RuntimeError("Source or target bucket not found")
+            async with connection.transaction():
+                moved = await connection.fetchval(
+                    """
+                    WITH updated AS (
+                        UPDATE documents
+                        SET bucket_id = $1, updated_at = NOW()
+                        WHERE bucket_id = $2 AND created_by = $3::uuid
+                        RETURNING id
+                    ) SELECT COUNT(*) FROM updated
+                    """,
+                    target_uuid, source_uuid, str(user_uuid),
+                )
+                await connection.execute(
+                    "UPDATE buckets SET is_deleted = TRUE, updated_at = NOW() WHERE id = $1 AND user_id = $2",
+                    source_uuid, user_uuid,
+                )
+        return {"documents_moved": int(moved or 0)}
 
     async def rerank_query_documents(
         self,

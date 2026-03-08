@@ -355,6 +355,8 @@ class KnowledgeService:
         parent_bucket_id: str | None,
         icon_emoji: str | None,
         color_hex: str | None,
+        max_depth: int = -1,
+        auto_classify: bool = True,
     ) -> Dict[str, Any]:
         return await self._persistence.create_bucket(
             owner_id=owner_id,
@@ -363,6 +365,8 @@ class KnowledgeService:
             parent_bucket_id=parent_bucket_id,
             icon_emoji=icon_emoji,
             color_hex=color_hex,
+            max_depth=max_depth,
+            auto_classify=auto_classify,
         )
 
     async def move_bucket(
@@ -722,3 +726,147 @@ class KnowledgeService:
             "sources": [],
             "input": message,
         }
+
+    # ------------------------------------------------------------------
+    # KB Settings
+    # ------------------------------------------------------------------
+
+    async def get_kb_settings(self, owner_id: str) -> Dict[str, Any]:
+        return await self._persistence.get_kb_settings(owner_id)
+
+    async def update_kb_settings(self, owner_id: str, **updates: Any) -> Dict[str, Any]:
+        return await self._persistence.update_kb_settings(owner_id, **updates)
+
+    # ------------------------------------------------------------------
+    # Bucket extras
+    # ------------------------------------------------------------------
+
+    async def update_bucket(
+        self,
+        *,
+        owner_id: str,
+        bucket_id: str,
+        name: str | None = None,
+        description: str | None = None,
+        icon_emoji: str | None = None,
+        color_hex: str | None = None,
+        max_depth: int | None = None,
+        auto_classify: bool | None = None,
+    ) -> Dict[str, Any]:
+        return await self._persistence.update_bucket(
+            owner_id=owner_id,
+            bucket_id=bucket_id,
+            name=name,
+            description=description,
+            icon_emoji=icon_emoji,
+            color_hex=color_hex,
+            max_depth=max_depth,
+            auto_classify=auto_classify,
+        )
+
+    async def merge_buckets(
+        self,
+        *,
+        owner_id: str,
+        source_bucket_id: str,
+        target_bucket_id: str,
+    ) -> Dict[str, int]:
+        return await self._persistence.merge_buckets(
+            owner_id=owner_id,
+            source_bucket_id=source_bucket_id,
+            target_bucket_id=target_bucket_id,
+        )
+
+    # ------------------------------------------------------------------
+    # Items
+    # ------------------------------------------------------------------
+
+    async def list_items(
+        self,
+        owner_id: str,
+        *,
+        bucket_id: str | None = None,
+        content_type: str | None = None,
+        classified_by: str | None = None,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> Dict[str, Any]:
+        return await self._persistence.list_items_for_user(
+            owner_id,
+            bucket_id=bucket_id,
+            content_type=content_type,
+            classified_by=classified_by,
+            offset=offset,
+            limit=limit,
+        )
+
+    async def get_item(self, owner_id: str, item_id: str) -> Dict[str, Any] | None:
+        return await self._persistence.get_item(owner_id, item_id)
+
+    async def move_item(
+        self,
+        owner_id: str,
+        item_id: str,
+        bucket_id: str,
+    ) -> Dict[str, Any]:
+        return await self._persistence.move_item(owner_id, item_id, bucket_id)
+
+    async def delete_item(self, owner_id: str, item_id: str) -> bool:
+        return await self._persistence.delete_item(owner_id, item_id)
+
+    # ------------------------------------------------------------------
+    # Async ingest jobs
+    # ------------------------------------------------------------------
+
+    async def create_ingest_job(
+        self, owner_id: str, item_id: str | None = None
+    ) -> Dict[str, Any]:
+        return await self._persistence.create_ingest_job(owner_id, item_id)
+
+    async def update_ingest_job(self, job_id: str, **kwargs: Any) -> None:
+        await self._persistence.update_ingest_job(job_id, **kwargs)
+
+    async def get_ingest_job(
+        self, owner_id: str, job_id: str
+    ) -> Dict[str, Any] | None:
+        return await self._persistence.get_ingest_job(owner_id, job_id)
+
+    async def list_ingest_jobs(
+        self, owner_id: str, *, offset: int = 0, limit: int = 50
+    ) -> Dict[str, Any]:
+        return await self._persistence.list_ingest_jobs(owner_id, offset=offset, limit=limit)
+
+    # ------------------------------------------------------------------
+    # AI bucket suggestions
+    # ------------------------------------------------------------------
+
+    async def list_suggestions(
+        self,
+        owner_id: str,
+        *,
+        status: str = "pending",
+        offset: int = 0,
+        limit: int = 50,
+    ) -> Dict[str, Any]:
+        return await self._persistence.list_suggestions(
+            owner_id, status=status, offset=offset, limit=limit
+        )
+
+    async def approve_suggestion(
+        self,
+        owner_id: str,
+        suggestion_id: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> Dict[str, Any]:
+        return await self._persistence.approve_suggestion(
+            owner_id, suggestion_id, name=name, description=description
+        )
+
+    async def reject_suggestion(
+        self,
+        owner_id: str,
+        suggestion_id: str,
+    ) -> None:
+        return await self._persistence.reject_suggestion(owner_id, suggestion_id)

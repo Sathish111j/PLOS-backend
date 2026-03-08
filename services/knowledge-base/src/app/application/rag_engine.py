@@ -86,6 +86,17 @@ class RAGEngine:
         """
         t0 = time.perf_counter()
 
+        # Step 0a -- bucket creation intent detection
+        intent = self._detect_bucket_creation_intent(message)
+        if intent:
+            action_result = await self._handle_bucket_creation_intent(
+                owner_id=owner_id,
+                bucket_name=intent,
+                message=message,
+            )
+            if action_result:
+                return action_result
+
         # Resolve model name early so the session record stores the real model.
         task_config = get_task_config(TaskType.RAG_GENERATION)
 
@@ -593,6 +604,109 @@ class RAGEngine:
         avg_score = sum(c.get("score", 0.0) for c in chunks[:5]) / min(len(chunks), 5)
         # Weighted blend: top chunk matters most
         return round(min(0.7 * top_score + 0.3 * avg_score, 1.0), 4)
+
+    # ------------------------------------------------------------------
+    #  Bucket creation intent detection
+    # ------------------------------------------------------------------
+
+    _BUCKET_CREATION_PATTERNS: list[re.Pattern[str]] = [
+        re.compile(
+            r"(?:create|add|make|set\s+up)\s+(?:a\s+)?(?:new\s+)?bucket\s+(?:called|named)\s+[\"']?([^\"',.!?\n]+?)[\"']?\s*$",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r"new\s+bucket\s+(?:called|named)\s+[\"']?([^\"',.!?\n]+?)[\"']?\s*$",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r"(?:create|add)\s+[\"']([^\"']+)[\"']\s+(?:bucket|category|folder)",
+            re.IGNORECASE,
+        ),
+    ]
+
+    def _detect_bucket_creation_intent(self, message: str) -> str | None:
+        """Return the proposed bucket name if the message is a bucket creation request."""
+        for pattern in self._BUCKET_CREATION_PATTERNS:
+            m = pattern.search(message.strip())
+            if m:
+                name = m.group(1).strip(" '\"\t")
+                if name:
+                    return name
+        return None
+
+    async def _handle_bucket_creation_intent(
+        self,
+        *,
+        owner_id: str,
+        bucket_name: str,
+        message: str,
+    ) -> dict[str, Any] | None:
+        """Create the bucket or queue a suggestion, then return a structured response.
+
+        Returns None if intent detection should be ignored (e.g. on error),
+        in which case normal RAG answering proceeds.
+        """
+        try:
+            settings = await self._persistence.get_kb_settings(owner_id)
+            auto_create = bool(settings.get("auto_create", True))
+
+            if auto_create:
+                bucket = await self._persistence.create_bucket(
+                    owner_id=owner_id,
+                    name=bucket_name,
+                    description="Created via chat",
+                    parent_bucket_id=None,
+                    icon_emoji=None,
+                    color_hex=None,
+                )
+                return {
+                    "answer": f"Done! I created a new bucket called **{bucket_name}** for you.",
+                    "sources": [],
+                    "session_id": None,
+                    "model": "intent-handler",
+                    "token_count": 0,
+                    "latency_ms": 0,
+                    "confidence": 1.0,
+                    "action": "bucket_created",
+                    "action_data": {
+                        "bucket_id": bucket["bucket_id"],
+                        "bucket_name": bucket["name"],
+                    },
+                }
+
+            # auto_create is off — create a suggestion for user to approve
+            suggestion = await self._persistence.create_suggestion(
+                owner_id=owner_id,
+                proposed_name=bucket_name,
+                proposed_parent_id=None,
+                proposed_description="Suggested via chat",
+                triggered_by_item_id=None,
+                triggered_by_job_id=None,
+                ai_reasoning=f"User requested bucket creation in chat: {message[:200]}",
+            )
+            return {
+                "answer": (
+                    f"I've added a suggestion to create a bucket called **{bucket_name}**. "
+                    "You can approve or reject it from your suggestions queue."
+                ),
+                "sources": [],
+                "session_id": None,
+                "model": "intent-handler",
+                "token_count": 0,
+                "latency_ms": 0,
+                "confidence": 1.0,
+                "action": "bucket_suggestion_created",
+                "action_data": {
+                    "suggestion_id": suggestion["suggestion_id"],
+                    "proposed_name": bucket_name,
+                },
+            }
+        except Exception as exc:
+            logger.warning(
+                "[RAG] Bucket creation intent handler failed, falling back to RAG",
+                extra={"error": str(exc)},
+            )
+            return None
 
 
 # ------------------------------------------------------------------
