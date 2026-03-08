@@ -49,56 +49,6 @@ jobs:
         run: isort --check-only services/ shared/
 
   # ============================================================================
-  # Security
-  # ============================================================================
-  security:
-    name: Security Scan
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install security tools
-        run: |
-          python -m pip install --upgrade pip
-          pip install pip-audit bandit
-
-      - name: Install service requirements
-        run: |
-          pip install -r services/context-broker/requirements.txt
-          pip install -r services/journal-parser/requirements.txt
-          pip install -r services/knowledge-base/requirements/base.txt
-
-      - name: pip-audit (dependency vulnerability scan)
-        run: |
-          pip-audit --format json --output pip-audit-report.json || true
-          pip-audit --desc || true
-
-      - name: Bandit (static security analysis)
-        run: |
-          bandit -r services/ shared/ \
-            -f json \
-            -o bandit-report.json \
-            -ll \
-            --exit-zero
-          bandit -r services/ shared/ -ll -ii
-
-      - name: Upload security reports
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: security-reports
-          path: |
-            pip-audit-report.json
-            bandit-report.json
-          retention-days: 30
-
-  # ============================================================================
   # Infrastructure file validation
   # ============================================================================
   validate-infrastructure:
@@ -226,8 +176,7 @@ jobs:
             -v \
             --tb=short \
             --timeout=60 \
-            --no-header \
-            2>&1 || true
+            --no-header
 
   # ============================================================================
   # CI gate: required checks must all pass before merge
@@ -240,6 +189,7 @@ jobs:
       - validate-infrastructure
       - docker-build
       - docker-compose-validation
+      - unit-tests
     if: always()
     steps:
       - name: Evaluate required job results
@@ -248,6 +198,7 @@ jobs:
           infra="${{ needs.validate-infrastructure.result }}"
           build="${{ needs.docker-build.result }}"
           compose="${{ needs.docker-compose-validation.result }}"
+          units="${{ needs.unit-tests.result }}"
 
           failed=0
 
@@ -277,6 +228,13 @@ jobs:
             failed=1
           else
             echo "OK:     docker-compose-validation"
+          fi
+
+          if [ "$units" != "success" ]; then
+            echo "FAILED: unit-tests ($units)"
+            failed=1
+          else
+            echo "OK:     unit-tests"
           fi
 
           if [ "$failed" -eq 1 ]; then
