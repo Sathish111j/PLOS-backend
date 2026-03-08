@@ -35,46 +35,46 @@ graph TD
     subgraph Client
     C[Client Request]
     end
-    C --> G[Kong API Gateway<br/>Port: 8000<br/>Reverse proxy, rate limiting, routing]
+    C --> G["Kong API Gateway - Port 8000 - Reverse proxy, rate limiting, routing"]
     subgraph Services
-    G --> CB[Context Broker<br/>Port: 8001<br/>User state, context windows, session cache]
-    G --> JP[Journal Parser<br/>Port: 8002<br/>5-stage Gemini AI extraction, auth, JWT]
-    G --> KB[Knowledge Base<br/>Port: 8003<br/>Document ingestion, hybrid search, RAG chat, knowledge graph]
+    G --> CB["Context Broker - Port 8001 - User state, context windows, session cache"]
+    G --> JP["Journal Parser - Port 8002 - 5-stage Gemini AI extraction, auth, JWT"]
+    G --> KB["Knowledge Base - Port 8003 - Document ingestion, hybrid search, RAG chat, knowledge graph"]
     end
-    subgraph Journal AI Pipeline
-    JP --> P1[Stage 1: Preprocessing - Text cleanup, spell correction, time normalization]
-    P1 --> P2[Stage 2: Context Retrieval - User baseline, patterns, relationship state]
-    P2 --> P3[Stage 3: Gemini Extraction - AI-powered extraction, gap detection]
-    P3 --> P4[Stage 4: Storage - Normalized relational storage]
-    P3 --> Gap[Gap Resolution Loop - Interactive clarification]
+    subgraph "Journal AI Pipeline"
+    JP --> P1["Stage 1: Preprocessing - Text cleanup, spell correction, time normalization"]
+    P1 --> P2["Stage 2: Context Retrieval - User baseline, patterns, relationship state"]
+    P2 --> P3["Stage 3: Gemini Extraction - AI-powered extraction, gap detection"]
+    P3 --> P4["Stage 4: Storage - Normalized relational storage"]
+    P3 --> Gap["Gap Resolution Loop - Interactive clarification"]
     Gap --> P3
     end
-    subgraph Hybrid Search
-    KB --> S1[Tier 1: Semantic (Qdrant HNSW, 60%)]
-    KB --> S2[Tier 2: Full-Text (PostgreSQL tsvector, 30%)]
-    KB --> S3[Tier 3: Typo-Tolerant (Meilisearch fuzzy, 10%)]
-    S1 --> F[RRF Fusion (k=60)]
+    subgraph "Hybrid Search"
+    KB --> S1["Tier 1: Semantic - Qdrant HNSW 60%"]
+    KB --> S2["Tier 2: Full-Text - PostgreSQL tsvector 30%"]
+    KB --> S3["Tier 3: Typo-Tolerant - Meilisearch fuzzy 10%"]
+    S1 --> F["RRF Fusion k=60"]
     S2 --> F
     S3 --> F
-    F --> R[Cross-Encoder Reranking + MMR Diversity]
+    F --> R["Cross-Encoder Reranking + MMR Diversity"]
     end
-    subgraph Knowledge Graph
-    KB --> E[NER Entity Extraction - Disambiguation, co-occurrence]
-    E --> P[Path Finding - Centrality analysis, timeline]
+    subgraph "Knowledge Graph"
+    KB --> E["NER Entity Extraction - Disambiguation, co-occurrence"]
+    E --> P["Path Finding - Centrality analysis, timeline"]
     end
     subgraph Infrastructure
-    CB --> DB[PostgreSQL - Primary data store]
+    CB --> DB["PostgreSQL - Primary data store"]
     JP --> DB
     KB --> DB
-    CB --> R[Redis - Cache, session store]
+    CB --> R["Redis - Cache, session store"]
     JP --> R
     KB --> R
-    CB --> K[Kafka - Async event streaming]
+    CB --> K["Kafka - Async event streaming"]
     JP --> K
     KB --> K
-    KB --> Q[Qdrant - Vector embeddings (768-dim)]
-    KB --> M[Meilisearch - Typo-tolerant search]
-    KB --> Min[MinIO - Object storage]
+    KB --> Q["Qdrant - Vector embeddings 768-dim"]
+    KB --> M["Meilisearch - Typo-tolerant search"]
+    KB --> Min["MinIO - Object storage"]
     end
 ```
 
