@@ -23,6 +23,7 @@ jobs:
     strategy:
       matrix:
         service:
+          - api-gateway
           - context-broker
           - journal-parser
           - knowledge-base
