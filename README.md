@@ -30,31 +30,52 @@ Write a journal entry in plain English. PLOS extracts your sleep, mood, calories
 
 ## Architecture
 
-```
-                        ┌─────────────────────┐
-  Client Request  ──▶   │    Kong API Gateway  │  :8000
-                        └──────────┬──────────┘
-                                   │
-              ┌────────────────────┼──────────────────────┐
-              │                    │                       │
-              ▼                    ▼                       ▼
-   ┌──────────────────┐  ┌─────────────────┐  ┌────────────────────┐
-   │  Context Broker  │  │ Journal Parser  │  │  Knowledge Base    │
-   │     :8001        │  │     :8002       │  │     :8003          │
-   │                  │  │                 │  │                    │
-   │ User state       │  │ Gemini AI       │  │ Ingest + search    │
-   │ Context windows  │  │ extraction      │  │ RAG chat           │
-   │ Session cache    │  │ Auth + JWT      │  │ Knowledge graph    │
-   └──────┬───────────┘  └─────────┬───────┘  └─────────┬──────────┘
-          │                        │                     │
-          └───────────────┬────────┘─────────────────────┘
-                          │
-              ┌───────────▼────────────────────────┐
-              │           Shared Infrastructure     │
-              │                                     │
-              │  PostgreSQL  Redis  Kafka            │
-              │  Qdrant  Meilisearch  MinIO          │
-              └─────────────────────────────────────┘
+```mermaid
+graph TD
+    subgraph Client
+    C[Client Request]
+    end
+    C --> G[Kong API Gateway<br/>Port: 8000<br/>Reverse proxy, rate limiting, routing]
+    subgraph Services
+    G --> CB[Context Broker<br/>Port: 8001<br/>User state, context windows, session cache]
+    G --> JP[Journal Parser<br/>Port: 8002<br/>5-stage Gemini AI extraction, auth, JWT]
+    G --> KB[Knowledge Base<br/>Port: 8003<br/>Document ingestion, hybrid search, RAG chat, knowledge graph]
+    end
+    subgraph "Journal AI Pipeline"
+    JP --> P1[Stage 1: Preprocessing<br/>Text cleanup, spell correction, time normalization]
+    P1 --> P2[Stage 2: Context Retrieval<br/>User baseline, patterns, relationship state]
+    P2 --> P3[Stage 3: Gemini Extraction<br/>AI-powered extraction, gap detection]
+    P3 --> P4[Stage 4: Storage<br/>Normalized relational storage]
+    P3 --> Gap[Gap Resolution Loop<br/>Interactive clarification]
+    Gap --> P3
+    end
+    subgraph "Hybrid Search"
+    KB --> S1[Tier 1: Semantic<br/>Qdrant HNSW (60%)]
+    KB --> S2[Tier 2: Full-Text<br/>PostgreSQL tsvector (30%)]
+    KB --> S3[Tier 3: Typo-Tolerant<br/>Meilisearch fuzzy (10%)]
+    S1 --> F[RRF Fusion<br/>k=60]
+    S2 --> F
+    S3 --> F
+    F --> R[Cross-Encoder Reranking<br/>MMR Diversity]
+    end
+    subgraph "Knowledge Graph"
+    KB --> E[NER Entity Extraction<br/>Disambiguation, co-occurrence]
+    E --> P[Path Finding<br/>Centrality analysis, timeline]
+    end
+    subgraph Infrastructure
+    CB --> DB[PostgreSQL<br/>Primary data store]
+    JP --> DB
+    KB --> DB
+    CB --> R[Redis<br/>Cache, session store]
+    JP --> R
+    KB --> R
+    CB --> K[Kafka<br/>Async event streaming]
+    JP --> K
+    KB --> K
+    KB --> Q[Qdrant<br/>Vector embeddings (768-dim)]
+    KB --> M[Meilisearch<br/>Typo-tolerant search]
+    KB --> Min[MinIO<br/>Object storage]
+    end
 ```
 
 ### Services
