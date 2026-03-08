@@ -24,7 +24,6 @@ POSTGRES_DB="${POSTGRES_DB:-plos}"
 REDIS_PASSWORD="${REDIS_PASSWORD:-plos_redis_secure_2025}"
 
 COMPOSE_FILE="docker-compose.yml"
-TIMEOUT_INFRA=120
 TIMEOUT_DB=90
 
 cleanup() {
@@ -78,8 +77,16 @@ for i in $(seq 1 60); do
 done
 
 # ---------------------------------------------------------------------------
-# 4. Apply schema migrations
+# 4. Apply base schema (init.sql) then incremental migrations
 # ---------------------------------------------------------------------------
+echo "--- Applying base schema (init.sql) ---"
+docker compose -f "$COMPOSE_FILE" exec -T supabase-db \
+    psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+    < infrastructure/database/init.sql || {
+        echo "ERROR: init.sql failed"
+        exit 1
+    }
+
 echo "--- Applying database migrations ---"
 if [ -f "scripts/setup/migrate.sh" ]; then
     bash scripts/setup/migrate.sh || {
