@@ -29,11 +29,16 @@ fi
 # ---- Test 2: Supabase Studio ----
 echo ""
 echo "[2/9] Supabase Studio..."
-STUDIO_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 http://localhost:3000/api/profile 2>/dev/null || echo "000")
-if [ "$STUDIO_CODE" = "200" ]; then
-    echo "  Status: OK"
+if docker inspect plos-supabase-studio &>/dev/null 2>&1; then
+    STUDIO_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 http://localhost:3000/api/profile 2>/dev/null || echo "000")
+    if [ "$STUDIO_CODE" = "200" ]; then
+        echo "  Status: OK"
+    else
+        echo "  WARNING: Studio may still be starting (HTTP $STUDIO_CODE)"
+        WARNING_COUNT=$((WARNING_COUNT + 1))
+    fi
 else
-    echo "  WARNING: Studio may still be starting (HTTP $STUDIO_CODE)"
+    echo "  SKIPPED: Studio not started (start with --profile studio)"
     WARNING_COUNT=$((WARNING_COUNT + 1))
 fi
 
@@ -103,33 +108,42 @@ fi
 # ---- Test 7: Prometheus Monitoring ----
 echo ""
 echo "[7/9] Prometheus Monitoring..."
-PROM_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 http://localhost:9090/-/healthy 2>/dev/null || echo "000")
-if [ "$PROM_CODE" = "200" ]; then
-    echo "  Status: Healthy"
+if docker inspect plos-prometheus &>/dev/null 2>&1; then
+    PROM_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 http://localhost:9090/-/healthy 2>/dev/null || echo "000")
+    if [ "$PROM_CODE" = "200" ]; then
+        echo "  Status: Healthy"
+    else
+        echo "  ERROR: Prometheus not healthy (HTTP $PROM_CODE)"
+        ERROR_COUNT=$((ERROR_COUNT + 1))
+    fi
 else
-    echo "  ERROR: Prometheus not healthy (HTTP $PROM_CODE)"
-    ERROR_COUNT=$((ERROR_COUNT + 1))
+    echo "  SKIPPED: Prometheus not started (start with --profile monitoring)"
+    WARNING_COUNT=$((WARNING_COUNT + 1))
 fi
 
 # ---- Test 8: Grafana Dashboard ----
 echo ""
 echo "[8/9] Grafana Dashboard..."
-GRAFANA_HEALTHY=false
-for attempt in 1 2 3 4 5; do
-    GRAFANA_RESP=$(curl -s --max-time 5 http://localhost:3333/api/health 2>/dev/null || true)
-    GRAFANA_DB=$(echo "$GRAFANA_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('database',''))" 2>/dev/null || true)
-    if [ "$GRAFANA_DB" = "ok" ]; then
-        echo "  Database: OK"
-        GRAFANA_HEALTHY=true
-        break
+if docker inspect plos-grafana &>/dev/null 2>&1; then
+    GRAFANA_HEALTHY=false
+    for attempt in 1 2 3 4 5; do
+        GRAFANA_RESP=$(curl -s --max-time 5 http://localhost:3333/api/health 2>/dev/null || true)
+        GRAFANA_DB=$(echo "$GRAFANA_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('database',''))" 2>/dev/null || true)
+        if [ "$GRAFANA_DB" = "ok" ]; then
+            echo "  Database: OK"
+            GRAFANA_HEALTHY=true
+            break
+        fi
+        echo "  WARNING: Grafana not ready (attempt $attempt/5)"
+        sleep 5
+    done
+    if [ "$GRAFANA_HEALTHY" = false ]; then
+        echo "  ERROR: Grafana health check failed"
+        ERROR_COUNT=$((ERROR_COUNT + 1))
     fi
-    echo "  WARNING: Grafana not ready (attempt $attempt/5)"
-    sleep 5
-done
-
-if [ "$GRAFANA_HEALTHY" = false ]; then
-    echo "  ERROR: Grafana health check failed"
-    ERROR_COUNT=$((ERROR_COUNT + 1))
+else
+    echo "  SKIPPED: Grafana not started (start with --profile monitoring)"
+    WARNING_COUNT=$((WARNING_COUNT + 1))
 fi
 
 # ---- Test 9: Knowledge Base Service ----

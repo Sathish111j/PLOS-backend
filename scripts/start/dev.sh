@@ -1,6 +1,5 @@
 #!/bin/bash
 # PLOS Backend - Development Start Script (Linux/macOS)
-# Equivalent of scripts/start/start-all.ps1
 
 set -euo pipefail
 
@@ -128,8 +127,8 @@ if [[ ! -f "$SEED_FILE" ]]; then
     warn "Seed file not found: $SEED_FILE -- skipping seed."
 else
     info "Seeding the database..."
-    cat "$SEED_FILE" | docker exec -i "$DB_CONTAINER" \
-        psql -v ON_ERROR_STOP=1 -U "$PG_USER" -d "$PG_DB" > /dev/null
+    docker exec -i "$DB_CONTAINER" \
+        psql -v ON_ERROR_STOP=1 -U "$PG_USER" -d "$PG_DB" < "$SEED_FILE" > /dev/null
     ok "Database seeded."
 fi
 
@@ -192,5 +191,8 @@ echo "    Journal Parser:  http://localhost:8002"
 echo "    Knowledge Base:  http://localhost:8003"
 echo ""
 echo "  Verify all services:"
-echo "    ./scripts/verify/verify.sh"
+echo "    ./scripts/verify/verify-infrastructure.sh"
+echo ""
+echo "  End-to-end smoke test:"
+echo "    ./scripts/verify/smoke-e2e.sh"
 echo ""

@@ -1,388 +1,275 @@
-<p align="center">
-  <img src="https://img.shields.io/badge/PLOS-Personal%20Life%20Management-blueviolet?style=for-the-badge" alt="PLOS"/>
-</p>
+# PLOS Backend
 
-# PLOS - Personal Life Management System
+Personal Life Operating System — an AI-powered backend that parses natural-language journal entries into structured life data, stores it across a multi-store persistence layer, and exposes it through a microservice API.
 
-<p align="center">
-  <strong>An AI-powered platform that transforms your daily journal entries into structured life data, revealing patterns and insights about your habits, health, and happiness.</strong>
-</p>
-
-<p align="center">
-  <img src="https://img.shields.io/badge/Status-Active%20Development-brightgreen?style=flat-square" alt="Status"/>
-  <img src="https://img.shields.io/badge/Phase-1%20Complete-blue?style=flat-square" alt="Phase"/>
-  <img src="https://img.shields.io/badge/AI-Gemini%202.5-orange?style=flat-square" alt="AI"/>
-  <img src="https://img.shields.io/badge/Backend-Python%20FastAPI-green?style=flat-square" alt="Backend"/>
-</p>
+[![CI](https://github.com/Sathish111j/PLOS-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/Sathish111j/PLOS-backend/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/Python-3.11-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.109-green)
+![License](https://img.shields.io/badge/License-GPL--3.0-lightgrey)
 
 ---
 
-## The Vision
-
-**What if your daily journal entries could become a powerful database about your life?**
-
-PLOS transforms the way you understand yourself. Write freely about your day - your sleep, workouts, meals, mood, work, relationships - and watch as AI extracts, organizes, and reveals patterns you never knew existed.
-
-> _"I slept 7 hours, went for a morning run, had coffee with Sarah, worked on the API project for 4 hours, feeling pretty good today - maybe 8/10"_
-
-This single sentence becomes **structured data** across 9 different life dimensions - sleep quality, exercise metrics, social connections, work productivity, and mood tracking - all searchable, analyzable, and ready to power personalized insights.
-
----
-
-## What PLOS Does
-
-### Turn Chaos Into Clarity
-
-| You Write                               | PLOS Extracts                                    |
-| --------------------------------------- | ------------------------------------------------ |
-| "Slept around 7 hours, woke up at 6am"  | Sleep: 7h, Wake: 06:00, Bed: 23:00               |
-| "45 min morning jog, felt great"        | Exercise: Running, 45min, Morning, High Energy   |
-| "Had oatmeal and coffee for breakfast"  | Nutrition: Oatmeal + Coffee, Breakfast, ~300 cal |
-| "Mood is 8/10, productive day"          | Mood: 8/10, Morning, High Confidence             |
-| "Lunch with Sarah at the Italian place" | Social: Sarah, Meal, Restaurant, Midday          |
-| "4 hours coding on the API project"     | Work: Coding, 4h, API Project, Deep Focus        |
-
-### Discover Hidden Patterns
-
-**Ever wondered why some days feel magical while others drag on?** PLOS uncovers the invisible connections in your life data.
-
-- **Sleep vs Mood Correlation**: See how your sleep quality affects next-day mood
-- **Exercise Impact**: Track how workouts influence energy and productivity
-- **Social Wellness**: Understand the relationship between social time and happiness
-- **Work Patterns**: Identify your most productive hours and contexts
-- **Nutrition Insights**: Connect eating habits with energy levels
-
-**Your journal entries aren't just memories - they're clues to your personal algorithm.** What patterns hide in your data that could revolutionize how you live, work, and connect?
-
-### From Journal to Life Intelligence
-
-**Write naturally, discover profoundly.** Whether you pour your thoughts into detailed journal entries or simply input daily data points, PLOS organizes everything and reveals patterns you never knew existed.
-
-**Journal Writing → Hidden Patterns:**
-
-- _"Slept 7 hours, morning run, coffee with Sarah, 4 hours coding, feeling great (8/10)"_
-- **PLOS Discovers:** This exact combination predicts your "perfect day" 89% of the time
-
-**Daily Data Input → Life Insights:**
-
-- Quick entries: Sleep: 7h, Exercise: 45min run, Mood: 8/10, Work: 4h coding
-- **PLOS Reveals:** Your creative output spikes 3x after morning cardio + coffee routine
-
-**The magic happens when PLOS connects the dots across all your data - finding correlations between sleep, exercise, social connections, work productivity, and happiness that transform how you understand yourself.**
-
-### Build Your Personal Data Layer
-
-Capture your daily signals and let AI surface exactly what matters, when it matters.
-
----
-
-## Product Roadmap
-
-<table>
-<tr>
-<td width="50%">
-
-### Phase 1: Journal Intelligence
-
-**Status: COMPLETE**
-
-The foundation - AI-powered journal parsing that understands natural language and extracts structured life data.
-
-**Delivered:**
-
-- Natural language journal processing
-- 9 extraction categories (sleep, mood, exercise, nutrition, work, social, health, activities, locations, notes)
-- Confidence scoring and quality assessment
-- PostgreSQL storage with full history
-- Real-time processing via Kafka events
-- Prometheus metrics and monitoring
-
-</td>
-<td width="50%">
-
-### Phase 2: Analytics & Reporting
-
-**Status: IN PROGRESS**
-
-Build robust reporting on top of journal and context data.
-
-**Delivered:**
-
-- Time-series aggregation for journal metrics
-- Reporting endpoints for trends and overview
-- Infrastructure and gateway validation coverage
-- End-to-end checks for analytics correctness
-
-</td>
-</tr>
-<tr>
-<td width="50%">
-
-### Phase 3: Personal AI Assistant
-
-**Status: NEXT UP**
-
-Your AI companion that knows you - personalized recommendations, goal tracking, daily briefings.
-
-**Planned:**
-
-- Daily personalized briefings
-- Goal setting and progress tracking
-- Smart task management
-- Habit formation support
-- Personalized insights and nudges
-- Calendar integration
-
-</td>
-<td width="50%">
-
-### Phase 4: Life Analytics Dashboard
-
-**Status: PLANNED**
-
-Visualize your life patterns with beautiful, insightful dashboards.
-
-**Planned:**
-
-- Interactive life metrics dashboard
-- Time-series pattern visualization
-- Correlation discovery engine
-- Weekly/monthly life reports
-- Trend predictions
-- Comparative analytics
-
-</td>
-</tr>
-</table>
-
----
-
-## Progress Tracker
-
-### Overall Completion: 35%
+## Architecture
 
 ```
-Phase 1: Journal Parsing     [####################] 100%
-Phase 2: Analytics & Reports [########............]  40%
-Phase 3: AI Assistant        [....................]   0%
-Phase 4: Life Analytics      [....................]   0%
+                        ┌─────────────────────┐
+  Client Request  ──▶   │    Kong API Gateway  │  :8000
+                        └──────────┬──────────┘
+                                   │
+              ┌────────────────────┼──────────────────────┐
+              │                    │                       │
+              ▼                    ▼                       ▼
+   ┌──────────────────┐  ┌─────────────────┐  ┌────────────────────┐
+   │  Context Broker  │  │ Journal Parser  │  │  Knowledge Base    │
+   │     :8001        │  │     :8002       │  │     :8003          │
+   │                  │  │                 │  │                    │
+   │ User state       │  │ Gemini AI       │  │ Document ingestion │
+   │ Context windows  │  │ extraction      │  │ Hybrid search      │
+   │ Session cache    │  │ Auth + JWT      │  │ Graph relations    │
+   └──────┬───────────┘  └─────────┬───────┘  └─────────┬──────────┘
+          │                        │                     │
+          └───────────────┬────────┘─────────────────────┘
+                          │
+              ┌───────────▼────────────────────────┐
+              │           Shared Infrastructure     │
+              │                                     │
+              │  PostgreSQL  Redis  Kafka            │
+              │  Qdrant  Meilisearch  MinIO          │
+              └─────────────────────────────────────┘
 ```
 
-### Detailed Status
+### Services
 
-| Component           | Status      | Description                          |
-| ------------------- | ----------- | ------------------------------------ |
-| Journal Parser      | Done        | AI extraction for 11 life categories |
-| Context Broker      | Done        | User state and context management    |
-| Reports API         | In Progress | Time-series and trend endpoints      |
-| AI Assistant Core   | Planned     | Personalized recommendations engine  |
-| Goal Tracking       | Planned     | Goal setting and progress system     |
-| Task Management     | Planned     | Smart task prioritization            |
-| Analytics Dashboard | Planned     | Life metrics visualization           |
-| Mobile App          | Future      | iOS/Android companion app            |
-
----
-
-## Current Capabilities
-
-### Journal Processing (Live)
-
-Process any journal entry and get structured data:
-
-```
-Input:  "Woke at 6am after 7.5h sleep. 45min morning run.
-         Oatmeal breakfast. 5h coding at work. Lunch with
-         Sarah. Mood 8/10. Weight 74.5kg."
-
-Output:
-  Sleep:      7.5 hours, wake 06:00, quality: good
-  Exercise:   Running, 45 min, morning, moderate intensity
-  Nutrition:  Oatmeal (breakfast), Lunch (social meal)
-  Work:       Coding, 5 hours, deep focus session
-  Social:     Sarah, meal together, midday
-  Mood:       8/10, morning assessment
-  Health:     Weight 74.5kg
-  Activities: 4 distinct activities tracked
-```
-
-### Extraction Categories
-
-| Category   | What It Captures                        |
-| ---------- | --------------------------------------- |
-| Sleep      | Duration, quality, wake/bed times, naps |
-| Mood       | Score, time of day, context, confidence |
-| Exercise   | Type, duration, intensity, calories     |
-| Nutrition  | Meals, items, calories, timing          |
-| Work       | Tasks, duration, projects, focus level  |
-| Social     | People, interaction type, context       |
-| Health     | Vitals, symptoms, medications           |
-| Activities | Any tracked activity with metadata      |
-| Locations  | Places visited with context             |
-| Weather    | Conditions affecting the day            |
-| Notes      | Free-form observations and thoughts     |
-
----
-
-## Technical Excellence
-
-### Built for Scale and Privacy
-
-- **Your Data, Your Control**: Self-hosted, no cloud dependencies for personal data
-- **AI-Powered**: Google Gemini 2.5 for intelligent extraction
-- **Real-Time Processing**: Kafka event streaming for instant updates
-- **Production Ready**: Docker containerized, health monitored, metrics collected
-
-### System Architecture
-
-```
-User Journal Entry
-        |
-        v
-   [API Gateway] --> Authentication and Rate Limiting
-        |
-        v
-  [Journal Parser] --> Gemini AI Extraction
-        |
-        v
-    [Kafka Bus] --> Event Streaming
-        |
-     ___|___
-    |       |
-    v       v
-  [DB]   [Cache]   [Knowledge Base]
- PostgreSQL Redis   Qdrant + Meilisearch + MinIO
-```
+| Service | Port | Responsibility |
+|---|---|---|
+| `api-gateway` | 8000 | Kong DB-less reverse proxy, rate limiting, routing |
+| `context-broker` | 8001 | User context state, Redis caching, context window management |
+| `journal-parser` | 8002 | Journal ingestion, Gemini AI extraction, reporting endpoints |
+| `knowledge-base` | 8003 | Document upload/ingest, hybrid vector+keyword search, graph relations |
 
 ### Infrastructure
 
-| Component      | Technology                  | Purpose                        |
-| -------------- | --------------------------- | ------------------------------ |
-| AI Engine      | Google Gemini 2.5           | Natural language understanding |
-| API Layer      | FastAPI + Kong              | REST APIs with gateway         |
-| Database       | PostgreSQL                  | Structured life data storage   |
-| Cache          | Redis                       | Fast data access               |
-| Vector Search  | Qdrant                      | Semantic search and embeddings |
-| Full-text Search| Meilisearch                 | Typo-tolerant text search      |
-| Object Storage | MinIO                       | Document storage               |
-| Events         | Apache Kafka                | Real-time processing           |
-| Monitoring     | Prometheus + Grafana        | Observability                  |
-| Knowledge Base | FastAPI                     | Document ingestion and search  |
+| Component | Image | Purpose |
+|---|---|---|
+| PostgreSQL | `supabase/postgres:15.8.1.060` | Primary data store |
+| Redis | `redis:7-alpine` | Cache, session store |
+| Qdrant | `qdrant/qdrant:v1.12.0` | Vector embeddings (768-dim) |
+| Meilisearch | `getmeili/meilisearch:v1.11` | Typo-tolerant full-text search |
+| MinIO | `minio/minio` | Object storage for raw documents |
+| Kafka + Zookeeper | `confluentinc/cp-kafka:7.5.0` | Async event streaming |
 
 ---
 
-## Why PLOS?
+## Prerequisites
 
-### The Problem
-
-- Journals stay unstructured and unsearchable
-- Life patterns remain hidden in plain text
-- Personal data is scattered across notes and entries
-- No AI assistant truly knows YOU
-- Generic apps don't understand your context
-
-### The Solution
-
-PLOS creates a **personal data layer** that:
-
-1. **Understands** natural language about your life
-2. **Extracts** structured data from unstructured text
-3. **Stores** everything in a queryable format
-4. **Connects** patterns across time and categories
-5. **Surfaces** insights when you need them
-6. **Assists** with personalized, context-aware AI
-
----
-
-## Remaining Work
-
-### High Priority
-
-- [ ] Improve reporting and analytics coverage
-- [ ] Build "Ask your data" query interface
-- [ ] Implement daily summary generation
-- [ ] Add goal tracking system
-- [ ] Create life analytics dashboard
-
-### Medium Priority
-
-- [ ] Multi-modal input (voice, images)
-- [ ] Calendar and task integration
-- [ ] Habit tracking and streaks
-- [ ] Weekly insight reports
-- [ ] Relationship mapping
-
-### Future Vision
-
-- [ ] Mobile companion app
-- [ ] Wearable device integration
-- [ ] Predictive wellness alerts
-- [ ] AI coaching conversations
-- [ ] Export and portability tools
-
----
-
-## Why Self-Host?
-
-**Your personal data stays personal.** Unlike cloud services that mine your life patterns for profit, PLOS runs entirely on your infrastructure. Your journal entries, insights, and patterns remain private - accessible only to you.
-
-**Complete privacy with full control:** Self-host PLOS on your own hardware with Docker. Your AI learns from your data, not someone else's. Search, analyze, and visualize your life patterns without third-party access.
-
-**Ready to get started?** See the Quick Start section below for setup instructions.
+- Docker Engine >= 24 with Compose plugin >= 2.x
+- 8 GB RAM available to Docker
+- A [Google Gemini API key](https://aistudio.google.com/)
 
 ---
 
 ## Quick Start
 
-1. **Clone & Configure**: `git clone https://github.com/Sathish111j/PLOS-backend.git && cd PLOS-backend && cp .env.example .env`
-2. **Add API Keys**: Set `GEMINI_API_KEYS` in `.env` file
-3. **Launch**: `docker compose up -d`
+```bash
+git clone https://github.com/Sathish111j/PLOS-backend.git
+cd PLOS-backend
 
-For detailed setup instructions, see [docs/QUICKSTART.md](docs/QUICKSTART.md).
+# First-time setup: checks prerequisites, creates .env
+./scripts/setup/setup.sh
 
-### Docker Profiles
+# Edit .env and set GEMINI_API_KEY (required)
+# Then start the full stack
+./scripts/start/dev.sh
+```
 
-Some services require specific Docker Compose profiles to be activated:
+`dev.sh` handles: infrastructure startup → DB readiness wait → schema migrations → seed → application services → health checks.
 
-| Profile | Services | Command |
-| ------- | -------- | ------- |
-| `studio` | Supabase Studio, Supabase Meta | `docker compose --profile studio up -d` |
-| `ui` | Kafka UI, Redis Commander | `docker compose --profile ui up -d` |
-| `monitoring` | Prometheus, Grafana | `docker compose --profile monitoring up -d` |
-| `bi` | Metabase | `docker compose --profile bi up -d` |
-| `test` | Knowledge Base test suite | `docker compose --profile test up -d` |
+Verify everything is healthy:
+
+```bash
+./scripts/verify/verify-infrastructure.sh
+./scripts/verify/smoke-e2e.sh   # end-to-end API smoke test
+```
+
+---
+
+## Environment
+
+Copy `.env.example` to `.env`. Minimum required variables:
+
+```env
+GEMINI_API_KEY=your_key_here
+
+# Database (defaults work for local dev)
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=plos_db_secure_2025
+POSTGRES_DB=plos
+
+# Redis
+REDIS_PASSWORD=plos_redis_secure_2025
+
+# Meilisearch
+MEILISEARCH_MASTER_KEY=plos_meili_secure_2025
+```
+
+---
+
+## Optional Profiles
+
+Core services start by default. Optional services require explicit profiles:
+
+```bash
+docker compose --profile studio up -d      # Supabase Studio UI      :3000
+docker compose --profile monitoring up -d  # Prometheus + Grafana    :9090 / :3333
+docker compose --profile ui up -d          # Kafka UI                :18080
+docker compose --profile bi up -d          # Metabase BI             :3001
+```
+
+---
+
+## API Endpoints
+
+All traffic goes through the gateway at `:8000`. Services are also reachable directly.
+
+### Journal Parser (`/`)
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/auth/register` | Register a new user |
+| POST | `/auth/login` | Obtain JWT token |
+| POST | `/journal/entries` | Submit a journal entry for AI extraction |
+| GET | `/journal/entries` | List journal entries |
+| GET | `/journal/reports/weekly-overview` | Weekly aggregated metrics |
+| GET | `/journal/reports/daily-overview` | Daily aggregated metrics |
+| GET | `/health` | Service health |
+
+### Context Broker (`/context`)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/context/health` | Service health |
+| GET/POST | `/context/...` | User context state management |
+
+### Knowledge Base (`/kb`)
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/kb/upload` | Upload a document (multipart) |
+| POST | `/kb/ingest` | Ingest document URL |
+| GET | `/kb/documents` | List all documents |
+| GET | `/kb/buckets` | List buckets |
+| POST | `/kb/buckets` | Create a bucket |
+| GET | `/kb/search` | Hybrid semantic + keyword search |
+| GET | `/kb/health` | Service health |
+
+Interactive API docs available at each service's `/docs` path when running.
+
+---
+
+## Database Migrations
+
+Migrations are tracked in `infrastructure/database/migrations/` and applied incrementally via `schema_migrations` table.
+
+```bash
+# Apply pending migrations
+./scripts/setup/migrate.sh
+
+# Seed initial data
+./scripts/setup/seed.sh
+```
+
+The migration runner is idempotent — safe to run against an existing database.
+
+---
+
+## Repository Layout
+
+```
+PLOS-backend/
+├── services/
+│   ├── api-gateway/         Kong configuration (kong.yml, kong.conf)
+│   ├── context-broker/      FastAPI service + Dockerfile
+│   ├── journal-parser/      FastAPI service + Dockerfile
+│   └── knowledge-base/      FastAPI service + Dockerfile + split requirements/
+├── shared/
+│   ├── auth/                JWT validation, user models, auth middleware
+│   ├── gemini/              Resilient Gemini client with key rotation
+│   ├── kafka/               Producer abstraction, topic definitions
+│   ├── models/              Shared Pydantic models
+│   └── utils/               Config, logging, metrics helpers
+├── infrastructure/
+│   ├── database/            init.sql, migrations/, seed.sql
+│   ├── kafka/               init-topics.sh
+│   ├── monitoring/          prometheus.yml, alerts.yml, Grafana provisioning
+│   └── redis/               redis.conf
+├── scripts/
+│   ├── lint/lint.sh
+│   ├── setup/{setup,migrate,seed}.sh
+│   ├── start/dev.sh
+│   ├── stop/stop.sh
+│   ├── verify/{verify-infrastructure,smoke-e2e}.sh
+│   └── dev-tools/           Local debugging scripts (not for CI)
+├── tests/                   pytest integration and E2E tests
+├── docs/                    Architecture, API reference, setup guides
+├── docker-compose.yml
+├── docker-compose.dev.yml   Volume mounts for hot reload
+└── pyproject.toml           Linter config (black, ruff, isort)
+```
+
+---
+
+## Development
+
+### Linting
+
+```bash
+./scripts/lint/lint.sh          # check
+./scripts/lint/lint.sh --fix    # auto-fix
+```
+
+Runs black, ruff, and isort against `services/` and `shared/`.
+
+### Tests
+
+```bash
+pytest services/ shared/ tests/ -v
+```
+
+### Hot Reload (dev override)
+
+`docker-compose.dev.yml` mounts local source into containers. Services restart on code change:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+```
+
+### Stopping
+
+```bash
+./scripts/stop/stop.sh            # stop, keep volumes
+./scripts/stop/stop.sh --clean    # stop and delete all data
+```
 
 ---
 
 ## Documentation
 
-- [Quick Start Guide](docs/QUICKSTART.md) - Detailed setup and configuration
-- [API Reference](docs/API_REFERENCE.md) - Complete API documentation for all services
-- [Architecture Standards](docs/ARCHITECTURE_STANDARDS.md) - Service layout and development guidelines
-- [Journal Processing Flow](docs/JOURNAL_PROCESSING_FLOW.md) - Complete journal parsing pipeline
-- [Knowledge Base Features](docs/KB_FEATURES_AND_FLOWS.md) - Document management and search capabilities
-- [Hybrid Search Architecture](docs/HYBRID_SEARCH_ARCHITECTURE.md) - Technical search implementation
-- [Gemini Integration](shared/gemini/DOCUMENTATION.md) - AI service configuration and usage
+| Doc | Contents |
+|---|---|
+| [docs/QUICKSTART.md](docs/QUICKSTART.md) | Step-by-step local setup |
+| [docs/API_REFERENCE.md](docs/API_REFERENCE.md) | Full API reference for all services |
+| [docs/ARCHITECTURE_STANDARDS.md](docs/ARCHITECTURE_STANDARDS.md) | Service design conventions |
+| [docs/JOURNAL_PROCESSING_FLOW.md](docs/JOURNAL_PROCESSING_FLOW.md) | Journal → AI extraction → storage pipeline |
+| [docs/KB_FEATURES_AND_FLOWS.md](docs/KB_FEATURES_AND_FLOWS.md) | Knowledge base ingestion and search |
+| [docs/HYBRID_SEARCH_ARCHITECTURE.md](docs/HYBRID_SEARCH_ARCHITECTURE.md) | Qdrant + Meilisearch hybrid search design |
+| [shared/gemini/DOCUMENTATION.md](shared/gemini/DOCUMENTATION.md) | Gemini client configuration and key rotation |
 
 ---
 
-## The Future
+## Contributing
 
-PLOS aims to become the **operating system for your personal life** - a unified platform where:
-
-- Every thought, note, and journal entry becomes structured data
-- AI understands your patterns better than you do
-- Personalized insights help you live better
-- Your second brain is always available
-- Privacy is guaranteed through self-hosting
-
-**This is not just an app. It's your personal life infrastructure.**
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
-<p align="center">
-  <strong>Built with purpose. Designed for privacy. Powered by AI.</strong>
-</p>
-
-<p align="center">
-  <sub>Last Updated: March 2026</sub>
-</p>
+*License: GPL-3.0-or-later*

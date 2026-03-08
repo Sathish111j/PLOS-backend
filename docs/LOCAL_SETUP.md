@@ -332,7 +332,7 @@ docker-compose up -d context-broker
 ### Running Tests
 
 ```bash
-./scripts/test/test.sh
+pytest services/ shared/ tests/ -v
 ```
 
 ---
@@ -342,7 +342,7 @@ docker-compose up -d context-broker
 ### Remove All Data
 
 ```bash
-./scripts/stop/clean.sh
+./scripts/stop/stop.sh --clean
 ```
 
 This will:

@@ -123,8 +123,8 @@ docker compose down
 # Start again
 ./scripts/start/dev.sh
 
-# Clean everything
-./scripts/stop/clean.sh
+# Clean everything (removes all volumes/data)
+./scripts/stop/stop.sh --clean
 ```
 
 ---
@@ -161,8 +161,8 @@ API_GATEWAY_PORT=8080  # Instead of 8000
 
 **Need to reset everything?**
 ```bash
-./scripts/stop/clean.sh
-./scripts/setup/setup.sh
+./scripts/stop/stop.sh --clean
+./scripts/start/dev.sh
 ```
 
 ---

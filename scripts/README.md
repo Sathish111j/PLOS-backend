@@ -1,40 +1,10 @@
 # PLOS Backend Scripts
 
-## Quick Start
+All scripts require Docker and Docker Compose (plugin >= 2.x).
+Make scripts executable once after cloning:
 
-### Windows (Recommended)
-```powershell
-# Complete system startup
-./scripts/start/start-all.ps1
-
-# Or step by step:
-./scripts/start/start-infrastructure.ps1  # Start databases, cache, etc.
-./scripts/start/start-services.ps1        # Start application services
-
-# Verify everything works
-./scripts/verify/verify-infrastructure.ps1
-
-# Stop everything
-./scripts/stop/stop.ps1                  # Keep data
-./scripts/stop/stop.ps1 -CleanVolumes    # Delete all data
-```
-
-### Linux/Mac
 ```bash
-# Make scripts executable (first time only)
-chmod +x scripts/start/*.sh scripts/stop/*.sh scripts/verify/*.sh scripts/setup/*.sh scripts/test/*.sh
-
-# Setup (first time only)
-./scripts/setup/setup.sh
-
-# Start development environment
-./scripts/start/dev.sh
-
-# Verify services
-./scripts/verify/verify.sh
-
-# Clean up
-./scripts/stop/clean.sh
+chmod +x scripts/**/*.sh
 ```
 
 ---
@@ -43,267 +13,228 @@ chmod +x scripts/start/*.sh scripts/stop/*.sh scripts/verify/*.sh scripts/setup/
 
 ```
 scripts/
-   start/   Start and bootstrapping scripts
-   stop/    Stop and cleanup scripts
-   verify/  Health checks and smoke tests
-   setup/   First-time setup and seed scripts
-   test/    Test runners
-   lint/    Linting helpers
-   logs/    Test artifacts and logs
+  lint/       Code quality checks
+  setup/      First-time setup and database management
+  start/      Start the full stack
+  stop/       Stop and cleanup
+  verify/     Infrastructure health checks and smoke tests
+  dev-tools/  Developer-only debugging scripts (not for CI/production)
 ```
 
 ---
 
 ## Script Reference
 
-### Windows PowerShell Scripts (Primary)
+### lint/
 
-| Script | Purpose | When to Use |
-|--------|---------|-------------|
-| `scripts/start/start-all.ps1` | Start complete system (infrastructure + services) | First startup, after reboot |
-| `scripts/stop/stop.ps1` | Stop all services | End of day, clean state |
-| `scripts/stop/stop.ps1 -CleanVolumes` | Stop and delete all data | Fresh start needed |
-| `scripts/setup/seed.ps1` | Populate database with initial data | Optional - run after start-all.ps1 if needed |
-| `scripts/verify/verify-infrastructure.ps1` | Comprehensive verification (9 tests) | Check system health |
-| `scripts/verify/smoke-e2e.ps1` | Production smoke test via API gateway | Auth + journal + reports |
-| `scripts/lint/lint.ps1` | Run code linting | Before commits |
-| `scripts/lint/lint.ps1 -Fix` | Auto-fix linting issues | Fix formatting |
+| Script | Purpose |
+|--------|---------|
+| `lint/lint.sh` | Run all linters (black, ruff, isort). Use `--fix` to auto-correct. |
 
-### Linux/Mac Bash Scripts
-
-| Script | Purpose | Notes |
-|--------|---------|-------|
-| `scripts/setup/setup.sh` | First-time setup | Creates .env, checks Docker |
-| `scripts/start/dev.sh` | Start development environment | Equivalent to start-all.ps1 |
-| `scripts/verify/verify.sh` | Service verification | Health checks for all services |
-| `scripts/stop/clean.sh` | Clean up containers and data | Equivalent to stop.ps1 -CleanVolumes |
-| `scripts/test/test.sh` | Run tests | Runs pytest suite |
-
----
-
-## Detailed Usage
-
-### start-all.ps1
-Complete system startup with proper sequencing and health checks:
-1. Starts infrastructure (supabase-db, redis, kafka, zookeeper, prometheus, grafana, kafka-ui)
-2. Verifies infrastructure health (9 tests)
-3. Starts application services (context-broker, journal-parser, knowledge-base, api-gateway)
-4. Verifies services health (health endpoints)
-5. Database is automatically initialized via init.sql
-
-### stop.ps1
-Gracefully stops all services.
-
-```powershell
-# Stop but keep data
-./scripts/stop/stop.ps1
-
-# Stop and DELETE ALL DATA (fresh start)
-./scripts/stop/stop.ps1 -CleanVolumes
-```
-
-Use `-CleanVolumes` when:
-- Need fresh database
-- Corrupted data
-- Testing from scratch
-
-### verify-infrastructure.ps1
-Comprehensive 9-step verification:
-
-1. PostgreSQL - Connection
-2. Supabase Studio - Health status
-3. Redis - Connection, memory usage
-4. Qdrant - Health status
-5. Zookeeper - Process status, Kafka connection
-6. Kafka - Topics, message queue
-7. Prometheus - Health status
-8. Grafana - Dashboard availability
-9. Knowledge Base - Service health endpoint
-
-Output:
-- "ALL TESTS PASSED" = Everything working
-- "PASSED WITH WARNINGS" = Working but needs attention
-- "FAILED" = Issues need fixing
-
-### smoke-e2e.ps1
-Production smoke checks through the API gateway:
-```powershell
-./scripts/verify/smoke-e2e.ps1
-# Optional rate limit check
-./scripts/verify/smoke-e2e.ps1 -RunRateLimitTest
+```bash
+./scripts/lint/lint.sh           # check mode
+./scripts/lint/lint.sh --fix     # auto-fix formatting
+./scripts/lint/lint.sh --install # install linting dependencies first
 ```
 
 ---
 
-## Local Setup Process
+### setup/
 
-### Prerequisites
-- Docker Desktop installed and running
-- PowerShell (Windows) or Bash (Linux/Mac)
-- At least 8GB RAM available
-- Ports 5432, 6379, 6333, 9092, 2181, 9090, 3333, 18080, 3001, 8000-8003 available
+| Script | Purpose |
+|--------|---------|
+| `setup/setup.sh` | Prerequisites check and .env creation. Run once before first start. |
+| `setup/migrate.sh` | Incremental SQL migration runner. Safe to run on existing databases. |
+| `setup/seed.sh` | Seed the database with initial data from `infrastructure/database/seed.sql`. |
 
-### Complete Setup Steps
-
-1. **Clone Repository**
-   ```bash
-   git clone https://github.com/Sathish111j/PLOS-backend.git
-   cd PLOS-backend
-   ```
-
-2. **Start Complete System**
-   ```powershell
-   # Windows (Recommended)
-   ./scripts/start/start-all.ps1
-   
-   # Linux/Mac
-   chmod +x scripts/start/*.sh scripts/stop/*.sh scripts/verify/*.sh scripts/setup/*.sh scripts/test/*.sh
-   ./scripts/start/dev.sh
-   ```
-
-3. **Verify Everything Works**
-   ```powershell
-   ./scripts/verify/verify-infrastructure.ps1
-   ```
-
-4. **Access Services**
-   - API Gateway: http://localhost:8000
-   - Kafka UI: http://localhost:18080
-   - Grafana: http://localhost:3333
-   - Metabase: http://localhost:3001
-
-### Manual Step-by-Step Setup
-
-If you need more control:
-
-1. **Start Infrastructure Only**
-   ```powershell
-   ./scripts/start/start-infrastructure.ps1
-   ```
-
-2. **Verify Infrastructure Health**
-   ```powershell
-   ./scripts/verify/verify-infrastructure.ps1
-   ```
-
-3. **Start Application Services**
-   ```powershell
-   ./scripts/start/start-services.ps1
-   ```
-
-4. **Initialize Database (Optional)**
-   ```powershell
-   ./scripts/setup/seed.ps1
-   ```
-
-### Troubleshooting
-
-- **Services won't start**: Check Docker Desktop is running
-- **Port conflicts**: Stop other services using those ports
-- **Out of memory**: Increase Docker memory allocation to 8GB+
-- **Database issues**: Run `./scripts/stop/stop.ps1 -CleanVolumes` to reset
-- **UI/Monitoring services not available**: Some services require Docker profiles:
-  - Monitoring (Prometheus/Grafana): `docker compose --profile monitoring up -d`
-  - UI tools (Kafka UI, Redis Commander): `docker compose --profile ui up -d`
-  - Supabase Studio: `docker compose --profile studio up -d`
-  - Metabase: `docker compose --profile bi up -d`
-
-### Stopping Services
-
-```powershell
-# Stop all services
-./scripts/stop/stop.ps1
-
-# Stop and delete all data (fresh start)
-./scripts/stop/stop.ps1 -CleanVolumes
+```bash
+./scripts/setup/setup.sh    # first-time setup
+./scripts/setup/migrate.sh  # apply pending migrations
+./scripts/setup/seed.sh     # seed initial data
 ```
 
-### Morning Startup
-```powershell
-cd C:\Users\[YOU]\Desktop\PLOS-backend
-./scripts/start/start-all.ps1
+---
+
+### start/
+
+| Script | Purpose |
+|--------|---------|
+| `start/dev.sh` | Full stack startup: infra -> wait for DB -> migrate -> seed -> app services -> health checks |
+
+```bash
+./scripts/start/dev.sh
 ```
 
-### After Code Changes
-```powershell
-# Services restart automatically (hot reload enabled)
-# OR manually restart one service:
-docker compose restart journal-parser
+The script outputs each service health endpoint and exits non-zero if any service
+failed to become healthy.
 
-# OR rebuild and restart:
-./scripts/start/start-all.ps1
+---
+
+### stop/
+
+| Script | Purpose |
+|--------|---------|
+| `stop/stop.sh` | Graceful shutdown. Use `--clean` to also delete all volumes. |
+
+```bash
+./scripts/stop/stop.sh           # stop, keep data volumes
+./scripts/stop/stop.sh --clean   # stop and delete all data (fresh start)
 ```
 
-### Debugging Infrastructure
-```powershell
-# Stop services but keep infrastructure
-docker compose stop context-broker journal-parser api-gateway
+---
 
-# Check infrastructure
-./scripts/verify/verify-infrastructure.ps1
+### verify/
 
-# View logs
-docker compose logs supabase-db
-docker compose logs kafka
+| Script | Purpose |
+|--------|---------|
+| `verify/verify-infrastructure.sh` | 9-test infrastructure check (DB, Redis, Qdrant, Kafka, KB service). Profile-gated services (Studio, Prometheus, Grafana) are reported as skips, not errors. |
+| `verify/smoke-e2e.sh` | End-to-end API smoke test through the gateway (auth, journal, reports). |
+
+```bash
+./scripts/verify/verify-infrastructure.sh   # infrastructure health
+./scripts/verify/smoke-e2e.sh               # E2E API smoke test
 ```
 
-### Fresh Start
-```powershell
-./scripts/stop/stop.ps1 -CleanVolumes
-./scripts/start/start-all.ps1
+Exit codes: 0 = pass or pass-with-warnings, 1 = hard failure.
+
+Optional monitoring services must be started explicitly:
+```bash
+docker compose --profile monitoring up -d   # Prometheus + Grafana
+docker compose --profile studio up -d       # Supabase Studio
+docker compose --profile ui up -d           # Kafka UI, etc.
 ```
+
+---
+
+### dev-tools/
+
+These scripts are for local debugging only. They require all services to be running.
+Do NOT use them in CI.
+
+| Script | Purpose |
+|--------|---------|
+| `dev-tools/deep_store_verify.py` | Verify consistency across PostgreSQL, Qdrant, Meilisearch, and Redis for the knowledge base. |
+| `dev-tools/manual_deep_test.py` | Full knowledge base feature test with DB and vector DB validation at each step. |
+
+```bash
+python3 scripts/dev-tools/deep_store_verify.py
+python3 scripts/dev-tools/manual_deep_test.py
+```
+
+---
+
+## Typical Workflows
+
+### First-time setup
+
+```bash
+./scripts/setup/setup.sh    # creates .env, checks docker
+# edit .env -- set GEMINI_API_KEY
+./scripts/start/dev.sh      # starts everything and runs migrations
+```
+
+### Daily startup
+
+```bash
+./scripts/start/dev.sh
+```
+
+### Verify everything is healthy
+
+```bash
+./scripts/verify/verify-infrastructure.sh
+./scripts/verify/smoke-e2e.sh
+```
+
+### Fresh start (wipe all data)
+
+```bash
+./scripts/stop/stop.sh --clean
+./scripts/start/dev.sh
+```
+
+### Code quality check before committing
+
+```bash
+./scripts/lint/lint.sh
+# or to auto-fix:
+./scripts/lint/lint.sh --fix
+```
+
+### Apply new database migrations
+
+```bash
+./scripts/setup/migrate.sh
+```
+
+### Start optional monitoring stack
+
+```bash
+docker compose --profile monitoring up -d
+# Prometheus: http://localhost:9090
+# Grafana:    http://localhost:3333
+```
+
+---
+
+## Access Points
+
+| Service | URL |
+|---------|-----|
+| API Gateway | http://localhost:8000 |
+| Context Broker | http://localhost:8001 |
+| Journal Parser | http://localhost:8002 |
+| Knowledge Base | http://localhost:8003 |
+| Qdrant | http://localhost:6333 |
+| Meilisearch | http://localhost:7700 |
+| MinIO Console | http://localhost:9001 |
+| Grafana | http://localhost:3333 (--profile monitoring) |
+| Kafka UI | http://localhost:18080 (--profile ui) |
+| Supabase Studio | http://localhost:3000 (--profile studio) |
 
 ---
 
 ## Troubleshooting
 
-### "Port already in use"
-```powershell
-# Find what's using the port
-netstat -ano | findstr ":5432"
+**Service health check fails on startup**
 
-# Kill the process or change port in .env
+```bash
+docker compose logs <service-name>
+docker compose restart <service-name>
 ```
 
-### "Service won't start"
-```powershell
-# Check logs
-docker compose logs [service-name]
+**Port already in use**
 
-# Rebuild
-docker compose build [service-name]
-docker compose up -d [service-name]
+```bash
+lsof -i :<port>   # find the conflicting process
 ```
 
-### "Verification failed"
-```powershell
-# Run detailed check
-./scripts/verify/verify-infrastructure.ps1
+**Database migration issues**
 
-# Check what's wrong
-docker compose ps
-docker compose logs
+```bash
+docker exec plos-supabase-db psql -U postgres -d plos \
+  -c "SELECT filename, applied_at FROM schema_migrations ORDER BY applied_at;"
+```
+
+**Fresh start needed**
+
+```bash
+./scripts/stop/stop.sh --clean
+./scripts/start/dev.sh
+```
+
+**Run pytest unit / integration tests**
+
+```bash
+pytest services/ shared/ tests/ -v
+```
+
+**Deep data store debug**
+
+```bash
+python3 scripts/dev-tools/deep_store_verify.py
 ```
 
 ---
 
-## Why Two Sets? (PowerShell + Bash)
-
-**PowerShell (Windows):**
-- More features (health checks, colors, verifications)
-- Better error handling
-- Recommended for development on Windows
-
-**Bash (Linux/Mac):**
-- Cross-platform compatibility
-- Simpler, faster execution
-- Good for CI/CD pipelines
-
-Both work - use what fits your OS.
-
----
-
-**Last Updated:** March 2026
-**Status:** Production Ready
-**Verified:** All scripts working correctly with proper sequencing
-
+*Last updated: March 2026*

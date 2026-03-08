@@ -1,78 +1,85 @@
 #!/bin/bash
-# PLOS Setup Script - Linux/Mac
-# For Windows, use PowerShell scripts instead
+# PLOS Backend - Initial Setup Script
+# Validates prerequisites and prepares the .env file.
+# Run once before starting the stack for the first time.
 
-set -e
+set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+cd "$PROJECT_ROOT"
+
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+ok()   { echo -e "${GREEN}[OK]${NC}    $*"; }
+fail() { echo -e "${RED}[ERROR]${NC} $*"; }
+warn() { echo -e "${YELLOW}[WARN]${NC}  $*"; }
+
+echo ""
 echo "=========================================="
 echo "  PLOS - Initial Setup"
 echo "=========================================="
 echo ""
 
-# Check prerequisites
+# -- Prerequisites ----------------------------------------------------------
+
 echo "Checking prerequisites..."
 
-if ! command -v docker &> /dev/null; then
-    echo "[ERROR] Docker is not installed. Please install Docker first."
+if ! command -v docker &>/dev/null; then
+    fail "Docker is not installed. Please install Docker Desktop or Docker Engine."
     exit 1
 fi
 
-if ! command -v docker-compose &> /dev/null; then
-    echo "[ERROR] Docker Compose is not installed."
+# Accept both 'docker compose' (plugin) and 'docker-compose' (standalone)
+if docker compose version &>/dev/null 2>&1; then
+    ok "Docker Engine and Compose plugin found"
+elif command -v docker-compose &>/dev/null; then
+    ok "Docker and docker-compose (standalone) found"
+else
+    fail "Docker Compose is not available. Install the Compose plugin: https://docs.docker.com/compose/install/"
     exit 1
 fi
 
-echo "[OK] Docker and Docker Compose found"
 echo ""
 
-# Check .env file
+# -- Environment file -------------------------------------------------------
+
 if [ ! -f .env ]; then
-    echo "Creating .env file from template..."
     if [ ! -f .env.example ]; then
-        echo "[ERROR] .env.example not found!"
+        fail ".env.example not found. Cannot create .env."
         exit 1
     fi
     cp .env.example .env
-    echo "[OK] .env file created"
-    echo ""
-    echo "IMPORTANT: Edit .env and add your GEMINI_API_KEY!"
-    echo ""
-    read -p "Press Enter when you've updated .env..."
+    ok ".env created from .env.example"
+    warn "GEMINI_API_KEY is not yet set. Edit .env before starting the stack."
 else
-    echo "[OK] .env file exists"
+    ok ".env already exists"
+fi
+
+# Warn if GEMINI_API_KEY is missing or is the placeholder value
+# shellcheck disable=SC1091
+GEMINI_KEY=$(grep -E '^GEMINI_API_KEY=' .env | cut -d= -f2- | tr -d '"' | tr -d "'")
+if [ -z "$GEMINI_KEY" ] || [ "$GEMINI_KEY" = "your_gemini_api_key_here" ]; then
+    warn "GEMINI_API_KEY is not configured in .env. Gemini-dependent features will not work."
 fi
 
 echo ""
-echo "[OK] Setup complete!"
-echo ""
-echo "Next steps:"
-echo "  1. Make sure GEMINI_API_KEY is set in .env"
-echo "  2. Run: ./scripts/start/dev.sh"
-echo ""
-echo "Waiting for services to be ready..."
-sleep 15
-
-echo ""
-echo "Running database migrations..."
-# Database will auto-initialize with init scripts
-
-echo ""
-echo "Kafka topics can be created after Kafka is running."
-echo "Run: docker-compose exec -T kafka bash /infrastructure/kafka/init-topics.sh"
-
-echo ""
 echo "=========================================="
-echo "  Setup Complete!"
+echo "  Setup Complete"
 echo "=========================================="
 echo ""
 echo "Next steps:"
-echo "  1. Verify .env has your GEMINI_API_KEY"
-echo "  2. Run: ./scripts/start/dev.sh to start all services"
-echo "  3. Open: http://localhost:3000 (Supabase Studio)"
-echo "  4. API Docs: http://localhost:8000/docs"
+echo "  1. Set GEMINI_API_KEY in .env (if not done)"
+echo "  2. Start all services:     ./scripts/start/dev.sh"
+echo "  3. Verify infrastructure:  ./scripts/verify/verify-infrastructure.sh"
 echo ""
-echo "Useful commands:"
-echo "  ./scripts/start/dev.sh  - Start all services"
-echo "  ./scripts/test/test.sh  - Run tests"
-echo "  ./scripts/stop/clean.sh - Clean everything"
+echo "Other commands:"
+echo "  ./scripts/setup/migrate.sh          - Run DB migrations only"
+echo "  ./scripts/setup/seed.sh             - Seed initial data"
+echo "  ./scripts/stop/stop.sh              - Stop all services (keep data)"
+echo "  ./scripts/stop/stop.sh --clean      - Stop and delete all volumes"
+echo "  ./scripts/verify/smoke-e2e.sh       - End-to-end API smoke test"
 echo ""

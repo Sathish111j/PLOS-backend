@@ -35,7 +35,7 @@ fi
 # Seed the database
 echo ""
 echo "Seeding database..."
-if cat "$SEED_FILE" | docker exec -i "$DB_CONTAINER" psql -U postgres -d plos; then
+if docker exec -i "$DB_CONTAINER" psql -U postgres -d plos < "$SEED_FILE"; then
     echo "Database seeded successfully!"
 else
     echo "Failed to seed database!"
