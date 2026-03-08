@@ -46,12 +46,21 @@ else
     exit 1
 fi
 
+# Pinned versions must match .github/workflows/ci.yml to avoid drift.
+BLACK_VERSION="24.10.0"
+RUFF_VERSION="0.9.0"
+ISORT_VERSION="5.13.2"
+
 # Install dependencies if requested
 if [ "$INSTALL" = true ]; then
     echo ""
     echo "Installing linting dependencies..."
     "$PYTHON_CMD" -m pip install --upgrade pip
-    "$PYTHON_CMD" -m pip install black ruff isort flake8 mypy bandit safety
+    "$PYTHON_CMD" -m pip install \
+        "black==${BLACK_VERSION}" \
+        "ruff==${RUFF_VERSION}" \
+        "isort==${ISORT_VERSION}" \
+        flake8 mypy bandit safety
 
     echo "Dependencies installed successfully!"
     exit 0

@@ -4,11 +4,12 @@ import csv
 import hashlib
 import io
 import json
-import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+import defusedxml.ElementTree as ET
 
 if TYPE_CHECKING:
     from shared.gemini import ResilientGeminiClient

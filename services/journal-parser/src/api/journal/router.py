@@ -8,11 +8,7 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from application.orchestrator import JournalParserOrchestrator
-from dependencies.providers import (
-    get_db_session,
-    get_gemini_client,
-    get_kafka_producer,
-)
+from dependencies.providers import get_db_session, get_gemini_client, get_kafka_producer
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import PlainTextResponse
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest

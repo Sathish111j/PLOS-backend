@@ -9,10 +9,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
-from shared.gemini.exceptions import (
-    InvalidKeyConfigError,
-    NoValidKeysError,
-)
+from shared.gemini.exceptions import InvalidKeyConfigError, NoValidKeysError
 from shared.utils.logger import get_logger
 
 logger = get_logger(__name__)

@@ -1,9 +1,9 @@
 import csv
 import json
 import re
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import defusedxml.ElementTree as ET
 from app.application.ingestion.models import DetectedFormat, DocumentFormat
 
 MAGIC_SIGNATURES: list[tuple[bytes, DocumentFormat, str]] = [

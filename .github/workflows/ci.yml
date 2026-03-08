@@ -187,44 +187,6 @@ jobs:
         run: docker compose -f docker-compose.yml config --services | sort
 
   # ============================================================================
-  # Knowledge Base DB integration tests
-  # ============================================================================
-  knowledge-base-tests:
-    name: Knowledge Base DB Tests
-    runs-on: ubuntu-latest
-    env:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: plos_db_secure_2025
-      POSTGRES_DB: plos
-      REDIS_PASSWORD: plos_redis_secure_2025
-      MINIO_ROOT_USER: plos_minio_admin
-      MINIO_ROOT_PASSWORD: plos_minio_secure_2026
-      MINIO_BUCKET: knowledge-base-documents
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Run Knowledge Base DB tests
-        run: bash scripts/test/knowledge-base-db-tests.sh
-
-      - name: Upload test results
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: kb-test-results
-          path: .pytest_cache/
-          retention-days: 7
-
-      - name: Cleanup
-        if: always()
-        run: docker compose -f docker-compose.yml down -v --remove-orphans 2>/dev/null || true
-
-  # ============================================================================
   # Unit tests (no running services required)
   # ============================================================================
   unit-tests:

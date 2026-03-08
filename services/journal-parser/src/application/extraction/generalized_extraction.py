@@ -988,7 +988,8 @@ TIME OF DAY:
         parts.append(f"```json\n{EXTRACTION_SCHEMA}\n```\n\n")
 
         if detect_gaps:
-            parts.append("""## CRITICAL: AMBIGUOUS DATA HANDLING
+            parts.append(
+                """## CRITICAL: AMBIGUOUS DATA HANDLING
 
 ALWAYS add entries to the "ambiguous" array when you encounter:
 1. **Vague quantities**: "some", "a bit of", "a little", "a few"
@@ -1014,14 +1015,17 @@ IMPORTANT RULES:
 Return ONLY valid JSON. Include ALL fields from the schema.
 Use the "ambiguous" array to flag ANY vague, incomplete, or unclear mentions.
 IMPORTANT: Reuse activity names and categories from the vocabulary above when applicable.
-""")
+"""
+            )
         else:
-            parts.append("""## RESPONSE
+            parts.append(
+                """## RESPONSE
 Return ONLY valid JSON. Include ALL fields from the schema.
 Extract data as accurately as possible based on what's mentioned.
 Do NOT include the "ambiguous" field - extract what you can with best estimates.
 IMPORTANT: Reuse activity names and categories from the vocabulary above when applicable.
-""")
+"""
+            )
 
         return "".join(parts)
 

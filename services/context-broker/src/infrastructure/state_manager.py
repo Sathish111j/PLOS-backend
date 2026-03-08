@@ -96,7 +96,8 @@ class StateManager:
         try:
             async with self.Session() as session:
                 # Fetch from user_context_state table
-                query = text("""
+                query = text(
+                    """
                     SELECT
                         user_id,
                         current_mood_score,
@@ -111,7 +112,8 @@ class StateManager:
                         updated_at
                     FROM user_context_state
                     WHERE user_id = :user_id
-                """)
+                """
+                )
 
                 row = await session.execute(query, {"user_id": str(user_id)})
                 result = row.fetchone()
@@ -163,7 +165,8 @@ class StateManager:
                     json.dumps(context_data) if context_data is not None else None
                 )
 
-                query = text("""
+                query = text(
+                    """
                     INSERT INTO user_context_state (
                         user_id,
                         updated_at,
@@ -205,7 +208,8 @@ class StateManager:
                             WHEN :context_data IS NULL THEN user_context_state.context_data
                             ELSE COALESCE(user_context_state.context_data, '{}'::jsonb) || CAST(:context_data AS jsonb)
                         END
-                """)
+                """
+                )
 
                 await session.execute(
                     query,

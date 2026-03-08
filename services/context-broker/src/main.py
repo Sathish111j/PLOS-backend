@@ -13,11 +13,7 @@ from src.api.router import router as api_router
 from src.core.metrics import metrics
 from src.dependencies.container import lifespan
 
-from shared.utils.errors import (
-    ErrorResponse,
-    PLOSException,
-    build_error_response,
-)
+from shared.utils.errors import ErrorResponse, PLOSException, build_error_response
 from shared.utils.logger import get_logger
 from shared.utils.logging_config import setup_logging
 from shared.utils.unified_config import get_unified_settings

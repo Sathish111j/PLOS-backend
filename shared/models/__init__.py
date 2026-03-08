@@ -4,11 +4,7 @@ Pydantic models used across all microservices
 """
 
 from .context import ContextUpdate, UserContext
-from .extraction import (
-    ExtractionType,
-    FieldMetadata,
-    UserBaseline,
-)
+from .extraction import ExtractionType, FieldMetadata, UserBaseline
 
 __all__ = [
     # Context models (used by context-broker)

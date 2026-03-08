@@ -69,7 +69,9 @@ def sha256_hex(text: str) -> str:
 
 
 def md5_hex(raw: bytes) -> str:
-    return hashlib.md5(raw).hexdigest()
+    return hashlib.md5(
+        raw, usedforsecurity=False
+    ).hexdigest()  # nosec B324 - used for content checksumming only, not security
 
 
 def fnv1a_64(raw: bytes) -> int:

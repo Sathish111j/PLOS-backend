@@ -11,10 +11,7 @@ from shared.models.context import ContextUpdate, UserContext
 from shared.utils.logger import get_logger
 
 try:
-    from shared.utils.metrics import (
-        CONTEXT_RETRIEVAL_DURATION,
-        record_cache_access,
-    )
+    from shared.utils.metrics import CONTEXT_RETRIEVAL_DURATION, record_cache_access
 
     METRICS_AVAILABLE = True
 except ImportError:
