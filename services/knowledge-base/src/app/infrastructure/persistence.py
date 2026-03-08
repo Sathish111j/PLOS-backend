@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import io
@@ -26,7 +28,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
 from redis.asyncio import Redis
 
-from shared.gemini.client import ResilientGeminiClient
+from shared.gemini import ResilientGeminiClient
 from shared.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -40,8 +42,13 @@ class KnowledgePersistence:
     ROUTING_AUTO_CONFIDENCE_THRESHOLD = 0.85
     ROUTING_CONFIRMATION_THRESHOLD = 0.60
 
-    def __init__(self, config: KnowledgeBaseConfig):
+    def __init__(
+        self,
+        config: KnowledgeBaseConfig,
+        gemini_client: "ResilientGeminiClient | None" = None,
+    ):
         self.config = config
+        self._gemini_client = gemini_client
         self._pool: asyncpg.Pool | None = None
         self._redis: Redis | None = None
         self._qdrant: QdrantClient | None = None
@@ -56,7 +63,9 @@ class KnowledgePersistence:
         ) = None
         self._semantic_chunk_dedup_worker_task: asyncio.Task[None] | None = None
         self._embedding_dlq_replay_task: asyncio.Task[None] | None = None
-        self._embedding_provider = GeminiEmbeddingProvider(config)
+        self._embedding_provider = GeminiEmbeddingProvider(
+            config, gemini_client=gemini_client
+        )
         self._minio_client = Minio(
             config.minio_endpoint,
             access_key=config.minio_access_key,
@@ -1157,7 +1166,9 @@ class KnowledgePersistence:
             return []
 
         try:
-            client = ResilientGeminiClient(max_retries=2)
+            client = self._gemini_client
+            if client is None:
+                client = ResilientGeminiClient()
         except Exception:
             return []
 
@@ -1223,7 +1234,9 @@ class KnowledgePersistence:
         if not query or len(query.strip()) < 3:
             return []
         try:
-            client = ResilientGeminiClient(max_retries=1)
+            client = self._gemini_client
+            if client is None:
+                client = ResilientGeminiClient()
         except Exception:
             return []
 

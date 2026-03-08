@@ -8,7 +8,7 @@ from typing import AsyncGenerator
 from infrastructure.db.pool import get_global_pool
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.gemini.client import ResilientGeminiClient
+from shared.gemini import ResilientGeminiClient
 from shared.kafka.producer import KafkaProducerService
 from shared.utils.logger import get_logger
 from shared.utils.unified_config import get_unified_settings

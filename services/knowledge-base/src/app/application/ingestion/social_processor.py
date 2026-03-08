@@ -44,11 +44,13 @@ from app.application.ingestion.models import (
 )
 from app.application.ingestion.normalizer import normalize_text
 from app.application.ingestion.processors import ProcessorInput, _base_metadata
+
+# google.genai is imported directly for Gemini File API type annotations
+# used with ResilientGeminiClient.raw_client -- not a bypass of shared module.
 from google import genai
 from google.genai import types
 
-from shared.gemini.client import ResilientGeminiClient
-from shared.gemini.config import GeminiModelType
+from shared.gemini import GeminiModelType, ResilientGeminiClient
 from shared.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -721,17 +723,24 @@ class SocialMediaProcessor:
         "youtube": SourceType.SOCIAL_MEDIA,
     }
 
-    def __init__(self) -> None:
-        self._gemini = ResilientGeminiClient()
+    def __init__(self, gemini_client: ResilientGeminiClient | None = None) -> None:
+        self._gemini: ResilientGeminiClient | None = gemini_client
+
+    def _get_gemini(self) -> ResilientGeminiClient:
+        """Lazy-init the Gemini client on first use (Instagram / YouTube only)."""
+        if self._gemini is None:
+            self._gemini = ResilientGeminiClient()
+            logger.info("SocialMediaProcessor: created fallback client (prefer DI)")
+        return self._gemini
 
     def _get_extractor(self, platform: str) -> Any:
         """Return the appropriate extractor instance for the platform."""
         if platform in self._playwright_extractors:
             return self._playwright_extractors[platform]()
         if platform == "instagram":
-            return InstagramExtractor(self._gemini)
+            return InstagramExtractor(self._get_gemini())
         if platform == "youtube":
-            return YouTubeExtractor(self._gemini)
+            return YouTubeExtractor(self._get_gemini())
         raise ValueError(f"No extractor for platform: {platform}")
 
     async def process(self, payload: ProcessorInput) -> StructuredDocument:

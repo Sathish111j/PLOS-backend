@@ -22,8 +22,8 @@ class GeminiModelType(str, Enum):
     FLASH_LITE = "gemini-3.1-flash-lite-preview"  # Fastest, lowest cost
 
     # Embedding Models
-    EMBEDDING = "text-embedding-004"  # Production embedding model
-    EMBEDDING_LEGACY = "gemini-embedding-001"  # Legacy embedding model
+    EMBEDDING = "gemini-embedding-001"  # Production embedding model
+    EMBEDDING_LEGACY = "text-embedding-004"  # Legacy embedding model
 
 
 class TaskType(str, Enum):
@@ -109,7 +109,7 @@ class GeminiConfig(BaseModel):
         default="gemini-3-flash-preview", description="Model for vision/image tasks"
     )
     embedding_model: str = Field(
-        default="text-embedding-004", description="Model for embeddings"
+        default="gemini-embedding-001", description="Model for embeddings"
     )
 
     # Service-Specific Model Overrides
@@ -124,7 +124,9 @@ class GeminiConfig(BaseModel):
     use_caching: bool = Field(default=True, description="Enable response caching")
 
     # Generation Defaults
-    default_temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    # Gemini 3 docs strongly recommend temperature=1.0 for best reasoning.
+    # Lower values may cause looping or degraded performance.
+    default_temperature: float = Field(default=1.0, ge=0.0, le=2.0)
     default_max_tokens: int = Field(default=8192, ge=1, le=1000000)
 
     @classmethod
@@ -154,7 +156,7 @@ class GeminiConfig(BaseModel):
             journal_parser_model=os.getenv("GEMINI_JOURNAL_PARSER_MODEL"),
             context_broker_model=os.getenv("GEMINI_CONTEXT_BROKER_MODEL"),
             use_caching=os.getenv("USE_GEMINI_CACHING", "true").lower() == "true",
-            default_temperature=float(os.getenv("GEMINI_DEFAULT_TEMPERATURE", "0.7")),
+            default_temperature=float(os.getenv("GEMINI_DEFAULT_TEMPERATURE", "1.0")),
             default_max_tokens=int(os.getenv("GEMINI_DEFAULT_MAX_TOKENS", "8192")),
         )
 

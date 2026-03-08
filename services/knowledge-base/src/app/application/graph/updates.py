@@ -20,6 +20,7 @@ from app.application.graph.models import GraphExtractionTask
 from app.core.config import KnowledgeBaseConfig
 from app.infrastructure.graph_store import KuzuGraphStore
 
+from shared.gemini import ResilientGeminiClient
 from shared.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -37,11 +38,14 @@ class GraphUpdateService:
         config: KnowledgeBaseConfig,
         graph_store: KuzuGraphStore,
         disambiguator: EntityDisambiguator,
+        gemini_client: ResilientGeminiClient | None = None,
     ) -> None:
         self._config = config
         self._store = graph_store
         self._disambiguator = disambiguator
-        self._constructor = GraphConstructor(config, graph_store)
+        self._constructor = GraphConstructor(
+            config, graph_store, gemini_client=gemini_client
+        )
 
     # ------------------------------------------------------------------
     # Document deletion (Section 6.2)

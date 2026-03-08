@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import base64
 import time
@@ -35,9 +37,13 @@ logger = get_logger(__name__)
 
 
 class KnowledgeService:
-    def __init__(self, persistence: KnowledgePersistence):
+    def __init__(
+        self,
+        persistence: KnowledgePersistence,
+        unified_processor: UnifiedDocumentProcessor | None = None,
+    ):
         self._documents: Dict[str, Dict[str, Any]] = {}
-        self._processor = UnifiedDocumentProcessor()
+        self._processor = unified_processor or UnifiedDocumentProcessor()
         self._chunker = SemanticChunkingEngine()
         self._persistence = persistence
         self._l1_cache: OrderedDict[str, tuple[float, Dict[str, Any]]] = OrderedDict()

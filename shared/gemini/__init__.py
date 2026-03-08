@@ -7,6 +7,7 @@ from shared.gemini.client import ResilientGeminiClient
 from shared.gemini.config import (
     TASK_CONFIGS,
     GeminiConfig,
+    GeminiModelType,
     ModelConfig,
     TaskType,
     get_gemini_config,
@@ -28,6 +29,7 @@ __all__ = [
     "ResilientGeminiClient",
     # Config
     "GeminiConfig",
+    "GeminiModelType",
     "TaskType",
     "ModelConfig",
     "TASK_CONFIGS",

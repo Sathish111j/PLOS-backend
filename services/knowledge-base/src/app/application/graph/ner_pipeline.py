@@ -21,7 +21,7 @@ from typing import Any, NamedTuple
 from app.application.graph.models import ENTITY_TYPES, RawEntity
 from app.core.config import KnowledgeBaseConfig
 
-from shared.gemini.client import ResilientGeminiClient
+from shared.gemini import ResilientGeminiClient
 from shared.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -184,16 +184,21 @@ class GeminiNERPipeline:
         entities = await pipeline.extract(full_text)
     """
 
-    def __init__(self, config: KnowledgeBaseConfig) -> None:
+    def __init__(
+        self,
+        config: KnowledgeBaseConfig,
+        gemini_client: ResilientGeminiClient | None = None,
+    ) -> None:
         self._config = config
         self._window_tokens = config.graph_ner_window_tokens
         self._overlap_tokens = config.graph_ner_overlap_tokens
         self._min_confidence = config.graph_ner_confidence_threshold
-        self._client: ResilientGeminiClient | None = None
+        self._client = gemini_client
 
     def _get_client(self) -> ResilientGeminiClient:
         if self._client is None:
             self._client = ResilientGeminiClient()
+            logger.info("GeminiNERPipeline: created fallback client (prefer DI)")
         return self._client
 
     async def _call_gemini(self, prompt: str) -> str:

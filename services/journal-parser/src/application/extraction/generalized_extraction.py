@@ -11,7 +11,7 @@ from datetime import date
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
-from shared.gemini.client import ResilientGeminiClient
+from shared.gemini import ResilientGeminiClient
 from shared.utils.logger import get_logger
 
 logger = get_logger(__name__)

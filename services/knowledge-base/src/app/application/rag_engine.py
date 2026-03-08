@@ -18,8 +18,7 @@ from app.application.search_utils import normalize_query, query_hash
 from app.core.config import KnowledgeBaseConfig
 from app.infrastructure.persistence import KnowledgePersistence
 
-from shared.gemini.client import ResilientGeminiClient
-from shared.gemini.config import TaskType, get_task_config
+from shared.gemini import ResilientGeminiClient, TaskType, get_task_config
 from shared.utils.logger import get_logger
 
 logger = get_logger(__name__)

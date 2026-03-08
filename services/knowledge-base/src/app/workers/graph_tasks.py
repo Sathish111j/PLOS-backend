@@ -31,11 +31,19 @@ from app.core.config import get_kb_config
 from celery import Celery
 from celery.signals import worker_process_init
 
+from shared.gemini import ResilientGeminiClient
 from shared.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 config = get_kb_config()
+
+# Single Gemini client for the graph worker process
+_gemini_client: ResilientGeminiClient | None = None
+try:
+    _gemini_client = ResilientGeminiClient()
+except Exception:
+    pass
 
 celery_app = Celery(
     "knowledge_base_graph",
@@ -82,7 +90,7 @@ def _get_store():
 def _get_disambiguator():
     global _disambiguator
     if _disambiguator is None:
-        _disambiguator = EntityDisambiguator(config)
+        _disambiguator = EntityDisambiguator(config, gemini_client=_gemini_client)
     return _disambiguator
 
 
@@ -93,6 +101,7 @@ def _get_update_service():
             config,
             _get_store(),
             _get_disambiguator(),
+            gemini_client=_gemini_client,
         )
     return _update_service
 
@@ -144,7 +153,7 @@ def graph_extract_document(self, *, payload: dict) -> dict:
 
     store = _get_store()
     disambiguator = _get_disambiguator()
-    constructor = GraphConstructor(config, store)
+    constructor = GraphConstructor(config, store, gemini_client=_gemini_client)
 
     try:
         return _run_async(constructor.process_document(task, disambiguator))

@@ -22,7 +22,7 @@ import httpx
 from app.application.graph.models import CanonicalEntity, RawEntity
 from app.core.config import KnowledgeBaseConfig
 
-from shared.gemini.client import ResilientGeminiClient
+from shared.gemini import ResilientGeminiClient
 from shared.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -184,19 +184,21 @@ class EntityDisambiguator:
         self,
         config: KnowledgeBaseConfig,
         redis_client: Any = None,
+        gemini_client: ResilientGeminiClient | None = None,
     ) -> None:
         self._config = config
         self._redis = redis_client
         self._high_threshold = config.graph_disambig_vector_high
         self._low_threshold = config.graph_disambig_vector_low
         self._wikidata_ttl = config.graph_wikidata_cache_ttl_seconds
-        self._gemini: ResilientGeminiClient | None = None
-        # entity_id → (embedding, canonical_entity)
+        self._gemini = gemini_client
+        # entity_id -> (embedding, canonical_entity)
         self._entity_cache: dict[str, tuple[list[float], CanonicalEntity]] = {}
 
     def _get_gemini(self) -> ResilientGeminiClient:
         if self._gemini is None:
             self._gemini = ResilientGeminiClient()
+            logger.info("EntityDisambiguator: created fallback client (prefer DI)")
         return self._gemini
 
     def load_entity_cache(self, entities: list[CanonicalEntity]) -> None:

@@ -18,7 +18,7 @@ from application.preprocessing import Preprocessor
 from infrastructure.storage.service import StorageService
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.gemini.client import ResilientGeminiClient
+from shared.gemini import ResilientGeminiClient
 from shared.kafka.producer import KafkaProducerService
 from shared.utils.logger import get_logger
 

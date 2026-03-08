@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from app.application.graph.disambiguation import EntityDisambiguator
 from app.application.graph.queries import GraphQueryService
 from app.application.graph.updates import GraphUpdateService
+from app.application.ingestion.unified_processor import UnifiedDocumentProcessor
 from app.application.knowledge_service import KnowledgeService
 from app.application.rag_engine import RAGEngine
 from app.core.config import get_kb_config
@@ -10,33 +11,50 @@ from app.infrastructure.graph_store import KuzuGraphStore
 from app.infrastructure.health_clients import InfraHealthClient
 from app.infrastructure.persistence import KnowledgePersistence
 
-from shared.gemini.client import ResilientGeminiClient
+from shared.gemini import ResilientGeminiClient
 from shared.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 config = get_kb_config()
-persistence = KnowledgePersistence(config)
-knowledge_service = KnowledgeService(persistence)
+
+# -- Gemini client (single instance shared across the entire KB process) -----
+_gemini_client: ResilientGeminiClient | None = None
+try:
+    _gemini_client = ResilientGeminiClient()
+    logger.info("Shared ResilientGeminiClient initialised for KB service")
+except Exception as exc:
+    logger.warning("ResilientGeminiClient init failed: %s", exc)
+
+persistence = KnowledgePersistence(config, gemini_client=_gemini_client)
+
+# Unified document processor (shares the Gemini client for PDF vision / social)
+unified_processor = UnifiedDocumentProcessor(gemini_client=_gemini_client)
+
+knowledge_service = KnowledgeService(persistence, unified_processor=unified_processor)
 infra_health_client = InfraHealthClient(config, persistence)
 
 # Graph layer (initialised during lifespan startup)
 graph_store = KuzuGraphStore(config)
-_disambiguator = EntityDisambiguator(config)
+_disambiguator = EntityDisambiguator(config, gemini_client=_gemini_client)
 graph_query_service = GraphQueryService(config, graph_store)
-graph_update_service = GraphUpdateService(config, graph_store, _disambiguator)
+graph_update_service = GraphUpdateService(
+    config, graph_store, _disambiguator, gemini_client=_gemini_client
+)
 
 # RAG layer -- depends on Gemini client and graph query service
-_gemini_client = ResilientGeminiClient()
 rag_engine: RAGEngine | None = None
 try:
-    rag_engine = RAGEngine(
-        persistence=persistence,
-        gemini_client=_gemini_client,
-        graph_query_service=graph_query_service,
-        config=config,
-    )
-    logger.info("RAGEngine initialised")
+    if _gemini_client is not None:
+        rag_engine = RAGEngine(
+            persistence=persistence,
+            gemini_client=_gemini_client,
+            graph_query_service=graph_query_service,
+            config=config,
+        )
+        logger.info("RAGEngine initialised")
+    else:
+        logger.warning("RAGEngine skipped -- no Gemini client available")
 except Exception as exc:
     logger.warning("RAGEngine init failed -- chat will use stub: %s", exc)
 

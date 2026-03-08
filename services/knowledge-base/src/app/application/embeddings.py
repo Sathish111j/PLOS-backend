@@ -3,17 +3,20 @@ from typing import Sequence
 
 from app.core.config import KnowledgeBaseConfig
 
-from shared.gemini.client import ResilientGeminiClient
-from shared.gemini.config import get_gemini_config
+from shared.gemini import ResilientGeminiClient, get_gemini_config
 from shared.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 
 class GeminiEmbeddingProvider:
-    def __init__(self, config: KnowledgeBaseConfig):
+    def __init__(
+        self,
+        config: KnowledgeBaseConfig,
+        gemini_client: ResilientGeminiClient | None = None,
+    ):
         self._config = config
-        self._gemini_client: ResilientGeminiClient | None = None
+        self._gemini_client = gemini_client
         gemini_config = get_gemini_config()
         self._embedding_model = (
             getattr(config, "embedding_model", None) or gemini_config.embedding_model
@@ -72,6 +75,9 @@ class GeminiEmbeddingProvider:
         if self._gemini_client is None:
             try:
                 self._gemini_client = ResilientGeminiClient()
+                logger.info(
+                    "GeminiEmbeddingProvider: created fallback client (prefer DI)"
+                )
             except Exception as error:
                 logger.error(
                     "Gemini client unavailable",
@@ -119,8 +125,9 @@ class GeminiEmbeddingProvider:
 
         if self._gemini_client is None:
             try:
-                self._gemini_client = ResilientGeminiClient(
-                    max_retries=self._max_attempts
+                self._gemini_client = ResilientGeminiClient()
+                logger.info(
+                    "GeminiEmbeddingProvider: created fallback batch client (prefer DI)"
                 )
             except Exception as error:
                 logger.error(

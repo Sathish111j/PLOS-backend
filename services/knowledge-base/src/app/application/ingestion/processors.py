@@ -8,7 +8,10 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from shared.gemini import ResilientGeminiClient
 
 import httpx
 from app.application.ingestion.models import (
@@ -88,6 +91,12 @@ class TextProcessor:
 
 
 class PdfProcessor:
+    def __init__(
+        self,
+        gemini_client: "ResilientGeminiClient | None" = None,
+    ) -> None:
+        self._gemini_client = gemini_client
+
     def classify_pdf(self, payload: ProcessorInput) -> ContentClass:
         raw = payload.content_bytes or b""
         text_markers = sum(raw.count(marker) for marker in (b"BT", b"/Font", b"Tj"))
@@ -183,8 +192,7 @@ class PdfProcessor:
         try:
             from google.genai import types
 
-            from shared.gemini.client import ResilientGeminiClient
-            from shared.gemini.config import get_gemini_config
+            from shared.gemini import ResilientGeminiClient, get_gemini_config
         except Exception:
             return "", {"gemini_vision_available": False}
 
@@ -192,7 +200,9 @@ class PdfProcessor:
             return "", {"gemini_vision_available": False, "reason": "empty_content"}
 
         try:
-            client = ResilientGeminiClient()
+            client = self._gemini_client
+            if client is None:
+                client = ResilientGeminiClient()
             config = get_gemini_config()
             text_raw = client.generate_content_sync(
                 contents=[

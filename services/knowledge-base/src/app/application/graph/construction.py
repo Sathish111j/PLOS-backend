@@ -27,7 +27,7 @@ from app.application.graph.ner_pipeline import GeminiNERPipeline, reconstruct_te
 from app.core.config import KnowledgeBaseConfig
 from app.infrastructure.graph_store import KuzuGraphStore
 
-from shared.gemini.client import ResilientGeminiClient
+from shared.gemini import ResilientGeminiClient
 from shared.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -124,15 +124,17 @@ class GraphConstructor:
         self,
         config: KnowledgeBaseConfig,
         graph_store: KuzuGraphStore,
+        gemini_client: ResilientGeminiClient | None = None,
     ) -> None:
         self._config = config
         self._store = graph_store
-        self._ner = GeminiNERPipeline(config)
-        self._gemini: ResilientGeminiClient | None = None
+        self._ner = GeminiNERPipeline(config, gemini_client=gemini_client)
+        self._gemini = gemini_client
 
     def _get_gemini(self) -> ResilientGeminiClient:
         if self._gemini is None:
             self._gemini = ResilientGeminiClient()
+            logger.info("GraphConstructor: created fallback client (prefer DI)")
         return self._gemini
 
     async def process_document(

@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.auth.dependencies import get_current_user
 from shared.auth.models import TokenData
-from shared.gemini.client import ResilientGeminiClient
+from shared.gemini import ResilientGeminiClient
 from shared.kafka.producer import KafkaProducerService
 from shared.utils.logger import get_logger
 

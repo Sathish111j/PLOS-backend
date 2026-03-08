@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from shared.gemini import ResilientGeminiClient
+
 from app.application.ingestion.format_detector import detect_document_format
 from app.application.ingestion.models import (
     ContentClass,
@@ -22,13 +27,16 @@ from app.application.ingestion.social_processor import SocialMediaProcessor
 
 
 class UnifiedDocumentProcessor:
-    def __init__(self):
+    def __init__(
+        self,
+        gemini_client: "ResilientGeminiClient | None" = None,
+    ):
         self._text_processor = TextProcessor()
-        self._pdf_processor = PdfProcessor()
+        self._pdf_processor = PdfProcessor(gemini_client=gemini_client)
         self._image_processor = ImageProcessor()
         self._office_processor = OfficeProcessor()
         self._web_processor = WebProcessor()
-        self._social_processor = SocialMediaProcessor()
+        self._social_processor = SocialMediaProcessor(gemini_client=gemini_client)
         self._fallback_processor = FallbackProcessor()
 
     def _select_strategy(
