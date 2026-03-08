@@ -3,6 +3,7 @@ PLOS - Journal Parser Service
 Intelligent journal entry processing with comprehensive extraction and gap detection.
 """
 
+import uuid as _uuid
 from contextlib import asynccontextmanager
 
 import uvicorn
@@ -139,6 +140,26 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def correlation_id_middleware(request, call_next):
+    """Attach a correlation ID to every request for distributed tracing."""
+    correlation_id = request.headers.get(
+        "X-Correlation-ID", str(_uuid.uuid4())
+    )
+    # Make it available on request state for downstream use
+    request.state.correlation_id = correlation_id
+    logger.info(
+        "[REQUEST] %s %s correlation_id=%s",
+        request.method,
+        request.url.path,
+        correlation_id,
+    )
+    response = await call_next(request)
+    response.headers["X-Correlation-ID"] = correlation_id
+    return response
+
 
 # Include authentication router
 auth_router = create_auth_router(get_db_session)

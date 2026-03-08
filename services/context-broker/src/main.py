@@ -4,6 +4,7 @@ FastAPI service for managing user context (single source of truth)
 """
 
 import time
+import uuid as _uuid
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -87,6 +88,24 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def correlation_id_middleware(request: Request, call_next):
+    """Attach a correlation ID to every request for distributed tracing."""
+    correlation_id = request.headers.get(
+        "X-Correlation-ID", str(_uuid.uuid4())
+    )
+    request.state.correlation_id = correlation_id
+    logger.info(
+        "[REQUEST] %s %s correlation_id=%s",
+        request.method,
+        request.url.path,
+        correlation_id,
+    )
+    response = await call_next(request)
+    response.headers["X-Correlation-ID"] = correlation_id
+    return response
 
 
 @app.exception_handler(PLOSException)

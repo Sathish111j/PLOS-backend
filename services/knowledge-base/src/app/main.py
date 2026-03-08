@@ -1,8 +1,10 @@
+import uuid as _uuid
+
 from app.api.graph_router import graph_router
 from app.api.router import router as api_router
 from app.core.config import get_kb_config
 from app.dependencies.container import lifespan
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from shared.utils.logger import get_logger
@@ -26,6 +28,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def correlation_id_middleware(request: Request, call_next):
+    """Attach a correlation ID to every request for distributed tracing."""
+    correlation_id = request.headers.get(
+        "X-Correlation-ID", str(_uuid.uuid4())
+    )
+    request.state.correlation_id = correlation_id
+    logger.info(
+        "[REQUEST] %s %s correlation_id=%s",
+        request.method,
+        request.url.path,
+        correlation_id,
+    )
+    response = await call_next(request)
+    response.headers["X-Correlation-ID"] = correlation_id
+    return response
+
 
 app.include_router(api_router)
 app.include_router(graph_router)

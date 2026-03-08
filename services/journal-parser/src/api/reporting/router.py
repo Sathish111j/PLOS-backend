@@ -1,5 +1,6 @@
 """Report endpoints for journal insights."""
 
+import time
 from calendar import monthrange
 from datetime import date, timedelta
 from typing import Optional
@@ -11,6 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.auth.dependencies import get_current_user
 from shared.auth.models import TokenData
+from shared.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 from .schemas import (
     ActivityDaily,
@@ -35,6 +39,45 @@ from .schemas import (
 )
 
 router = APIRouter(prefix="/journal/reports", tags=["journal-reports"])
+
+
+async def _logged_report(
+    endpoint_name: str, user_id: str, params: dict, coro
+):
+    """Execute a report coroutine with structured logging and timing."""
+    start = time.monotonic()
+    logger.info(
+        "[REPORT] %s - START user=%s params=%s",
+        endpoint_name,
+        user_id,
+        params,
+    )
+    try:
+        result = await coro
+        elapsed_ms = (time.monotonic() - start) * 1000
+        logger.info(
+            "[REPORT] %s - OK user=%s elapsed=%.1fms",
+            endpoint_name,
+            user_id,
+            elapsed_ms,
+        )
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        elapsed_ms = (time.monotonic() - start) * 1000
+        logger.error(
+            "[REPORT] %s - FAILED user=%s elapsed=%.1fms error=%s",
+            endpoint_name,
+            user_id,
+            elapsed_ms,
+            exc,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Report generation failed: {endpoint_name}",
+        )
 
 
 def _validate_range(start_date: date, end_date: date) -> None:
@@ -250,22 +293,27 @@ async def get_weekly_overview(
     current_user: TokenData = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> WeeklyOverviewResponse:
-    service = ReportService(db)
-    start_date, resolved_end_date = service._resolve_date_range(days, end_date)
-
-    result = await service.get_weekly_overview(
-        user_id=current_user.user_id,
-        start_date=start_date,
-        end_date=resolved_end_date,
-    )
-
-    return WeeklyOverviewResponse(
-        user_id=str(current_user.user_id),
-        start_date=start_date,
-        end_date=resolved_end_date,
-        daily=result["daily"],
-        summary=result["summary"],
-        context_snapshot=result["context_snapshot"],
+    async def _run():
+        service = ReportService(db)
+        start_date, resolved_end_date = service._resolve_date_range(days, end_date)
+        result = await service.get_weekly_overview(
+            user_id=current_user.user_id,
+            start_date=start_date,
+            end_date=resolved_end_date,
+        )
+        return WeeklyOverviewResponse(
+            user_id=str(current_user.user_id),
+            start_date=start_date,
+            end_date=resolved_end_date,
+            daily=result["daily"],
+            summary=result["summary"],
+            context_snapshot=result["context_snapshot"],
+        )
+    return await _logged_report(
+        "weekly-overview",
+        str(current_user.user_id),
+        {"days": days, "end_date": str(end_date)},
+        _run(),
     )
 
 
