@@ -160,13 +160,13 @@ All traffic goes through the gateway at `:8000`. Interactive docs at each servic
 
 ### Journal Parser
 
-**Ingestion and gap resolution**
+#### Ingestion and gap resolution
 
 `POST /journal/process` — submit a journal entry (plain English); pass `require_complete: true` to enforce gap filling before storage.
 
 `POST /journal/resolve-gap` · `POST /journal/resolve-paragraph` · `GET /journal/pending-gaps` — interactive gap-resolution loop when the AI needs clarification on missing data.
 
-**Reports** — all support `weekly`, `monthly`, and `range` periods:
+#### Reports — all support `weekly`, `monthly`, and `range` periods:
 
 `/reports/overview` · `/reports/calories` · `/reports/sleep` · `/reports/mood` · `/reports/water` · `/reports/steps` · `/reports/activity` · `/reports/nutrition` · `/reports/social` · `/reports/health` · `/reports/work`
 
@@ -176,15 +176,15 @@ All traffic goes through the gateway at `:8000`. Interactive docs at each servic
 
 ### Knowledge Base
 
-**Documents** — `POST /kb/upload` · `POST /kb/ingest` · `GET /kb/documents`
+#### Documents — `POST /kb/upload` · `POST /kb/ingest` · `GET /kb/documents`
 
-**Buckets** — `GET /kb/buckets` · `POST /kb/buckets` · `GET /kb/buckets/tree` · `POST /kb/buckets/{id}/move` · `DELETE /kb/buckets/{id}` · `POST /kb/buckets/bulk-move-documents` · `POST /kb/buckets/route-preview`
+#### Buckets — `GET /kb/buckets` · `POST /kb/buckets` · `GET /kb/buckets/tree` · `POST /kb/buckets/{id}/move` · `DELETE /kb/buckets/{id}` · `POST /kb/buckets/bulk-move-documents` · `POST /kb/buckets/route-preview`
 
-**Search and chat** — `POST /kb/search` (hybrid RRF) · `POST /kb/chat` (RAG with source attribution)
+#### Search and chat — `POST /kb/search` (hybrid RRF) · `POST /kb/chat` (RAG with source attribution)
 
-**Knowledge graph** — `GET /kb/graph/entity/search` · `GET /kb/graph/entity/{id}` · `GET /kb/graph/document/{doc_id}/entities` · `GET /kb/graph/related/{entity_id}` · `GET /kb/graph/path` · `GET /kb/graph/cooccurring` · `GET /kb/graph/centrality` · `GET /kb/graph/timeline` · `GET /kb/graph/stats`
+#### Knowledge graph — `GET /kb/graph/entity/search` · `GET /kb/graph/entity/{id}` · `GET /kb/graph/document/{doc_id}/entities` · `GET /kb/graph/related/{entity_id}` · `GET /kb/graph/path` · `GET /kb/graph/cooccurring` · `GET /kb/graph/centrality` · `GET /kb/graph/timeline` · `GET /kb/graph/stats`
 
-**Operations** — `GET /kb/ops/embedding-dlq/stats` · `POST /kb/ops/embedding-dlq/reprocess-unreplayable` · `POST /kb/ops/embedding-dlq/purge-unreplayable`
+#### Operations — `GET /kb/ops/embedding-dlq/stats` · `POST /kb/ops/embedding-dlq/reprocess-unreplayable` · `POST /kb/ops/embedding-dlq/purge-unreplayable`
 
 Full endpoint reference: [docs/API_REFERENCE.md](docs/API_REFERENCE.md)
 
@@ -194,23 +194,23 @@ Full endpoint reference: [docs/API_REFERENCE.md](docs/API_REFERENCE.md)
 
 The most feature-rich service. Details: [docs/KB_FEATURES_AND_FLOWS.md](docs/KB_FEATURES_AND_FLOWS.md)
 
-**Ingestion pipeline** — base64 or URL → checksum deduplication → semantic chunking → 768-dim Gemini embeddings → Qdrant + Meilisearch + PostgreSQL → NER entity extraction → AI bucket routing → 4-stage integrity chain.
+#### Ingestion pipeline — base64 or URL → checksum deduplication → semantic chunking → 768-dim Gemini embeddings → Qdrant + Meilisearch + PostgreSQL → NER entity extraction → AI bucket routing → 4-stage integrity chain.
 
 Supported formats: plain text, PDF, images, Office (docx/xlsx/pptx), web URLs, and social media URLs — Reddit, Twitter/X, LinkedIn, Instagram, YouTube.
 
-**Hybrid search** — 3-tier RRF fusion across Qdrant (semantic, 60%), PostgreSQL tsvector (full-text, 30%), and Meilisearch (typo-tolerant, 10%). Dynamic intent weights auto-adjust per query type (conceptual / exact phrase / navigational / typo-heavy / filter-heavy). Cross-encoder reranking blends relevance, recency, engagement, and bucket context. Post-rerank MMR diversity. Two-layer cache: in-process LRU (5 min) + Redis (1 hr).
+#### Hybrid search — 3-tier RRF fusion across Qdrant (semantic, 60%), PostgreSQL tsvector (full-text, 30%), and Meilisearch (typo-tolerant, 10%). Dynamic intent weights auto-adjust per query type (conceptual / exact phrase / navigational / typo-heavy / filter-heavy). Cross-encoder reranking blends relevance, recency, engagement, and bucket context. Post-rerank MMR diversity. Two-layer cache: in-process LRU (5 min) + Redis (1 hr).
 
-**RAG chat** — Gemini-powered, retrieves from your documents via hybrid search, returns answers with source attribution and session continuity.
+#### RAG chat — Gemini-powered, retrieves from your documents via hybrid search, returns answers with source attribution and session continuity.
 
-**Knowledge graph** — NER entity extraction → disambiguation → Kuzu graph store. Query entity relations, find paths, rank by centrality, view co-occurrence clusters, and explore timelines.
+#### Knowledge graph — NER entity extraction → disambiguation → Kuzu graph store. Query entity relations, find paths, rank by centrality, view co-occurrence clusters, and explore timelines.
 
-**Bucket organisation** — four default buckets (Research and Reference / Work and Projects / Web and Media Saves / Needs Classification) created automatically. Hierarchical tree, AI auto-routing on ingest, bulk moves, route preview endpoint, protected defaults.
+#### Bucket organisation — four default buckets (Research and Reference / Work and Projects / Web and Media Saves / Needs Classification) created automatically. Hierarchical tree, AI auto-routing on ingest, bulk moves, route preview endpoint, protected defaults.
 
-**Deduplication** — MD5 exact-match + chunk-level near-duplicate signatures, with Redis cache layer.
+#### Deduplication — MD5 exact-match + chunk-level near-duplicate signatures, with Redis cache layer.
 
-**4-stage integrity chain** — each document tracks chain_hash + verified flag across: ingestion / chunking / embedding / entity extraction.
+#### 4-stage integrity chain — each document tracks chain_hash + verified flag across: ingestion / chunking / embedding / entity extraction.
 
-**Error format** — `{"detail": "...", "error_code": "AUTHENTICATION_FAILED|VALIDATION_ERROR|NOT_FOUND|RATE_LIMITED|INTERNAL_ERROR"}`
+#### Error format — `{"detail": "...", "error_code": "AUTHENTICATION_FAILED|VALIDATION_ERROR|NOT_FOUND|RATE_LIMITED|INTERNAL_ERROR"}`
 
 ---
 
