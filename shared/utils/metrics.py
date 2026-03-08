@@ -122,6 +122,20 @@ if PROMETHEUS_AVAILABLE:
         "Service information",
     )
 
+    # --- HTTP request metrics (shared across all services) ---
+    REQUEST_COUNT = Counter(
+        "plos_http_requests_total",
+        "Total HTTP requests",
+        ["service", "method", "endpoint", "status"],
+    )
+
+    REQUEST_LATENCY = Histogram(
+        "plos_http_request_latency_seconds",
+        "HTTP request latency in seconds",
+        ["service", "method", "endpoint"],
+        buckets=[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0],
+    )
+
 else:
     # Stub implementations when prometheus is not available
     class StubMetric:
@@ -164,6 +178,8 @@ else:
     EXTRACTION_QUALITY = StubMetric()
     GAPS_DETECTED = StubMetric()
     SERVICE_INFO = StubMetric()
+    REQUEST_COUNT = StubMetric()
+    REQUEST_LATENCY = StubMetric()
 
 
 @contextmanager

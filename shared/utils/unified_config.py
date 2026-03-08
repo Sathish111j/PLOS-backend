@@ -7,7 +7,7 @@ Industry-standard configuration using Pydantic Settings v2
 from functools import lru_cache
 from typing import Optional
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -144,6 +144,125 @@ class UnifiedSettings(BaseSettings):
     # =========================================================================
     journal_parser_port: int = Field(default=8002, description="Journal parser port")
     context_broker_port: int = Field(default=8001, description="Context broker port")
+
+    # =========================================================================
+    # SERVICE URLS
+    # =========================================================================
+    context_broker_url: str = Field(
+        default="http://context-broker:8001",
+        description="Context broker service URL",
+    )
+    cors_origins: str = Field(
+        default="http://localhost:3000,http://localhost:5173",
+        description="Comma-separated allowed CORS origins",
+    )
+
+    # =========================================================================
+    # KNOWLEDGE-BASE SETTINGS
+    # =========================================================================
+    qdrant_url: str = Field(
+        default="http://qdrant:6333", description="Qdrant vector DB URL"
+    )
+    qdrant_collection: str = Field(
+        default="documents_768", description="Primary Qdrant collection"
+    )
+    qdrant_fallback_collection: str = Field(
+        default="documents_fallback_384", description="Fallback Qdrant collection"
+    )
+    embedding_model: str = Field(
+        default="text-embedding-004", description="Embedding model name"
+    )
+    embedding_dimensions: int = Field(
+        default=768, description="Embedding vector dimensions"
+    )
+    embedding_batch_size: int = Field(default=100, description="Embedding batch size")
+    embedding_retry_max_attempts: int = Field(
+        default=5, description="Max embedding retry attempts"
+    )
+    embedding_cache_ttl_seconds: int = Field(
+        default=604800, description="Embedding cache TTL (7 days)"
+    )
+    embedding_dlq_replay_enabled: bool = Field(
+        default=True, description="Enable DLQ replay"
+    )
+    embedding_dlq_replay_interval_seconds: int = Field(
+        default=30, description="DLQ replay interval"
+    )
+    embedding_dlq_replay_batch_size: int = Field(
+        default=10, description="DLQ replay batch size"
+    )
+    embedding_dlq_replay_max_attempts: int = Field(
+        default=3, description="DLQ replay max attempts"
+    )
+    embedding_queue_enabled: bool = Field(
+        default=False, description="Enable async embedding queue"
+    )
+    celery_broker_url: str = Field(default="", description="Celery broker URL")
+    celery_backend_url: str = Field(default="", description="Celery backend URL")
+    minio_enabled: bool = Field(default=True, description="Enable MinIO storage")
+    minio_endpoint: str = Field(default="minio:9000", description="MinIO endpoint")
+    minio_secure: bool = Field(default=False, description="MinIO TLS")
+    minio_bucket: str = Field(
+        default="knowledge-base-documents", description="MinIO bucket"
+    )
+    minio_access_key: str = Field(default="", description="MinIO access key")
+    minio_secret_key: str = Field(default="", description="MinIO secret key")
+    meilisearch_url: str = Field(
+        default="http://meilisearch:7700", description="Meilisearch URL"
+    )
+    meilisearch_master_key: str = Field(
+        default="", description="Meilisearch master key"
+    )
+    meilisearch_index: str = Field(default="kb_chunks", description="Meilisearch index")
+    database_url: str = Field(default="", description="Async DB URL for knowledge-base")
+    graph_enabled: bool = Field(default=True, description="Enable knowledge graph")
+    graph_db_path: str = Field(
+        default="/var/plos/graph/kuzu_db", description="Graph DB path"
+    )
+    graph_ner_window_tokens: int = Field(default=2000, description="NER window")
+    graph_ner_overlap_tokens: int = Field(default=200, description="NER overlap")
+    graph_ner_confidence_threshold: float = Field(
+        default=0.60, description="NER confidence"
+    )
+    graph_disambig_vector_high: float = Field(default=0.92, description="Disambig high")
+    graph_disambig_vector_low: float = Field(default=0.80, description="Disambig low")
+    graph_wikidata_cache_ttl_seconds: int = Field(
+        default=2592000, description="Wikidata cache TTL (30 days)"
+    )
+    graph_pagerank_damping: float = Field(default=0.85, description="PageRank damping")
+    graph_pagerank_iterations: int = Field(
+        default=20, description="PageRank iterations"
+    )
+    graph_celery_queue: str = Field(
+        default="graph_extraction", description="Graph Celery queue"
+    )
+    rag_model: str = Field(default="gemini-3-flash-preview", description="RAG model")
+    rag_max_context_tokens: int = Field(
+        default=100000, description="RAG max context tokens"
+    )
+    rag_max_chunks: int = Field(default=15, description="RAG max chunks")
+    rag_conversation_max_messages: int = Field(
+        default=20, description="RAG max conversation messages"
+    )
+    rag_session_ttl_hours: int = Field(
+        default=168, description="RAG session TTL (hours)"
+    )
+    rag_stream_enabled: bool = Field(default=True, description="Enable RAG streaming")
+
+    @model_validator(mode="after")
+    def _check_jwt_secret(self) -> "UnifiedSettings":
+        """Prevent startup with the insecure default JWT secret outside development."""
+        if (
+            self.jwt_secret == "change-this-in-production"
+            and self.app_env != "development"
+        ):
+            raise ValueError(
+                "JWT_SECRET is still set to the insecure default "
+                "'change-this-in-production'. Set a strong secret via the "
+                "JWT_SECRET environment variable before running in "
+                f"'{self.app_env}' mode."
+            )
+        return self
 
     # =========================================================================
     # SPECIALIZED CONFIGURATION ACCESSORS

@@ -4,7 +4,6 @@ Stores extracted journal data in normalized tables with controlled vocabulary.
 Matches the journal_schema.sql generalized schema.
 """
 
-import os
 from datetime import date, datetime
 from datetime import time as time_type
 from datetime import timezone
@@ -66,10 +65,7 @@ class StorageService:
         self.db = db_session
         self.kafka = kafka_producer
         settings = get_unified_settings()
-        self.context_broker_url = os.getenv(
-            "CONTEXT_BROKER_URL",
-            f"http://context-broker:{settings.context_broker_port}",
-        )
+        self.context_broker_url = settings.context_broker_url
         self.writer = ExtractionWriter(
             db_session,
             self._parse_time_string,

@@ -41,17 +41,15 @@ from fastapi.responses import PlainTextResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from starlette.responses import StreamingResponse
 
-from shared.auth.dependencies import get_current_user, get_current_user_optional
+from shared.auth.dependencies import get_current_user
 from shared.auth.models import TokenData
 
 router = APIRouter()
 config = get_kb_config()
 
 
-def _owner_id(user: TokenData | None) -> str:
-    if user:
-        return str(user.user_id)
-    return "anonymous"
+def _owner_id(user: TokenData) -> str:
+    return str(user.user_id)
 
 
 @router.get("/health", tags=["health"])
@@ -73,7 +71,7 @@ async def metrics() -> PlainTextResponse:
 @router.post("/upload", response_model=UploadResponse, tags=["documents"])
 async def upload_document(
     request: UploadRequest,
-    current_user: TokenData | None = Depends(get_current_user_optional),
+    current_user: TokenData = Depends(get_current_user),
 ) -> UploadResponse:
     start = time.perf_counter()
     owner_id = _owner_id(current_user)
@@ -87,8 +85,12 @@ async def upload_document(
         bucket_hint=request.bucket_hint,
     )
     duration = time.perf_counter() - start
-    REQUEST_COUNT.labels(method="POST", endpoint="/upload", status="200").inc()
-    REQUEST_LATENCY.labels(method="POST", endpoint="/upload").observe(duration)
+    REQUEST_COUNT.labels(
+        service="knowledge-base", method="POST", endpoint="/upload", status="200"
+    ).inc()
+    REQUEST_LATENCY.labels(
+        service="knowledge-base", method="POST", endpoint="/upload"
+    ).observe(duration)
     return UploadResponse(
         document_id=result["document_id"],
         status=result["status"],
@@ -104,7 +106,7 @@ async def upload_document(
 @router.post("/ingest", response_model=UploadResponse, tags=["documents"])
 async def ingest_document(
     request: UploadRequest,
-    current_user: TokenData | None = Depends(get_current_user_optional),
+    current_user: TokenData = Depends(get_current_user),
 ) -> UploadResponse:
     start = time.perf_counter()
     owner_id = _owner_id(current_user)
@@ -118,8 +120,12 @@ async def ingest_document(
         bucket_hint=request.bucket_hint,
     )
     duration = time.perf_counter() - start
-    REQUEST_COUNT.labels(method="POST", endpoint="/ingest", status="200").inc()
-    REQUEST_LATENCY.labels(method="POST", endpoint="/ingest").observe(duration)
+    REQUEST_COUNT.labels(
+        service="knowledge-base", method="POST", endpoint="/ingest", status="200"
+    ).inc()
+    REQUEST_LATENCY.labels(
+        service="knowledge-base", method="POST", endpoint="/ingest"
+    ).observe(duration)
     return UploadResponse(
         document_id=result["document_id"],
         status=result["status"],
@@ -134,7 +140,7 @@ async def ingest_document(
 
 @router.get("/documents", response_model=list[DocumentItem], tags=["documents"])
 async def list_documents(
-    current_user: TokenData | None = Depends(get_current_user_optional),
+    current_user: TokenData = Depends(get_current_user),
 ) -> list[DocumentItem]:
     owner_id = _owner_id(current_user)
     documents = await knowledge_service.list_documents(owner_id)
@@ -279,7 +285,7 @@ async def route_bucket_preview(
 @router.post("/search", response_model=SearchResponse, tags=["search"])
 async def search(
     request: SearchRequest,
-    current_user: TokenData | None = Depends(get_current_user_optional),
+    current_user: TokenData = Depends(get_current_user),
 ) -> SearchResponse:
     owner_id = _owner_id(current_user)
     result = await knowledge_service.search(owner_id, request)
@@ -289,7 +295,7 @@ async def search(
 @router.post("/chat", response_model=ChatResponse, tags=["chat"])
 async def chat(
     request: ChatRequest,
-    current_user: TokenData | None = Depends(get_current_user_optional),
+    current_user: TokenData = Depends(get_current_user),
 ) -> ChatResponse | StreamingResponse:
     owner_id = _owner_id(current_user)
 

@@ -63,9 +63,7 @@ class RAGEngine:
             "rag_conversation_max_messages",
             _DEFAULT_CONVERSATION_MAX_MESSAGES,
         )
-        self.context_broker_url: str = getattr(
-            config, "context_broker_url", "http://context-broker:8001"
-        )
+        self.context_broker_url: str = config.context_broker_url
 
     # ------------------------------------------------------------------
     #  Public API -- non-streaming

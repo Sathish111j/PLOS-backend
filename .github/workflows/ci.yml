@@ -134,6 +134,13 @@ jobs:
             -f docker-compose.dev.yml \
             config --quiet
 
+      - name: Validate docker-compose.test.yml overlay
+        run: |
+          docker compose \
+            -f docker-compose.yml \
+            -f docker-compose.test.yml \
+            config --quiet
+
       - name: Check all service names are consistent
         run: docker compose -f docker-compose.yml config --services | sort
 

@@ -4,7 +4,7 @@ Database operations for user context state with improved health checks.
 """
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 
@@ -76,7 +76,7 @@ class StateManager:
             async with self.Session() as session:
                 await session.execute(text("SELECT 1"))
 
-            self._last_health_check = datetime.now(datetime.timezone.utc)
+            self._last_health_check = datetime.now(timezone.utc)
             return True
 
         except Exception as e:
@@ -121,7 +121,7 @@ class StateManager:
                 if not result:
                     # User exists but no context yet - return empty context
                     return UserContext(
-                        user_id=user_id, updated_at=datetime.now(datetime.timezone.utc)
+                        user_id=user_id, updated_at=datetime.now(timezone.utc)
                     )
 
                 raw_user_id = result[0]

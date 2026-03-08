@@ -5,6 +5,12 @@ from functools import lru_cache
 from shared.utils.unified_config import get_unified_settings
 
 
+def _parse_bool(value: str, default: bool = False) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True)
 class KnowledgeBaseConfig:
     service_name: str
@@ -58,6 +64,7 @@ class KnowledgeBaseConfig:
     rag_session_ttl_hours: int
     rag_stream_enabled: bool
     context_broker_url: str
+    cors_origins: str
 
     @property
     def minio_health_url(self) -> str:
@@ -66,103 +73,63 @@ class KnowledgeBaseConfig:
         return f"{protocol}://{endpoint}/minio/health/live"
 
 
-def _parse_bool(value: str, default: bool = False) -> bool:
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
 @lru_cache()
 def get_kb_config() -> KnowledgeBaseConfig:
-    unified = get_unified_settings()
+    """Build KnowledgeBaseConfig from UnifiedSettings (single source of truth)."""
+    u = get_unified_settings()
+
+    # A few overrides may still arrive as env vars that are specific to
+    # the knowledge-base deployment and not present in UnifiedSettings.
+    # We prefer the unified value but allow a local env-var override.
     return KnowledgeBaseConfig(
-        service_name=os.getenv("SERVICE_NAME", "knowledge-base"),
-        service_port=int(os.getenv("PORT", str(unified.service_port))),
-        log_level=os.getenv("LOG_LEVEL", unified.log_level),
-        app_env=os.getenv("APP_ENV", unified.app_env),
-        debug=_parse_bool(os.getenv("DEBUG"), unified.debug),
-        qdrant_url=os.getenv("QDRANT_URL", "http://qdrant:6333"),
-        qdrant_collection=os.getenv("QDRANT_COLLECTION", "documents_768"),
-        qdrant_fallback_collection=os.getenv(
-            "QDRANT_FALLBACK_COLLECTION", "documents_fallback_384"
-        ),
-        embedding_model=os.getenv(
-            "GEMINI_EMBEDDING_MODEL",
-            os.getenv("EMBEDDING_MODEL", "text-embedding-004"),
-        ),
-        embedding_dimensions=int(os.getenv("EMBEDDING_DIMENSIONS", "768")),
-        embedding_batch_size=int(os.getenv("EMBEDDING_BATCH_SIZE", "100")),
-        embedding_retry_max_attempts=int(
-            os.getenv("EMBEDDING_RETRY_MAX_ATTEMPTS", "5")
-        ),
-        embedding_cache_ttl_seconds=int(
-            os.getenv("EMBEDDING_CACHE_TTL_SECONDS", str(7 * 24 * 60 * 60))
-        ),
-        embedding_dlq_replay_enabled=_parse_bool(
-            os.getenv("EMBEDDING_DLQ_REPLAY_ENABLED"),
-            True,
-        ),
-        embedding_dlq_replay_interval_seconds=int(
-            os.getenv("EMBEDDING_DLQ_REPLAY_INTERVAL_SECONDS", "30")
-        ),
-        embedding_dlq_replay_batch_size=int(
-            os.getenv("EMBEDDING_DLQ_REPLAY_BATCH_SIZE", "10")
-        ),
-        embedding_dlq_replay_max_attempts=int(
-            os.getenv("EMBEDDING_DLQ_REPLAY_MAX_ATTEMPTS", "3")
-        ),
-        embedding_queue_enabled=_parse_bool(
-            os.getenv("EMBEDDING_QUEUE_ENABLED"),
-            False,
-        ),
-        celery_broker_url=os.getenv(
-            "CELERY_BROKER_URL",
-            os.getenv("REDIS_URL", ""),
-        ),
-        celery_backend_url=os.getenv(
-            "CELERY_BACKEND_URL",
-            os.getenv("REDIS_URL", ""),
-        ),
-        minio_enabled=_parse_bool(os.getenv("MINIO_ENABLED"), True),
-        minio_endpoint=os.getenv("MINIO_ENDPOINT", "minio:9000"),
-        minio_secure=_parse_bool(os.getenv("MINIO_SECURE"), False),
-        minio_bucket=os.getenv("MINIO_BUCKET", "knowledge-base-documents"),
-        minio_access_key=os.getenv("MINIO_ACCESS_KEY", ""),
-        minio_secret_key=os.getenv("MINIO_SECRET_KEY", ""),
-        meilisearch_url=os.getenv("MEILISEARCH_URL", "http://meilisearch:7700"),
-        meilisearch_master_key=os.getenv("MEILISEARCH_MASTER_KEY", ""),
-        meilisearch_index=os.getenv("MEILISEARCH_INDEX", "kb_chunks"),
-        database_url=os.getenv(
-            "DATABASE_URL",
-            "",
-        ),
-        redis_url=os.getenv("REDIS_URL", ""),
-        graph_enabled=_parse_bool(os.getenv("GRAPH_ENABLED"), True),
-        graph_db_path=os.getenv("GRAPH_DB_PATH", "/var/plos/graph/kuzu_db"),
-        graph_ner_window_tokens=int(os.getenv("GRAPH_NER_WINDOW_TOKENS", "2000")),
-        graph_ner_overlap_tokens=int(os.getenv("GRAPH_NER_OVERLAP_TOKENS", "200")),
-        graph_ner_confidence_threshold=float(
-            os.getenv("GRAPH_NER_CONFIDENCE_THRESHOLD", "0.60")
-        ),
-        graph_disambig_vector_high=float(
-            os.getenv("GRAPH_DISAMBIG_VECTOR_HIGH", "0.92")
-        ),
-        graph_disambig_vector_low=float(os.getenv("GRAPH_DISAMBIG_VECTOR_LOW", "0.80")),
-        graph_wikidata_cache_ttl_seconds=int(
-            os.getenv("GRAPH_WIKIDATA_CACHE_TTL_SECONDS", str(30 * 24 * 60 * 60))
-        ),
-        graph_pagerank_damping=float(os.getenv("GRAPH_PAGERANK_DAMPING", "0.85")),
-        graph_pagerank_iterations=int(os.getenv("GRAPH_PAGERANK_ITERATIONS", "20")),
-        graph_celery_queue=os.getenv("GRAPH_CELERY_QUEUE", "graph_extraction"),
-        rag_model=os.getenv("RAG_MODEL", "gemini-3-flash-preview"),
-        rag_max_context_tokens=int(os.getenv("RAG_MAX_CONTEXT_TOKENS", "100000")),
-        rag_max_chunks=int(os.getenv("RAG_MAX_CHUNKS", "15")),
-        rag_conversation_max_messages=int(
-            os.getenv("RAG_CONVERSATION_MAX_MESSAGES", "20")
-        ),
-        rag_session_ttl_hours=int(os.getenv("RAG_SESSION_TTL_HOURS", "168")),
-        rag_stream_enabled=_parse_bool(os.getenv("RAG_STREAM_ENABLED"), True),
-        context_broker_url=os.getenv(
-            "CONTEXT_BROKER_URL", "http://context-broker:8001"
-        ),
+        service_name=os.getenv("SERVICE_NAME", u.service_name),
+        service_port=int(os.getenv("PORT", str(u.service_port))),
+        log_level=u.log_level,
+        app_env=u.app_env,
+        debug=u.debug,
+        qdrant_url=u.qdrant_url,
+        qdrant_collection=u.qdrant_collection,
+        qdrant_fallback_collection=u.qdrant_fallback_collection,
+        embedding_model=os.getenv("GEMINI_EMBEDDING_MODEL", u.embedding_model),
+        embedding_dimensions=u.embedding_dimensions,
+        embedding_batch_size=u.embedding_batch_size,
+        embedding_retry_max_attempts=u.embedding_retry_max_attempts,
+        embedding_cache_ttl_seconds=u.embedding_cache_ttl_seconds,
+        embedding_dlq_replay_enabled=u.embedding_dlq_replay_enabled,
+        embedding_dlq_replay_interval_seconds=u.embedding_dlq_replay_interval_seconds,
+        embedding_dlq_replay_batch_size=u.embedding_dlq_replay_batch_size,
+        embedding_dlq_replay_max_attempts=u.embedding_dlq_replay_max_attempts,
+        embedding_queue_enabled=u.embedding_queue_enabled,
+        celery_broker_url=u.celery_broker_url or u.redis_url,
+        celery_backend_url=u.celery_backend_url or u.redis_url,
+        minio_enabled=u.minio_enabled,
+        minio_endpoint=u.minio_endpoint,
+        minio_secure=u.minio_secure,
+        minio_bucket=u.minio_bucket,
+        minio_access_key=u.minio_access_key,
+        minio_secret_key=u.minio_secret_key,
+        meilisearch_url=u.meilisearch_url,
+        meilisearch_master_key=u.meilisearch_master_key,
+        meilisearch_index=u.meilisearch_index,
+        database_url=u.database_url or u.postgres_async_url,
+        redis_url=u.redis_url,
+        graph_enabled=u.graph_enabled,
+        graph_db_path=u.graph_db_path,
+        graph_ner_window_tokens=u.graph_ner_window_tokens,
+        graph_ner_overlap_tokens=u.graph_ner_overlap_tokens,
+        graph_ner_confidence_threshold=u.graph_ner_confidence_threshold,
+        graph_disambig_vector_high=u.graph_disambig_vector_high,
+        graph_disambig_vector_low=u.graph_disambig_vector_low,
+        graph_wikidata_cache_ttl_seconds=u.graph_wikidata_cache_ttl_seconds,
+        graph_pagerank_damping=u.graph_pagerank_damping,
+        graph_pagerank_iterations=u.graph_pagerank_iterations,
+        graph_celery_queue=u.graph_celery_queue,
+        rag_model=u.rag_model,
+        rag_max_context_tokens=u.rag_max_context_tokens,
+        rag_max_chunks=u.rag_max_chunks,
+        rag_conversation_max_messages=u.rag_conversation_max_messages,
+        rag_session_ttl_hours=u.rag_session_ttl_hours,
+        rag_stream_enabled=u.rag_stream_enabled,
+        context_broker_url=u.context_broker_url,
+        cors_origins=u.cors_origins,
     )

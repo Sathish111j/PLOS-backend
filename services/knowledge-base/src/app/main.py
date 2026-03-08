@@ -14,6 +14,12 @@ config = get_kb_config()
 setup_logging("knowledge-base", log_level=config.log_level, json_logs=True)
 logger = get_logger(__name__)
 
+_cors_origins = (
+    [origin.strip() for origin in config.cors_origins.split(",") if origin.strip()]
+    if hasattr(config, "cors_origins") and config.cors_origins
+    else ["*"]
+)
+
 app = FastAPI(
     title="PLOS Knowledge Base",
     description="Knowledge Base service skeleton for ingestion, retrieval, and chat.",
@@ -23,7 +29,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],

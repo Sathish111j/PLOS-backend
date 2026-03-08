@@ -68,8 +68,8 @@ services:
       DEFAULT_PROJECT_NAME: "Personal Life OS"
       SUPABASE_URL: http://localhost:8000
       SUPABASE_PUBLIC_URL: http://localhost:8000
-      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0}
-      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:?SUPABASE_ANON_KEY must be set in .env}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY:?SUPABASE_SERVICE_KEY must be set in .env}
       NEXT_PUBLIC_ENABLE_LOGS: "true"
       NEXT_ANALYTICS_BACKEND_PROVIDER: postgres
     ports:
@@ -432,7 +432,6 @@ services:
       SERVICE_PORT: 8001
       POSTGRES_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-plos_db_secure_2025}@supabase-db:5432/${POSTGRES_DB:-plos}
       REDIS_URL: redis://:${REDIS_PASSWORD:-plos_redis_secure_2025}@redis:6379/0
-      KAFKA_BROKERS: kafka:9092
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
@@ -484,7 +483,7 @@ services:
       SERVICE_NAME: journal-parser
       SERVICE_PORT: 8002
       POSTGRES_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-plos_db_secure_2025}@supabase-db:5432/${POSTGRES_DB:-plos}
-      KAFKA_BROKERS: kafka:9092
+      CONTEXT_BROKER_URL: http://context-broker:8001
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
@@ -566,7 +565,6 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
       GEMINI_DEFAULT_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-3-flash-preview}
-      GEMINI_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-3-flash-preview}
       GEMINI_EMBEDDING_MODEL: ${GEMINI_EMBEDDING_MODEL:-gemini-embedding-001}
       GEMINI_API_KEY_ROTATION_ENABLED: ${GEMINI_API_KEY_ROTATION_ENABLED:-true}
       GEMINI_API_KEY_ROTATION_MAX_RETRIES: ${GEMINI_API_KEY_ROTATION_MAX_RETRIES:-3}
@@ -700,7 +698,7 @@ services:
     depends_on:
       - prometheus
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set in .env}
       GF_USERS_ALLOW_SIGN_UP: "false"
     ports:
       - "${GRAFANA_PORT:-3333}:3000"

@@ -4,6 +4,16 @@ set -e
 # PLOS Infrastructure Verification Script
 # Tests all infrastructure components for stability and correctness.
 
+# Source project .env if available so overridden passwords are picked up.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+if [[ -f "$PROJECT_ROOT/.env" ]]; then
+    set +e
+    # shellcheck disable=SC1091
+    source "$PROJECT_ROOT/.env" 2>/dev/null
+    set -e
+fi
+
 ERROR_COUNT=0
 WARNING_COUNT=0
 

@@ -105,6 +105,10 @@ async def get_user_context(
 
     Returns real-time aggregated state from cache + database
     """
+    if str(current_user.user_id) != str(user_id):
+        raise HTTPException(
+            status_code=403, detail="Not authorised to access this user's context"
+        )
     try:
         start_time = time.time()
         logger.info("[CONTEXT] GET context request", extra={"user_id": str(user_id)})
@@ -173,6 +177,10 @@ async def update_context(
 
     Processes context updates from various services
     """
+    if str(current_user.user_id) != str(update.user_id):
+        raise HTTPException(
+            status_code=403, detail="Not authorised to update another user's context"
+        )
     try:
         logger.info(
             "[CONTEXT] UPDATE request",
@@ -208,6 +216,10 @@ async def get_context_summary(
     user_id: UUID, current_user: TokenData = Depends(get_current_user)
 ):
     """Get lightweight context summary"""
+    if str(current_user.user_id) != str(user_id):
+        raise HTTPException(
+            status_code=403, detail="Not authorised to access this user's context"
+        )
     try:
         summary = await context_engine.get_summary(user_id)
         return summary
@@ -227,6 +239,10 @@ async def invalidate_cache(
     user_id: UUID, current_user: TokenData = Depends(get_current_user)
 ):
     """Invalidate cache for user (force refresh)"""
+    if str(current_user.user_id) != str(user_id):
+        raise HTTPException(
+            status_code=403, detail="Not authorised to invalidate another user's cache"
+        )
     try:
         await cache_manager.invalidate(user_id)
         return SuccessResponse(

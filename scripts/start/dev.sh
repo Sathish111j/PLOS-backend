@@ -82,7 +82,7 @@ fi
 # =========================================================================
 
 info "Starting infrastructure services..."
-docker compose up -d "${INFRA_SERVICES[@]}"
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d "${INFRA_SERVICES[@]}"
 echo ""
 
 # =========================================================================
@@ -137,7 +137,7 @@ echo ""
 # =========================================================================
 
 info "Starting core application services..."
-docker compose up -d "${CORE_SERVICES[@]}"
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d "${CORE_SERVICES[@]}"
 echo ""
 
 # =========================================================================

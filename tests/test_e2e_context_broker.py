@@ -245,15 +245,15 @@ class TestContextRetrieval:
         logger.info("[CB] Summary retrieved: %s", list(data.keys()))
 
     def test_get_nonexistent_user(self, state: _CB_State) -> None:
-        """Getting context for a random user_id should gracefully handle."""
+        """Getting context for a random user_id should return 403 (IDOR guard)."""
         fake_user = str(uuid.uuid4())
         resp = requests.get(
             f"{CONTEXT_URL}/context/{fake_user}",
             headers=_h(state.token),
             timeout=HTTP_TIMEOUT,
         )
-        # Should return 200 with empty/default context or 404
-        assert resp.status_code in (200, 404, 500)
+        # IDOR ownership check rejects access to another user's context
+        assert resp.status_code == 403
 
 
 # ===================================================================

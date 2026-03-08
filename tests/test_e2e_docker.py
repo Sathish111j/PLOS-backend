@@ -943,8 +943,8 @@ class TestErrorHandling:
             headers=_headers(state.token),
             timeout=HTTP_TIMEOUT,
         )
-        # May return empty/default context (200), 404, or 500 if not found
-        assert resp.status_code in (200, 404, 500), (
+        # Auth may reject (401) or IDOR ownership check rejects (403)
+        assert resp.status_code in (401, 403), (
             f"Unexpected status for nonexistent user context: {resp.status_code}"
         )
         logger.info(

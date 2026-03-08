@@ -15,7 +15,7 @@ services:
       context: .
       dockerfile: ./services/context-broker/Dockerfile
     volumes:
-      # Mount source code for live reload
+      # Mount source code for live reload -- mirrors prod layout
       - ./services/context-broker/src:/app/src:rw
       - ./shared:/app/shared:rw
     environment:
@@ -34,14 +34,14 @@ services:
       context: .
       dockerfile: ./services/journal-parser/Dockerfile
     volumes:
-      # Mount source code for live reload
-      - ./services/journal-parser/src:/app/src:rw
+      # Mount source code for live reload -- mirrors prod layout at /app/
+      - ./services/journal-parser/src:/app:rw
       - ./shared:/app/shared:rw
     environment:
       LOG_LEVEL: DEBUG
       PYTHONUNBUFFERED: 1
       WATCHFILES_FORCE_POLLING: "true"
-    command: uvicorn src.main:app --host 0.0.0.0 --port 8002 --reload --reload-dir /app/src --reload-dir /app/shared
+    command: uvicorn main:app --host 0.0.0.0 --port 8002 --reload --reload-dir /app --reload-dir /app/shared
     deploy:
       resources:
         limits:
