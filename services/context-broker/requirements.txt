@@ -42,5 +42,5 @@ python-json-logger==2.0.7
 
 # Utilities
 tenacity==8.2.3
-orjson==3.10.18
+orjson==3.11.7
 PyJWT>=2.8.0
