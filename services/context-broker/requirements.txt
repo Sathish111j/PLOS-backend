@@ -22,7 +22,7 @@ sqlalchemy[asyncio]==2.0.25
 asyncpg==0.29.0
 
 # Cache
-redis[hiredis]==5.0.1
+redis[hiredis]==7.3.0
 
 # Message Queue
 kafka-python==2.0.2
