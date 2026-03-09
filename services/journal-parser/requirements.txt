@@ -19,7 +19,7 @@ bcrypt==4.1.2
 PyJWT==2.8.0
 
 # Gemini AI - New SDK
-google-genai==1.2.0
+google-genai==1.66.0
 
 # Database
 sqlalchemy[asyncio]==2.0.25
