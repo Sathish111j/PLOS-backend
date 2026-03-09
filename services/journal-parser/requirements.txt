@@ -22,7 +22,7 @@ PyJWT==2.8.0
 google-genai==1.2.0
 
 # Database
-sqlalchemy[asyncio]==2.0.25
+sqlalchemy[asyncio]==2.0.48
 asyncpg==0.29.0
 
 # Cache
