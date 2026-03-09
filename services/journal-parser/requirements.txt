@@ -30,7 +30,7 @@ redis[hiredis]==5.0.1
 
 # Message Queue
 aiokafka==0.10.0
-kafka-python==2.0.2
+kafka-python==2.3.0
 
 # HTTP Client
 httpx==0.26.0
