@@ -68,6 +68,66 @@ def _regex_entities(text: str) -> list[ExtractedEntity]:
     return entities
 
 
+def _titlecase_entities(text: str) -> list[ExtractedEntity]:
+    """Lightweight proper-noun extraction when spaCy is unavailable.
+
+    This intentionally favors recall over perfect precision so the graph
+    search API has useful results even on simple prose documents.
+    """
+
+    common_starts = {
+        "A",
+        "An",
+        "And",
+        "But",
+        "For",
+        "From",
+        "In",
+        "Into",
+        "Of",
+        "On",
+        "Or",
+        "The",
+        "To",
+        "With",
+        "This",
+        "That",
+        "These",
+        "Those",
+        "Morning",
+        "Evening",
+        "Night",
+        "Good",
+    }
+
+    titlecase_pattern = re.compile(r"\b(?:[A-Z][a-z]{2,})(?:\s+[A-Z][a-z]{2,})*\b")
+    entities: list[ExtractedEntity] = []
+
+    for match in titlecase_pattern.finditer(text):
+        name = _canonicalize(match.group(0))
+        if not name:
+            continue
+        parts = name.split()
+        if not parts:
+            continue
+        if len(parts) == 1 and parts[0] in common_starts:
+            continue
+        if all(part in common_starts for part in parts):
+            continue
+        entities.append(
+            ExtractedEntity(
+                text=name,
+                canonical_name=name,
+                entity_type="PROPER_NOUN",
+                confidence=0.55,
+                aliases=[name],
+                metadata={"source": "heuristic_titlecase"},
+            )
+        )
+
+    return entities
+
+
 def _spacy_entities(text: str) -> list[ExtractedEntity]:
     try:
         import spacy
@@ -106,7 +166,7 @@ def extract_entities(text: str) -> list[ExtractedEntity]:
         return []
 
     merged: dict[tuple[str, str], ExtractedEntity] = {}
-    for entity in _spacy_entities(text) + _regex_entities(text):
+    for entity in _spacy_entities(text) + _regex_entities(text) + _titlecase_entities(text):
         key = (entity.canonical_name.lower(), entity.entity_type)
         existing = merged.get(key)
         if not existing or entity.confidence > existing.confidence:

@@ -4142,6 +4142,62 @@ class KnowledgePersistence:
                     json.dumps(entity.metadata),
                 )
 
+    async def search_document_entities_for_owner(
+        self,
+        owner_id: str,
+        query: str,
+        *,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Fallback search over PostgreSQL-stored extracted entities.
+
+        This is used when the embedded graph is empty or not yet hydrated.
+        """
+
+        if not self._pool:
+            return []
+
+        user_uuid = await self._resolve_existing_user_uuid(owner_id)
+        if not user_uuid:
+            return []
+
+        q = f"%{query.lower()}%"
+        sql = """
+            SELECT
+                de.document_id,
+                de.entity_text,
+                de.canonical_name,
+                de.entity_type,
+                de.confidence,
+                de.aliases
+            FROM document_entities de
+            JOIN documents d ON d.id = de.document_id
+            WHERE d.created_by = $1::uuid
+              AND (
+                    lower(de.canonical_name) LIKE $2
+                 OR lower(de.entity_text) LIKE $2
+                 OR lower(de.aliases::text) LIKE $2
+              )
+            ORDER BY de.confidence DESC, de.updated_at DESC
+            LIMIT $3
+        """
+
+        async with self._pool.acquire() as connection:
+            rows = await connection.fetch(sql, user_uuid, q, limit)
+
+        return [
+            {
+                "document_id": str(row["document_id"]),
+                "canonical_name": row["canonical_name"],
+                "type": row["entity_type"],
+                "mention_count": 1,
+                "pagerank_score": float(row["confidence"] or 0.0),
+                "entity_text": row["entity_text"],
+                "aliases": row["aliases"],
+            }
+            for row in rows
+        ]
+
     async def get_document_engagement(
         self, document_ids: list[str]
     ) -> dict[str, dict[str, int]]:

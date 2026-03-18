@@ -85,11 +85,20 @@ CREATE INDEX IF NOT EXISTS idx_bucket_suggestions_user_status
 -- -------------------------------------------------------------------------
 -- 5. Wire ingest_jobs.suggestion_id FK now that bucket_suggestions exists
 -- -------------------------------------------------------------------------
-ALTER TABLE ingest_jobs
-    ADD CONSTRAINT fk_ingest_jobs_suggestion
-        FOREIGN KEY (suggestion_id)
-        REFERENCES bucket_suggestions(suggestion_id)
-        ON DELETE SET NULL;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'fk_ingest_jobs_suggestion'
+    ) THEN
+        ALTER TABLE ingest_jobs
+            ADD CONSTRAINT fk_ingest_jobs_suggestion
+                FOREIGN KEY (suggestion_id)
+                REFERENCES bucket_suggestions(suggestion_id)
+                ON DELETE SET NULL;
+    END IF;
+END $$;
 
 -- -------------------------------------------------------------------------
 -- 6. Track classified_by and confidence on documents

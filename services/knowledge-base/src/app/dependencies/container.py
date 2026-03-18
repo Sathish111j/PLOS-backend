@@ -37,7 +37,7 @@ infra_health_client = InfraHealthClient(config, persistence)
 # Graph layer (initialised during lifespan startup)
 graph_store = KuzuGraphStore(config)
 _disambiguator = EntityDisambiguator(config, gemini_client=_gemini_client)
-graph_query_service = GraphQueryService(config, graph_store)
+graph_query_service = GraphQueryService(config, graph_store, persistence)
 graph_update_service = GraphUpdateService(
     config, graph_store, _disambiguator, gemini_client=_gemini_client
 )

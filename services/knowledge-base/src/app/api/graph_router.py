@@ -68,7 +68,7 @@ async def search_entities(
 ) -> EntitySearchResponse:
     """Search entities by name or alias."""
     uid = _owner_id(current_user)
-    results = graph_query_service.entity_search(q, uid, limit=limit)
+    results = await graph_query_service.entity_search(q, uid, limit=limit)
     summaries = [
         EntitySummary(
             entity_id=r["entity_id"],

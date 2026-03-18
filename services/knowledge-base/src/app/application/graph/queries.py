@@ -13,6 +13,7 @@ from typing import Any
 
 from app.core.config import KnowledgeBaseConfig
 from app.infrastructure.graph_store import KuzuGraphStore
+from app.infrastructure.persistence import KnowledgePersistence
 
 from shared.utils.logger import get_logger
 
@@ -25,10 +26,14 @@ class GraphQueryService:
     """
 
     def __init__(
-        self, config: KnowledgeBaseConfig, graph_store: KuzuGraphStore
+        self,
+        config: KnowledgeBaseConfig,
+        graph_store: KuzuGraphStore,
+        persistence: KnowledgePersistence | None = None,
     ) -> None:
         self._config = config
         self._store = graph_store
+        self._persistence = persistence
 
     # ------------------------------------------------------------------
     # 1. Entity detail — all documents mentioning entity X
@@ -84,7 +89,7 @@ class GraphQueryService:
     # 2. Entity search by name / alias
     # ------------------------------------------------------------------
 
-    def entity_search(
+    async def entity_search(
         self, query: str, user_id: str, limit: int = 20
     ) -> list[dict[str, Any]]:
         """Find entities whose canonical_name or aliases contain the query string."""
@@ -99,15 +104,33 @@ class GraphQueryService:
             "ORDER BY e.mention_count DESC LIMIT $lim",
             {"uid": user_id, "q": q_lower, "lim": limit},
         )
+        if rows:
+            return [
+                {
+                    "entity_id": r[0],
+                    "canonical_name": r[1],
+                    "type": r[2],
+                    "mention_count": r[3],
+                    "pagerank_score": r[4],
+                }
+                for r in rows
+            ]
+
+        if self._persistence is None:
+            return []
+
+        fallback = await self._persistence.search_document_entities_for_owner(
+            user_id, query, limit=limit
+        )
         return [
             {
-                "entity_id": r[0],
-                "canonical_name": r[1],
-                "type": r[2],
-                "mention_count": r[3],
-                "pagerank_score": r[4],
+                "entity_id": row.get("document_id"),
+                "canonical_name": row.get("canonical_name"),
+                "type": row.get("type"),
+                "mention_count": row.get("mention_count"),
+                "pagerank_score": row.get("pagerank_score"),
             }
-            for r in rows
+            for row in fallback
         ]
 
     # ------------------------------------------------------------------

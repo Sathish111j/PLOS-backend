@@ -373,6 +373,22 @@ services:
       - plos-network
     restart: "no"
 
+  # Telegram Bot - chat interface for the backend services
+  telegram-bot:
+    build:
+      context: ./telegram-bot
+      dockerfile: Dockerfile
+    container_name: plos-telegram-bot
+    restart: unless-stopped
+    env_file: ./telegram-bot/.env
+    volumes:
+      - bot_data:/app/data
+    depends_on:
+      - redis
+      - api-gateway
+    networks:
+      - plos-network
+
   # ==========================================================================
   # API GATEWAY
   # ==========================================================================
@@ -840,4 +856,6 @@ volumes:
   minio_data:
     driver: local
   meilisearch_data:
+    driver: local
+  bot_data:
     driver: local
